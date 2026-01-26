@@ -1,4 +1,4 @@
-# Behavior Graph System - Technical Specification
+# Feedback Loop - Technical Specification
 
 > **Purpose**: This document provides comprehensive specifications for building a behavior learning and management system for AI coding agents. It should be used as the primary reference when implementing the system.
 
@@ -63,10 +63,10 @@ The system is CLI-first, designed to integrate with any agent that can execute s
 ## Project Structure
 
 ```
-behavior-graph/
+feedback-loop/
 ├── .beads/                    # Beads tracking for THIS project
 ├── cmd/
-│   └── bg/
+│   └── floop/
 │       └── main.go            # CLI entry point
 ├── internal/
 │   ├── models/
@@ -96,7 +96,7 @@ behavior-graph/
 ├── go.sum
 ├── AGENTS.md                  # Instructions for agents working on this project
 ├── README.md
-└── .behaviors/                # This project's own behaviors (dogfooding)
+└── .floop/                # This project's own behaviors (dogfooding)
     ├── manifest.yaml
     └── learned/
 ```
@@ -546,7 +546,7 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
 // Each line is a JSON object representing an issue/bead.
 // 
 // For our purposes, we'll store behaviors as a special type of bead,
-// or in a separate file within .behaviors/ that follows the same format.
+// or in a separate file within .floop/ that follows the same format.
 //
 // Mapping:
 //   Node.ID       -> Bead ID (bd-xxxx format or custom behavior-xxxx)
@@ -877,8 +877,8 @@ import (
     "fmt"
     "time"
     
-    "github.com/YOUR_USERNAME/behavior-graph/internal/models"
-    "github.com/YOUR_USERNAME/behavior-graph/internal/store"
+    "github.com/nvandessel/feedback-loop/internal/models"
+    "github.com/nvandessel/feedback-loop/internal/store"
 )
 
 // LearningResult represents the result of processing a correction
@@ -1106,7 +1106,7 @@ import (
     "strings"
     "time"
     
-    "github.com/YOUR_USERNAME/behavior-graph/internal/models"
+    "github.com/nvandessel/feedback-loop/internal/models"
 )
 
 // CorrectionCapture detects and structures correction events
@@ -1182,7 +1182,7 @@ import (
     "strings"
     "time"
     
-    "github.com/YOUR_USERNAME/behavior-graph/internal/models"
+    "github.com/nvandessel/feedback-loop/internal/models"
 )
 
 // BehaviorExtractor transforms corrections into candidate behaviors
@@ -1332,8 +1332,8 @@ package learning
 import (
     "context"
     
-    "github.com/YOUR_USERNAME/behavior-graph/internal/models"
-    "github.com/YOUR_USERNAME/behavior-graph/internal/store"
+    "github.com/nvandessel/feedback-loop/internal/models"
+    "github.com/nvandessel/feedback-loop/internal/store"
 )
 
 // GraphPlacer determines where a new behavior fits in the graph
@@ -1571,7 +1571,7 @@ func (p *GraphPlacer) nodeToBehavior(node store.Node) models.Behavior {
 
 ## CLI Implementation
 
-### cmd/bg/main.go
+### cmd/floop/main.go
 
 ```go
 package main
@@ -1587,9 +1587,9 @@ var version = "0.1.0"
 
 func main() {
     rootCmd := &cobra.Command{
-        Use:   "bg",
-        Short: "Behavior graph management for AI agents",
-        Long: `bg manages learned behaviors and conventions for AI coding agents.
+        Use:   "floop",
+        Short: "Feedback loop - behavior learning for AI agents",
+        Long: `floop manages learned behaviors and conventions for AI coding agents.
 
 It captures corrections, extracts reusable behaviors, and provides
 context-aware behavior activation for consistent agent operation.`,
@@ -1624,7 +1624,7 @@ func newVersionCmd() *cobra.Command {
         Use:   "version",
         Short: "Print version information",
         Run: func(cmd *cobra.Command, args []string) {
-            fmt.Printf("bg version %s\n", version)
+            fmt.Printf("floop version %s\n", version)
         },
     }
 }
@@ -1638,7 +1638,7 @@ func newInitCmd() *cobra.Command {
             // 1. Create .behaviors directory
             // 2. Create manifest.yaml
             // 3. Create learned/ directory
-            fmt.Println("Initialized .behaviors/")
+            fmt.Println("Initialized .floop/")
             return nil
         },
     }
@@ -1857,14 +1857,14 @@ func newRejectCmd() *cobra.Command {
 
 ## AGENTS.md Template
 
-This goes in the behavior-graph project root for agents working ON this project:
+This goes in the feedback-loop project root for agents working ON this project:
 
 ```markdown
-# Behavior Graph - Development Guide
+# Feedback Loop - Development Guide
 
 ## Project Overview
 
-Building `bg` - a CLI tool for learning and managing agent behaviors.
+Building `floop` - a CLI tool for learning and managing agent behaviors.
 
 **Tech stack:** Go, Cobra CLI, YAML, Beads (for storage)
 
@@ -1878,7 +1878,7 @@ Check `bd list` to see current tasks. Start with the highest priority incomplete
 
 ### CLI Commands (Cobra)
 
-All commands go in `cmd/bg/main.go`. Pattern:
+All commands go in `cmd/floop/main.go`. Pattern:
 
 ```go
 func newXxxCmd() *cobra.Command {
@@ -1923,7 +1923,7 @@ Each package should have `*_test.go` files.
 If I correct you, capture it:
 
 ```bash
-bg learn --wrong "what you did" --right "what I said to do"
+floop learn --wrong "what you did" --right "what I said to do"
 ```
 
 (Once the tool is built, we'll use it to improve itself!)
@@ -1938,21 +1938,21 @@ This goes in user projects that want agent behavior management:
 ```markdown
 ### Behavior System
 
-This project uses `bg` for learned behaviors.
+This project uses `floop` for learned behaviors.
 
 **Before starting work:**
 ```bash
-bg active --file "$FILE" --task "$TASK" --json
+floop active --file "$FILE" --task "$TASK" --json
 ```
 
 **When I correct you:**
 ```bash
-bg learn --wrong "what you did" --right "what I said" --file "$FILE"
+floop learn --wrong "what you did" --right "what I said" --file "$FILE"
 ```
 
 **To see all behaviors:**
 ```bash
-bg list --json
+floop list --json
 ```
 ```
 
@@ -1996,27 +1996,27 @@ Run these in your terminal to set up the project:
 
 ```bash
 # 1. Create and enter project directory
-mkdir -p ~/projects/behavior-graph
-cd ~/projects/behavior-graph
+mkdir -p ~/projects/feedback-loop
+cd ~/projects/feedback-loop
 
 # 2. Initialize git
 git init
 
 # 3. Initialize Go module (replace with your GitHub username)
-go mod init github.com/YOUR_USERNAME/behavior-graph
+go mod init github.com/nvandessel/feedback-loop
 
 # 4. Add cobra dependency
 go get github.com/spf13/cobra@latest
 go get gopkg.in/yaml.v3
 
 # 5. Create directory structure
-mkdir -p cmd/bg internal/{models,store,learning,activation,assembly} pkg
+mkdir -p cmd/floop internal/{models,store,learning,activation,assembly} pkg
 
 # 6. Initialize Beads (if available)
 bd init
 
 # 7. Create initial files
-touch cmd/bg/main.go
+touch cmd/floop/main.go
 touch internal/models/{behavior,correction,context,provenance}.go
 touch internal/store/{store,memory,beads}.go
 touch AGENTS.md README.md
@@ -2046,7 +2046,7 @@ bd create "Phase 5: Package import/export" --type epic
 
 **Files to create:**
 ```
-cmd/bg/main.go           # CLI entry point with cobra
+cmd/floop/main.go           # CLI entry point with cobra
 internal/models/behavior.go
 internal/models/correction.go  
 internal/models/context.go
@@ -2056,11 +2056,11 @@ internal/store/memory.go     # InMemoryGraphStore for testing
 ```
 
 **Commands to implement:**
-- `bg version` - Print version
-- `bg init` - Create .behaviors/ directory
-- `bg list` - List all behaviors (empty initially)
+- `floop version` - Print version
+- `floop init` - Create .floop/ directory
+- `floop list` - List all behaviors (empty initially)
 
-**Success criteria**: `bg init && bg list --json` works.
+**Success criteria**: `floop init && floop list --json` works.
 
 ---
 
@@ -2077,12 +2077,12 @@ internal/learning/loop.go      # LearningLoop orchestrator
 ```
 
 **Commands to implement:**
-- `bg learn --wrong "X" --right "Y"` - Capture a correction
+- `floop learn --wrong "X" --right "Y"` - Capture a correction
 
 **Success criteria**: 
 ```bash
-bg learn --wrong "used pip" --right "use uv instead" --file "setup.py"
-bg list  # Shows the learned behavior
+floop learn --wrong "used pip" --right "use uv instead" --file "setup.py"
+floop list  # Shows the learned behavior
 ```
 
 ---
@@ -2099,13 +2099,13 @@ internal/activation/resolve.go   # Conflict resolution
 ```
 
 **Commands to implement:**
-- `bg active --file "X" --task "Y"` - Show active behaviors
-- `bg show <id>` - Show behavior details
-- `bg why <id>` - Show provenance chain
+- `floop active --file "X" --task "Y"` - Show active behaviors
+- `floop show <id>` - Show behavior details
+- `floop why <id>` - Show provenance chain
 
 **Success criteria**:
 ```bash
-bg active --file "db/migrate.py" --json
+floop active --file "db/migrate.py" --json
 # Returns behaviors matching that context
 ```
 
@@ -2124,9 +2124,9 @@ internal/store/beads.go  # BeadsGraphStore implementation
 
 **Success criteria**: 
 ```bash
-bg learn --wrong "X" --right "Y"
+floop learn --wrong "X" --right "Y"
 # Restart terminal
-bg list  # Still shows the behavior
+floop list  # Still shows the behavior
 ```
 
 ---
@@ -2136,9 +2136,9 @@ bg list  # Still shows the behavior
 **Goal**: Human approval for learned behaviors.
 
 **Commands to implement:**
-- `bg pending` - List behaviors awaiting approval
-- `bg approve <id>` - Approve a pending behavior
-- `bg reject <id> --reason "..."` - Reject with reason
+- `floop pending` - List behaviors awaiting approval
+- `floop approve <id>` - Approve a pending behavior
+- `floop reject <id> --reason "..."` - Reject with reason
 
 **Success criteria**: Learned behaviors start as pending, require approval to become active.
 
@@ -2149,8 +2149,8 @@ bg list  # Still shows the behavior
 **Goal**: Import/export behaviors as packages.
 
 **Commands to implement:**
-- `bg import github.com/user/repo`
-- `bg export ./my-package`
+- `floop import github.com/user/repo`
+- `floop export ./my-package`
 
 ---
 
@@ -2158,7 +2158,7 @@ bg list  # Still shows the behavior
 
 ```go
 // go.mod
-module github.com/YOUR_USERNAME/behavior-graph
+module github.com/nvandessel/feedback-loop
 
 go 1.21
 
@@ -2174,8 +2174,8 @@ require (
 
 The system is working when:
 
-1. **Learning works**: `bg learn --wrong "X" --right "Y"` creates a pending behavior
-2. **Activation works**: `bg active --file foo.py` returns relevant behaviors
+1. **Learning works**: `floop learn --wrong "X" --right "Y"` creates a pending behavior
+2. **Activation works**: `floop active --file foo.py` returns relevant behaviors
 3. **Persistence works**: Behaviors survive between CLI invocations
 4. **Integration works**: An agent following AGENTS.md can use the system
 
@@ -2186,10 +2186,10 @@ The system is working when:
 For the first working version, focus on:
 
 **Must have:**
-- [ ] `bg init` - Initialize .behaviors/ directory
-- [ ] `bg learn --wrong "..." --right "..."` - Capture correction
-- [ ] `bg list` - Show all behaviors  
-- [ ] `bg active` - Show behaviors for current context
+- [ ] `floop init` - Initialize .floop/ directory
+- [ ] `floop learn --wrong "..." --right "..."` - Capture correction
+- [ ] `floop list` - Show all behaviors
+- [ ] `floop active` - Show behaviors for current context
 - [ ] `--json` flag on all commands for agent consumption
 - [ ] InMemoryGraphStore (persistence can come later)
 
@@ -2246,7 +2246,7 @@ var lowConfidencePatterns = []string{
 Their approach: Parse conversation transcript, match patterns, extract the correction, update skill files.
 
 **What we do differently:**
-- Agent explicitly calls `bg learn` (not transcript parsing)
+- Agent explicitly calls `floop learn` (not transcript parsing)
 - Graph structure instead of flat skill files
 - Activation conditions for context-aware behaviors
 
@@ -2254,7 +2254,7 @@ Their approach: Parse conversation transcript, match patterns, extract the corre
 
 ## Open Questions for Implementation
 
-1. **Storage format**: Should we use Beads' JSONL format directly, or a separate `.behaviors/behaviors.jsonl`?
+1. **Storage format**: Should we use Beads' JSONL format directly, or a separate `.floop/behaviors.jsonl`?
 
 2. **Similarity computation**: Start simple (word overlap) or integrate with embedding API early?
 
@@ -2274,15 +2274,15 @@ When you start the CLI agent, give it this prompt:
 Read docs/SPEC.md for the full specification.
 
 Implement Phase 1 in order:
-1. Create cmd/bg/main.go with cobra setup
+1. Create cmd/floop/main.go with cobra setup
 2. Add version command
-3. Add init command (creates .behaviors/ directory)
+3. Add init command (creates .floop/ directory)
 4. Create internal/models/behavior.go (copy from spec)
 5. Create internal/models/context.go (copy from spec)
 6. Create internal/store/store.go (GraphStore interface)
 7. Create internal/store/memory.go (InMemoryGraphStore)
 8. Add list command
-9. Test: go build ./cmd/bg && ./bg init && ./bg list --json
+9. Test: go build ./cmd/floop && ./floop init && ./floop list --json
 
 Commit after each working piece.
 ```
@@ -2291,8 +2291,6 @@ Commit after each working piece.
 
 ## Project Naming
 
-**CLI name**: `bg` (behavior graph)
-**Go module**: `github.com/YOUR_USERNAME/behavior-graph`
-**Storage directory**: `.behaviors/`
-
-Consider alternatives if `bg` conflicts with existing tools on your system.
+**CLI name**: `floop` (feedback loop)
+**Go module**: `github.com/nvandessel/feedback-loop`
+**Storage directory**: `.floop/`
