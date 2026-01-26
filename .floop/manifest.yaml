@@ -1,0 +1,7 @@
+# Feedback Loop Manifest
+version: "1.0"
+created: 2026-01-25T16:44:45-08:00
+
+# Behaviors learned from corrections are stored in this directory
+# Run 'floop list' to see all behaviors
+# Run 'floop active' to see behaviors active in current context

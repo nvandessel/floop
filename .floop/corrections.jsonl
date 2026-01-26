@@ -1,0 +1,2 @@
+{"agent_action":"used bg for CLI name","context":{"file":"docs/SPEC.md","task":"renaming"},"corrected_action":"use floop for CLI name","processed":false,"timestamp":"2026-01-25T16:45:05-08:00"}
+{"agent_action":"Added .floop/ to .gitignore treating it as runtime data","context":{"file":".gitignore","task":""},"corrected_action":".floop/ contains project data (corrections, behaviors) that should be version controlled, similar to .beads/","processed":false,"timestamp":"2026-01-25T16:49:48-08:00"}
