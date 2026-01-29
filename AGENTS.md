@@ -5,6 +5,14 @@
 **You MUST read `docs/FLOOP_USAGE.md` before starting any work.**
 
 This project uses floop (the tool you're building) to learn from corrections. You are required to:
+
+**AT START OF SESSION:**
+```bash
+./floop prompt --task development --format markdown
+```
+Read the output and incorporate those learned behaviors into your working context.
+
+**DURING WORK:**
 - Capture corrections with `./floop learn` immediately when they occur
 - Check active behaviors with `./floop active` before working on files
 - Build your knowledge base proactively during all sessions
