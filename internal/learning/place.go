@@ -4,9 +4,32 @@ import (
 	"context"
 	"strings"
 
+	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
+
+// GraphPlacerConfig configures optional LLM-based similarity for GraphPlacer.
+type GraphPlacerConfig struct {
+	// LLMClient is the optional LLM client for semantic comparison.
+	LLMClient llm.Client
+
+	// UseLLMForSimilarity enables LLM-based semantic comparison.
+	UseLLMForSimilarity bool
+
+	// LLMSimilarityThreshold is the minimum rule-based score required
+	// before invoking LLM for semantic comparison. Default: 0.5
+	LLMSimilarityThreshold float64
+}
+
+// DefaultGraphPlacerConfig returns a GraphPlacerConfig with sensible defaults.
+func DefaultGraphPlacerConfig() *GraphPlacerConfig {
+	return &GraphPlacerConfig{
+		LLMClient:              nil,
+		UseLLMForSimilarity:    false,
+		LLMSimilarityThreshold: 0.5,
+	}
+}
 
 // PlacementDecision describes where a new behavior should go in the graph.
 type PlacementDecision struct {
@@ -51,12 +74,18 @@ type GraphPlacer interface {
 
 // graphPlacer is the concrete implementation of GraphPlacer.
 type graphPlacer struct {
-	store store.GraphStore
+	store  store.GraphStore
+	config *GraphPlacerConfig
 }
 
-// NewGraphPlacer creates a new GraphPlacer with the given store.
+// NewGraphPlacer creates a new GraphPlacer with the given store and no LLM support.
 func NewGraphPlacer(s store.GraphStore) GraphPlacer {
-	return &graphPlacer{store: s}
+	return &graphPlacer{store: s, config: nil}
+}
+
+// NewGraphPlacerWithConfig creates a new GraphPlacer with optional LLM-based similarity.
+func NewGraphPlacerWithConfig(s store.GraphStore, cfg *GraphPlacerConfig) GraphPlacer {
+	return &graphPlacer{store: s, config: cfg}
 }
 
 // Place determines where a behavior should be placed in the graph.
@@ -87,7 +116,7 @@ func (p *graphPlacer) Place(ctx context.Context, behavior *models.Behavior) (*Pl
 	// Check for high similarity (potential duplicates or merges)
 	for i := range existingBehaviors {
 		existing := &existingBehaviors[i]
-		similarity := p.computeSimilarity(behavior, existing)
+		similarity := p.computeSimilarity(ctx, behavior, existing)
 
 		if similarity > 0.5 {
 			decision.SimilarBehaviors = append(decision.SimilarBehaviors, SimilarityMatch{
@@ -118,7 +147,7 @@ func (p *graphPlacer) Place(ctx context.Context, behavior *models.Behavior) (*Pl
 	}
 
 	// Determine edges based on relationships with existing behaviors
-	decision.ProposedEdges = p.determineEdges(behavior, existingBehaviors)
+	decision.ProposedEdges = p.determineEdges(ctx, behavior, existingBehaviors)
 
 	return decision, nil
 }
@@ -151,8 +180,44 @@ func (p *graphPlacer) findRelatedBehaviors(ctx context.Context, behavior *models
 }
 
 // computeSimilarity calculates similarity between two behaviors.
-// Uses Jaccard word overlap on canonical content combined with when-condition overlap.
-func (p *graphPlacer) computeSimilarity(a, b *models.Behavior) float64 {
+// Uses rule-based Jaccard similarity, optionally enhanced with LLM semantic comparison.
+func (p *graphPlacer) computeSimilarity(ctx context.Context, a, b *models.Behavior) float64 {
+	// First compute fast rule-based score
+	ruleScore := p.computeRuleBasedSimilarity(a, b)
+
+	// Check if we should enhance with LLM
+	if !p.shouldUseLLM(ruleScore) {
+		return ruleScore
+	}
+
+	// Try LLM-based semantic comparison
+	result, err := p.config.LLMClient.CompareBehaviors(ctx, a, b)
+	if err != nil {
+		// Fallback to rule-based on error
+		return ruleScore
+	}
+
+	// Blend scores: 30% rule-based + 70% semantic
+	return (ruleScore * 0.3) + (result.SemanticSimilarity * 0.7)
+}
+
+// shouldUseLLM determines if LLM should be used for similarity comparison.
+func (p *graphPlacer) shouldUseLLM(ruleScore float64) bool {
+	if p.config == nil {
+		return false
+	}
+	if !p.config.UseLLMForSimilarity {
+		return false
+	}
+	if p.config.LLMClient == nil || !p.config.LLMClient.Available() {
+		return false
+	}
+	return ruleScore > p.config.LLMSimilarityThreshold
+}
+
+// computeRuleBasedSimilarity calculates similarity using Jaccard word overlap.
+// Uses canonical content combined with when-condition overlap.
+func (p *graphPlacer) computeRuleBasedSimilarity(a, b *models.Behavior) float64 {
 	score := 0.0
 
 	// Check 'when' overlap (40% weight)
@@ -310,7 +375,7 @@ func valuesEqual(a, b interface{}) bool {
 }
 
 // determineEdges proposes edges for the new behavior based on relationships with existing behaviors.
-func (p *graphPlacer) determineEdges(behavior *models.Behavior, existing []models.Behavior) []ProposedEdge {
+func (p *graphPlacer) determineEdges(ctx context.Context, behavior *models.Behavior, existing []models.Behavior) []ProposedEdge {
 	edges := make([]ProposedEdge, 0)
 
 	for _, e := range existing {
@@ -334,7 +399,7 @@ func (p *graphPlacer) determineEdges(behavior *models.Behavior, existing []model
 		}
 
 		// Add similar-to edges for behaviors with moderate similarity
-		similarity := p.computeSimilarity(behavior, &e)
+		similarity := p.computeSimilarity(ctx, behavior, &e)
 		if similarity >= 0.5 && similarity < 0.9 {
 			edges = append(edges, ProposedEdge{
 				From: behavior.ID,
