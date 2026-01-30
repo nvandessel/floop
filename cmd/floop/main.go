@@ -12,10 +12,13 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/assembly"
+	"github.com/nvandessel/feedback-loop/internal/config"
+	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var version = "0.1.0-dev"
@@ -51,6 +54,9 @@ context-aware behavior activation for consistent agent operation.`,
 		newDeprecateCmd(),
 		newRestoreCmd(),
 		newMergeCmd(),
+		// Management commands
+		newDeduplicateCmd(),
+		newConfigCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -382,10 +388,10 @@ Example:
 			if dryRun {
 				if jsonOut {
 					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-						"status":      "dry_run",
-						"would_process": len(unprocessed),
+						"status":            "dry_run",
+						"would_process":     len(unprocessed),
 						"already_processed": len(corrections) - len(unprocessed),
-						"corrections": unprocessed,
+						"corrections":       unprocessed,
 					})
 				} else {
 					fmt.Printf("Dry run: would process %d unprocessed corrections (out of %d total)\n\n",
@@ -1873,4 +1879,708 @@ This action cannot be undone with restore.`,
 	cmd.Flags().String("into", "", "ID of behavior that should survive (default: second argument)")
 
 	return cmd
+}
+
+// ============================================================================
+// Management Commands
+// ============================================================================
+
+func newDeduplicateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deduplicate",
+		Short: "Find and merge duplicate behaviors",
+		Long: `Find duplicate behaviors and optionally merge them.
+
+This command analyzes all behaviors in the store, identifies duplicates based on
+semantic similarity, and can automatically merge them.
+
+Examples:
+  floop deduplicate                  # Find duplicates in local store
+  floop deduplicate --dry-run        # Show what would be merged
+  floop deduplicate --threshold 0.8  # Use lower similarity threshold
+  floop deduplicate --scope global   # Deduplicate global store only
+  floop deduplicate --scope both     # Cross-store deduplication`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, _ := cmd.Flags().GetString("root")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			threshold, _ := cmd.Flags().GetFloat64("threshold")
+			scope, _ := cmd.Flags().GetString("scope")
+
+			// Validate scope
+			var storeScope store.StoreScope
+			switch scope {
+			case "local":
+				storeScope = store.ScopeLocal
+			case "global":
+				storeScope = store.ScopeGlobal
+			case "both":
+				storeScope = store.ScopeBoth
+			default:
+				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
+			}
+
+			// Check local initialization if needed
+			if storeScope == store.ScopeLocal || storeScope == store.ScopeBoth {
+				floopDir := filepath.Join(root, ".floop")
+				if _, err := os.Stat(floopDir); os.IsNotExist(err) {
+					return fmt.Errorf(".floop not initialized. Run 'floop init' first")
+				}
+			}
+
+			// Check global initialization if needed
+			if storeScope == store.ScopeGlobal || storeScope == store.ScopeBoth {
+				globalPath, err := store.GlobalFloopPath()
+				if err != nil {
+					return fmt.Errorf("failed to get global path: %w", err)
+				}
+				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+					return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
+				}
+			}
+
+			ctx := context.Background()
+
+			// Configure deduplication
+			dedupConfig := dedup.DeduplicatorConfig{
+				SimilarityThreshold: threshold,
+				AutoMerge:           !dryRun,
+				UseLLM:              false,
+				MaxBatchSize:        100,
+			}
+
+			// Handle cross-store deduplication
+			if storeScope == store.ScopeBoth {
+				return runCrossStoreDedup(ctx, root, dedupConfig, dryRun, jsonOut)
+			}
+
+			// Single store deduplication
+			return runSingleStoreDedup(ctx, root, storeScope, dedupConfig, dryRun, jsonOut)
+		},
+	}
+
+	cmd.Flags().Bool("dry-run", false, "Show duplicates without merging")
+	cmd.Flags().Float64("threshold", 0.9, "Similarity threshold for duplicate detection (0.0-1.0)")
+	cmd.Flags().String("scope", "local", "Store scope: local, global, or both")
+
+	return cmd
+}
+
+// runSingleStoreDedup runs deduplication on a single store.
+func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScope, cfg dedup.DeduplicatorConfig, dryRun, jsonOut bool) error {
+	// Open the appropriate store
+	var graphStore store.GraphStore
+	var err error
+
+	switch scope {
+	case store.ScopeLocal:
+		graphStore, err = store.NewBeadsGraphStore(root)
+	case store.ScopeGlobal:
+		homeDir, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return fmt.Errorf("failed to get home directory: %w", homeErr)
+		}
+		graphStore, err = store.NewBeadsGraphStore(homeDir)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to open store: %w", err)
+	}
+	defer graphStore.Close()
+
+	// Load all behaviors
+	behaviors, err := loadBehaviorsFromStore(ctx, graphStore)
+	if err != nil {
+		return fmt.Errorf("failed to load behaviors: %w", err)
+	}
+
+	if len(behaviors) == 0 {
+		if jsonOut {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"status":           "no_behaviors",
+				"total_behaviors":  0,
+				"duplicates_found": 0,
+			})
+		} else {
+			fmt.Println("No behaviors found to deduplicate.")
+		}
+		return nil
+	}
+
+	// Find duplicates using pairwise comparison
+	type duplicatePair struct {
+		BehaviorA  *models.Behavior
+		BehaviorB  *models.Behavior
+		Similarity float64
+	}
+
+	var duplicates []duplicatePair
+	deduplicator := &crossStoreHelper{threshold: cfg.SimilarityThreshold}
+
+	for i := 0; i < len(behaviors); i++ {
+		for j := i + 1; j < len(behaviors); j++ {
+			similarity := deduplicator.computeSimilarity(&behaviors[i], &behaviors[j])
+			if similarity >= cfg.SimilarityThreshold {
+				duplicates = append(duplicates, duplicatePair{
+					BehaviorA:  &behaviors[i],
+					BehaviorB:  &behaviors[j],
+					Similarity: similarity,
+				})
+			}
+		}
+	}
+
+	if len(duplicates) == 0 {
+		if jsonOut {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"status":           "no_duplicates",
+				"total_behaviors":  len(behaviors),
+				"duplicates_found": 0,
+			})
+		} else {
+			fmt.Printf("Analyzed %d behaviors. No duplicates found.\n", len(behaviors))
+		}
+		return nil
+	}
+
+	if dryRun {
+		if jsonOut {
+			var pairs []map[string]interface{}
+			for _, dup := range duplicates {
+				pairs = append(pairs, map[string]interface{}{
+					"behavior_a": dup.BehaviorA.ID,
+					"name_a":     dup.BehaviorA.Name,
+					"behavior_b": dup.BehaviorB.ID,
+					"name_b":     dup.BehaviorB.Name,
+					"similarity": dup.Similarity,
+				})
+			}
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"status":           "dry_run",
+				"total_behaviors":  len(behaviors),
+				"duplicates_found": len(duplicates),
+				"duplicates":       pairs,
+			})
+		} else {
+			fmt.Printf("Dry run: Found %d duplicate pairs among %d behaviors.\n\n", len(duplicates), len(behaviors))
+			for i, dup := range duplicates {
+				fmt.Printf("%d. Similarity: %.2f\n", i+1, dup.Similarity)
+				fmt.Printf("   A: [%s] %s\n", dup.BehaviorA.ID, dup.BehaviorA.Name)
+				fmt.Printf("   B: [%s] %s\n", dup.BehaviorB.ID, dup.BehaviorB.Name)
+				fmt.Println()
+			}
+		}
+		return nil
+	}
+
+	// Perform merges
+	mergeCount := 0
+	merged := make(map[string]bool) // Track already-merged behavior IDs
+
+	for _, dup := range duplicates {
+		// Skip if either behavior has already been merged
+		if merged[dup.BehaviorA.ID] || merged[dup.BehaviorB.ID] {
+			continue
+		}
+
+		// Use the existing merge command logic (behavior A survives, B is merged into A)
+		merger := dedup.NewBehaviorMerger(dedup.MergerConfig{UseLLM: false})
+		mergedBehavior, err := merger.Merge(ctx, []*models.Behavior{dup.BehaviorA, dup.BehaviorB})
+		if err != nil {
+			if !jsonOut {
+				fmt.Fprintf(os.Stderr, "Warning: failed to merge %s and %s: %v\n",
+					dup.BehaviorA.ID, dup.BehaviorB.ID, err)
+			}
+			continue
+		}
+
+		// Mark B as merged
+		merged[dup.BehaviorB.ID] = true
+		mergeCount++
+
+		if !jsonOut {
+			fmt.Printf("Merged: %s <- %s (similarity: %.2f)\n",
+				mergedBehavior.Name, dup.BehaviorB.Name, dup.Similarity)
+		}
+	}
+
+	if err := graphStore.Sync(ctx); err != nil {
+		return fmt.Errorf("failed to sync changes: %w", err)
+	}
+
+	if jsonOut {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"status":           "completed",
+			"total_behaviors":  len(behaviors),
+			"duplicates_found": len(duplicates),
+			"merges_performed": mergeCount,
+		})
+	} else {
+		fmt.Printf("\nDeduplication complete: %d merges performed.\n", mergeCount)
+	}
+
+	return nil
+}
+
+// runCrossStoreDedup runs deduplication across local and global stores.
+func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.DeduplicatorConfig, dryRun, jsonOut bool) error {
+	// Open local store
+	localStore, err := store.NewBeadsGraphStore(root)
+	if err != nil {
+		return fmt.Errorf("failed to open local store: %w", err)
+	}
+	defer localStore.Close()
+
+	// Open global store
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	globalStore, err := store.NewBeadsGraphStore(homeDir)
+	if err != nil {
+		return fmt.Errorf("failed to open global store: %w", err)
+	}
+	defer globalStore.Close()
+
+	// Create merger
+	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{UseLLM: cfg.UseLLM})
+
+	// Configure auto-merge based on dry-run
+	crossCfg := cfg
+	crossCfg.AutoMerge = !dryRun
+
+	// Create cross-store deduplicator
+	deduplicator := dedup.NewCrossStoreDeduplicatorWithConfig(localStore, globalStore, merger, crossCfg)
+
+	// Run deduplication
+	results, err := deduplicator.DeduplicateAcrossStores(ctx)
+	if err != nil {
+		return fmt.Errorf("cross-store deduplication failed: %w", err)
+	}
+
+	// Count results by action
+	var skipped, merged, none int
+	for _, r := range results {
+		switch r.Action {
+		case "skip":
+			skipped++
+		case "merge":
+			merged++
+		case "none":
+			none++
+		}
+	}
+
+	if jsonOut {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"status":         "completed",
+			"dry_run":        dryRun,
+			"total_compared": len(results),
+			"skipped":        skipped,
+			"merged":         merged,
+			"no_duplicate":   none,
+			"results":        results,
+		})
+	} else {
+		if dryRun {
+			fmt.Printf("Dry run: Cross-store deduplication analysis\n\n")
+		} else {
+			fmt.Printf("Cross-store deduplication complete\n\n")
+		}
+		fmt.Printf("Total local behaviors compared: %d\n", len(results))
+		fmt.Printf("  Skipped (same ID in global):  %d\n", skipped)
+		fmt.Printf("  Semantic duplicates found:    %d\n", merged)
+		fmt.Printf("  No duplicate found:           %d\n", none)
+
+		// Show details of duplicates
+		if merged > 0 {
+			fmt.Println("\nDuplicate details:")
+			for _, r := range results {
+				if r.Action == "merge" {
+					fmt.Printf("  - Local: %s (%.2f similar to global: %s)\n",
+						r.LocalBehavior.Name, r.Similarity, r.GlobalMatch.Name)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadBehaviorsFromStore loads all behaviors from a graph store.
+func loadBehaviorsFromStore(ctx context.Context, graphStore store.GraphStore) ([]models.Behavior, error) {
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	if err != nil {
+		return nil, err
+	}
+
+	behaviors := make([]models.Behavior, 0, len(nodes))
+	for _, node := range nodes {
+		b := learning.NodeToBehavior(node)
+		behaviors = append(behaviors, b)
+	}
+
+	return behaviors, nil
+}
+
+// crossStoreHelper provides similarity computation for deduplication.
+type crossStoreHelper struct {
+	threshold float64
+}
+
+// computeSimilarity calculates similarity between two behaviors.
+func (h *crossStoreHelper) computeSimilarity(a, b *models.Behavior) float64 {
+	score := 0.0
+
+	// Check 'when' overlap (40% weight)
+	whenOverlap := h.computeWhenOverlap(a.When, b.When)
+	score += whenOverlap * 0.4
+
+	// Check content similarity using Jaccard word overlap (60% weight)
+	contentSim := h.computeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
+	score += contentSim * 0.6
+
+	return score
+}
+
+// computeWhenOverlap calculates overlap between two when predicates.
+func (h *crossStoreHelper) computeWhenOverlap(a, b map[string]interface{}) float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return 1.0
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return 0.0
+	}
+
+	matches := 0
+	total := len(a) + len(b)
+
+	for key, valueA := range a {
+		if valueB, exists := b[key]; exists {
+			if fmt.Sprintf("%v", valueA) == fmt.Sprintf("%v", valueB) {
+				matches += 2
+			}
+		}
+	}
+
+	if total == 0 {
+		return 0.0
+	}
+	return float64(matches) / float64(total)
+}
+
+// computeContentSimilarity calculates Jaccard similarity between two strings.
+func (h *crossStoreHelper) computeContentSimilarity(a, b string) float64 {
+	wordsA := tokenizeContent(a)
+	wordsB := tokenizeContent(b)
+
+	if len(wordsA) == 0 && len(wordsB) == 0 {
+		return 1.0
+	}
+	if len(wordsA) == 0 || len(wordsB) == 0 {
+		return 0.0
+	}
+
+	setA := make(map[string]bool)
+	for _, w := range wordsA {
+		setA[strings.ToLower(w)] = true
+	}
+
+	setB := make(map[string]bool)
+	for _, w := range wordsB {
+		setB[strings.ToLower(w)] = true
+	}
+
+	intersection := 0
+	for w := range setA {
+		if setB[w] {
+			intersection++
+		}
+	}
+
+	union := len(setA) + len(setB) - intersection
+	if union == 0 {
+		return 0.0
+	}
+
+	return float64(intersection) / float64(union)
+}
+
+// tokenizeContent splits a string into word tokens.
+func tokenizeContent(s string) []string {
+	words := make([]string, 0)
+	current := ""
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			current += string(r)
+		} else if current != "" {
+			words = append(words, current)
+			current = ""
+		}
+	}
+	if current != "" {
+		words = append(words, current)
+	}
+	return words
+}
+
+func newConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage floop configuration",
+		Long: `View and modify floop configuration settings.
+
+Configuration is stored in ~/.floop/config.yaml.
+
+Examples:
+  floop config list                            # Show all settings
+  floop config get llm.provider                # Get a specific setting
+  floop config set llm.provider anthropic      # Set a setting
+  floop config set llm.api_key $ANTHROPIC_API_KEY`,
+	}
+
+	cmd.AddCommand(
+		newConfigListCmd(),
+		newConfigGetCmd(),
+		newConfigSetCmd(),
+	)
+
+	return cmd
+}
+
+func newConfigListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all configuration settings",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
+
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			if jsonOut {
+				json.NewEncoder(os.Stdout).Encode(cfg)
+			} else {
+				fmt.Println("Configuration (~/.floop/config.yaml):")
+				fmt.Println()
+				fmt.Println("LLM Settings:")
+				fmt.Printf("  llm.provider:          %s\n", valueOrDefault(cfg.LLM.Provider, "(not set)"))
+				fmt.Printf("  llm.enabled:           %v\n", cfg.LLM.Enabled)
+				if cfg.LLM.APIKey != "" {
+					fmt.Printf("  llm.api_key:           %s\n", maskAPIKey(cfg.LLM.APIKey))
+				} else {
+					fmt.Printf("  llm.api_key:           (not set)\n")
+				}
+				fmt.Printf("  llm.comparison_model:  %s\n", valueOrDefault(cfg.LLM.ComparisonModel, "(default)"))
+				fmt.Printf("  llm.merge_model:       %s\n", valueOrDefault(cfg.LLM.MergeModel, "(default)"))
+				fmt.Printf("  llm.timeout:           %v\n", cfg.LLM.Timeout)
+				fmt.Printf("  llm.fallback_to_rules: %v\n", cfg.LLM.FallbackToRules)
+				fmt.Println()
+				fmt.Println("Deduplication Settings:")
+				fmt.Printf("  deduplication.auto_merge:            %v\n", cfg.Deduplication.AutoMerge)
+				fmt.Printf("  deduplication.similarity_threshold:  %.2f\n", cfg.Deduplication.SimilarityThreshold)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newConfigGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <key>",
+		Short: "Get a configuration value",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			key := args[0]
+
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			value, found := getConfigValue(cfg, key)
+			if !found {
+				if jsonOut {
+					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+						"error": "key not found",
+						"key":   key,
+					})
+				} else {
+					fmt.Printf("Unknown configuration key: %s\n", key)
+				}
+				return nil
+			}
+
+			if jsonOut {
+				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"key":   key,
+					"value": value,
+				})
+			} else {
+				fmt.Printf("%s = %v\n", key, value)
+			}
+
+			return nil
+		},
+	}
+}
+
+func newConfigSetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a configuration value",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			key := args[0]
+			value := args[1]
+
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			if err := setConfigValue(cfg, key, value); err != nil {
+				if jsonOut {
+					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+						"error": err.Error(),
+						"key":   key,
+					})
+				} else {
+					fmt.Printf("Error: %v\n", err)
+				}
+				return nil
+			}
+
+			// Save the config
+			if err := saveConfig(cfg); err != nil {
+				return fmt.Errorf("failed to save config: %w", err)
+			}
+
+			if jsonOut {
+				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"status": "updated",
+					"key":    key,
+					"value":  value,
+				})
+			} else {
+				fmt.Printf("Set %s = %s\n", key, value)
+			}
+
+			return nil
+		},
+	}
+}
+
+// getConfigValue retrieves a configuration value by dot-notation key.
+func getConfigValue(cfg *config.FloopConfig, key string) (interface{}, bool) {
+	switch key {
+	case "llm.provider":
+		return cfg.LLM.Provider, true
+	case "llm.api_key":
+		return cfg.LLM.APIKey, true
+	case "llm.comparison_model":
+		return cfg.LLM.ComparisonModel, true
+	case "llm.merge_model":
+		return cfg.LLM.MergeModel, true
+	case "llm.timeout":
+		return cfg.LLM.Timeout.String(), true
+	case "llm.enabled":
+		return cfg.LLM.Enabled, true
+	case "llm.fallback_to_rules":
+		return cfg.LLM.FallbackToRules, true
+	case "deduplication.auto_merge":
+		return cfg.Deduplication.AutoMerge, true
+	case "deduplication.similarity_threshold":
+		return cfg.Deduplication.SimilarityThreshold, true
+	default:
+		return nil, false
+	}
+}
+
+// setConfigValue sets a configuration value by dot-notation key.
+func setConfigValue(cfg *config.FloopConfig, key, value string) error {
+	switch key {
+	case "llm.provider":
+		validProviders := map[string]bool{"": true, "anthropic": true, "openai": true, "subagent": true}
+		if !validProviders[value] {
+			return fmt.Errorf("invalid provider: %s (valid: anthropic, openai, subagent, or empty)", value)
+		}
+		cfg.LLM.Provider = value
+	case "llm.api_key":
+		cfg.LLM.APIKey = value
+	case "llm.comparison_model":
+		cfg.LLM.ComparisonModel = value
+	case "llm.merge_model":
+		cfg.LLM.MergeModel = value
+	case "llm.timeout":
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("invalid duration: %s", value)
+		}
+		cfg.LLM.Timeout = d
+	case "llm.enabled":
+		cfg.LLM.Enabled = value == "true" || value == "1"
+	case "llm.fallback_to_rules":
+		cfg.LLM.FallbackToRules = value == "true" || value == "1"
+	case "deduplication.auto_merge":
+		cfg.Deduplication.AutoMerge = value == "true" || value == "1"
+	case "deduplication.similarity_threshold":
+		var f float64
+		if _, err := fmt.Sscanf(value, "%f", &f); err != nil {
+			return fmt.Errorf("invalid threshold: %s (must be a number between 0 and 1)", value)
+		}
+		if f < 0 || f > 1 {
+			return fmt.Errorf("threshold must be between 0 and 1, got %f", f)
+		}
+		cfg.Deduplication.SimilarityThreshold = f
+	default:
+		return fmt.Errorf("unknown configuration key: %s", key)
+	}
+	return nil
+}
+
+// saveConfig writes the configuration to ~/.floop/config.yaml.
+func saveConfig(cfg *config.FloopConfig) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	floopDir := filepath.Join(homeDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .floop directory: %w", err)
+	}
+
+	configPath := filepath.Join(floopDir, "config.yaml")
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// valueOrDefault returns the value if non-empty, otherwise the default.
+func valueOrDefault(value, defaultValue string) string {
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// maskAPIKey masks an API key for display (shows first and last 4 chars).
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
 }
