@@ -202,18 +202,6 @@ Example:
 				return fmt.Errorf(".floop not initialized. Run 'floop init' first")
 			}
 
-			// Append to corrections log
-			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
-			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				return fmt.Errorf("failed to open corrections log: %w", err)
-			}
-			defer f.Close()
-
-			if err := json.NewEncoder(f).Encode(correction); err != nil {
-				return fmt.Errorf("failed to write correction: %w", err)
-			}
-
 			// Parse scope and convert to StoreScope
 			storeScope := store.ScopeLocal
 			switch scope {
@@ -247,6 +235,18 @@ Example:
 			correction.Processed = true
 			processedAt := time.Now()
 			correction.ProcessedAt = &processedAt
+
+			// Append to corrections log (after processing so Processed flag is correct)
+			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
+			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to open corrections log: %w", err)
+			}
+			defer f.Close()
+
+			if err := json.NewEncoder(f).Encode(correction); err != nil {
+				return fmt.Errorf("failed to write correction: %w", err)
+			}
 
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if jsonOut {
