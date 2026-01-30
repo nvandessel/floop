@@ -56,7 +56,7 @@ type BehaviorSummary struct {
 	Kind       string                 `json:"kind"`
 	Content    map[string]interface{} `json:"content"`
 	Confidence float64                `json:"confidence"`
-	When       map[string]interface{} `json:"when"`
+	When       map[string]interface{} `json:"when,omitempty"`
 }
 
 // handleFloopActive implements the floop_active tool.
@@ -105,13 +105,17 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	// Convert to summary format
 	summaries := make([]BehaviorSummary, len(result.Active))
 	for i, b := range result.Active {
+		when := b.When
+		if when == nil {
+			when = make(map[string]interface{})
+		}
 		summaries[i] = BehaviorSummary{
 			ID:         b.ID,
 			Name:       b.Name,
 			Kind:       string(b.Kind),
 			Content:    behaviorContentToMap(b.Content),
 			Confidence: b.Confidence,
-			When:       b.When,
+			When:       when,
 		}
 	}
 
