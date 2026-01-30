@@ -2,22 +2,11 @@
 
 ## ⚠️ CRITICAL: Read This First
 
-**You MUST read `docs/FLOOP_USAGE.md` before starting any work.**
-
-This project uses floop (the tool you're building) to learn from corrections. You are required to:
-
 **AT START OF SESSION:**
-```bash
-./floop prompt --task development --format markdown
-```
-Read the output and incorporate those learned behaviors into your working context.
+Run `./floop prompt --task development` and incorporate those learned behaviors.
 
 **DURING WORK:**
-- Capture corrections with `./floop learn` immediately when they occur
-- Check active behaviors with `./floop active` before working on files
-- Build your knowledge base proactively during all sessions
-
-**This is mandatory, not optional.** Floop is how you improve.
+Use floop MCP tools (`floop_active`, `floop_learn`, `floop_list`) to check behaviors and capture corrections. The tool descriptions explain their usage.
 
 ---
 
@@ -29,10 +18,9 @@ Read the output and incorporate those learned behaviors into your working contex
 
 ## Essential Reading
 
-1. **`docs/FLOOP_USAGE.md`** - **READ FIRST** - How to use floop while building floop (dogfooding)
-2. `docs/SPEC.md` - Full technical specification
-3. `docs/GO_GUIDELINES.md` - Go coding standards (read before writing code)
-4. `docs/PLAN.md` - Current implementation plan and task breakdown
+1. `docs/SPEC.md` - Full technical specification
+2. `docs/GO_GUIDELINES.md` - Go coding standards (read before writing code)
+3. `docs/PLAN.md` - Current implementation plan and task breakdown
 
 ## Quick Reference
 
@@ -48,24 +36,7 @@ bd sync               # Sync changes
 
 ### Feedback Loop (Dogfooding) ⭐
 
-**See `docs/FLOOP_USAGE.md` for complete guide.**
-
-Quick reference:
-```bash
-# Before working on a file:
-./floop active --file "path/to/file.go"
-
-# When you receive a correction (DO THIS IMMEDIATELY):
-./floop learn --wrong "what you did" --right "what should be done" --file "path"
-
-# Review what you've learned:
-./floop list
-
-# Generate prompt from active behaviors:
-./floop prompt --file "path/to/file.go" --format markdown
-```
-
-**Critical**: Don't wait for permission. Capture corrections automatically as they happen.
+Use floop MCP tools proactively. Capture corrections as they happen - don't wait for permission.
 
 ### Development
 ```bash
@@ -176,13 +147,7 @@ func TestFunction(t *testing.T) {
 
 ## When You Make Mistakes
 
-Capture corrections using floop:
-
-```bash
-floop learn --wrong "what you did" --right "what I said to do" --file "relevant/file.go"
-```
-
-This builds the dataset we'll use to train the learning loop.
+Use `floop_learn` to capture corrections immediately. This builds the dataset for the learning loop.
 
 ## Current Phase
 
