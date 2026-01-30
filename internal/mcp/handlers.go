@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/activation"
+	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
@@ -33,30 +34,13 @@ func (s *Server) registerTools() error {
 		Description: "List all behaviors or corrections",
 	}, s.handleFloopList)
 
+	// Register floop_deduplicate tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_deduplicate",
+		Description: "Find and merge duplicate behaviors in the store",
+	}, s.handleFloopDeduplicate)
+
 	return nil
-}
-
-// FloopActiveInput defines the input for floop_active tool.
-type FloopActiveInput struct {
-	File string `json:"file,omitempty" jsonschema:"Current file path (relative to project root)"`
-	Task string `json:"task,omitempty" jsonschema:"Current task type (e.g. 'development', 'testing', 'refactoring')"`
-}
-
-// FloopActiveOutput defines the output for floop_active tool.
-type FloopActiveOutput struct {
-	Context map[string]interface{} `json:"context" jsonschema:"Context used for activation"`
-	Active  []BehaviorSummary      `json:"active" jsonschema:"List of active behaviors"`
-	Count   int                    `json:"count" jsonschema:"Number of active behaviors"`
-}
-
-// BehaviorSummary provides a simplified view of a behavior.
-type BehaviorSummary struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Kind       string                 `json:"kind"`
-	Content    map[string]interface{} `json:"content"`
-	Confidence float64                `json:"confidence"`
-	When       map[string]interface{} `json:"when,omitempty"`
 }
 
 // handleFloopActive implements the floop_active tool.
@@ -134,24 +118,6 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	}, nil
 }
 
-// FloopLearnInput defines the input for floop_learn tool.
-type FloopLearnInput struct {
-	Wrong string `json:"wrong" jsonschema:"What the agent did that needs correction,required"`
-	Right string `json:"right" jsonschema:"What should have been done instead,required"`
-	File  string `json:"file,omitempty" jsonschema:"Relevant file path for context"`
-}
-
-// FloopLearnOutput defines the output for floop_learn tool.
-type FloopLearnOutput struct {
-	CorrectionID  string   `json:"correction_id" jsonschema:"ID of the captured correction"`
-	BehaviorID    string   `json:"behavior_id" jsonschema:"ID of the extracted behavior"`
-	AutoAccepted  bool     `json:"auto_accepted" jsonschema:"Whether behavior was automatically accepted"`
-	Confidence    float64  `json:"confidence" jsonschema:"Placement confidence (0.0-1.0)"`
-	RequiresReview bool    `json:"requires_review" jsonschema:"Whether behavior requires manual review"`
-	ReviewReasons []string `json:"review_reasons,omitempty" jsonschema:"Reasons why review is needed"`
-	Message       string   `json:"message" jsonschema:"Human-readable result message"`
-}
-
 // handleFloopLearn implements the floop_learn tool.
 func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest, args FloopLearnInput) (*sdk.CallToolResult, FloopLearnOutput, error) {
 	// Validate required parameters
@@ -187,10 +153,25 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		Processed:       false,
 	}
 
-	// Process correction through learning loop
-	loop := learning.NewLearningLoop(s.store, &learning.LearningLoopConfig{
+	// Configure learning loop with auto-merge if requested
+	loopConfig := &learning.LearningLoopConfig{
 		AutoAcceptThreshold: 0.8,
-	})
+		AutoMerge:           args.AutoMerge,
+		AutoMergeThreshold:  0.9,
+	}
+
+	// If auto-merge is enabled, create a deduplicator
+	if args.AutoMerge {
+		merger := dedup.NewBehaviorMerger(dedup.MergerConfig{}) // Empty config uses basic merge
+		dedupConfig := dedup.DeduplicatorConfig{
+			SimilarityThreshold: 0.9,
+			AutoMerge:           true,
+		}
+		loopConfig.Deduplicator = dedup.NewStoreDeduplicator(s.store, merger, dedupConfig)
+	}
+
+	// Process correction through learning loop
+	loop := learning.NewLearningLoop(s.store, loopConfig)
 
 	learningResult, err := loop.ProcessCorrection(ctx, correction)
 	if err != nil {
@@ -204,52 +185,26 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 
 	// Build result message
 	message := fmt.Sprintf("Learned behavior: %s", learningResult.CandidateBehavior.Name)
-	if learningResult.RequiresReview {
+	if learningResult.MergedIntoExisting {
+		message = fmt.Sprintf("Merged into existing behavior: %s (similarity: %.2f)",
+			learningResult.MergedBehaviorID, learningResult.MergeSimilarity)
+	} else if learningResult.RequiresReview {
 		message = fmt.Sprintf("Behavior requires review: %s (%s)",
 			learningResult.CandidateBehavior.Name,
 			strings.Join(learningResult.ReviewReasons, ", "))
 	}
 
 	return nil, FloopLearnOutput{
-		CorrectionID:   correction.ID,
-		BehaviorID:     learningResult.CandidateBehavior.ID,
-		AutoAccepted:   learningResult.AutoAccepted,
-		Confidence:     learningResult.Placement.Confidence,
-		RequiresReview: learningResult.RequiresReview,
-		ReviewReasons:  learningResult.ReviewReasons,
-		Message:        message,
+		CorrectionID:    correction.ID,
+		BehaviorID:      learningResult.CandidateBehavior.ID,
+		AutoAccepted:    learningResult.AutoAccepted,
+		Confidence:      learningResult.Placement.Confidence,
+		RequiresReview:  learningResult.RequiresReview,
+		ReviewReasons:   learningResult.ReviewReasons,
+		MergedIntoID:    learningResult.MergedBehaviorID,
+		MergeSimilarity: learningResult.MergeSimilarity,
+		Message:         message,
 	}, nil
-}
-
-// FloopListInput defines the input for floop_list tool.
-type FloopListInput struct {
-	Corrections bool `json:"corrections,omitempty" jsonschema:"List corrections instead of behaviors (default: false)"`
-}
-
-// FloopListOutput defines the output for floop_list tool.
-type FloopListOutput struct {
-	Behaviors   []BehaviorListItem   `json:"behaviors,omitempty" jsonschema:"List of behaviors"`
-	Corrections []CorrectionListItem `json:"corrections,omitempty" jsonschema:"List of corrections"`
-	Count       int                  `json:"count" jsonschema:"Number of items"`
-}
-
-// BehaviorListItem provides a list view of a behavior.
-type BehaviorListItem struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Kind       string    `json:"kind"`
-	Confidence float64   `json:"confidence"`
-	Source     string    `json:"source"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
-// CorrectionListItem provides a list view of a correction.
-type CorrectionListItem struct {
-	ID              string    `json:"id"`
-	Timestamp       time.Time `json:"timestamp"`
-	AgentAction     string    `json:"agent_action"`
-	CorrectedAction string    `json:"corrected_action"`
-	Processed       bool      `json:"processed"`
 }
 
 // handleFloopList implements the floop_list tool.
@@ -331,4 +286,74 @@ func behaviorContentToMap(content models.BehaviorContent) map[string]interface{}
 		m["structured"] = content.Structured
 	}
 	return m
+}
+
+// handleFloopDeduplicate implements the floop_deduplicate tool.
+func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRequest, args FloopDeduplicateInput) (*sdk.CallToolResult, FloopDeduplicateOutput, error) {
+	// Set defaults
+	threshold := args.Threshold
+	if threshold <= 0 || threshold > 1.0 {
+		threshold = 0.9
+	}
+
+	scope := args.Scope
+	if scope == "" {
+		scope = "both"
+	}
+
+	// Validate scope
+	if scope != "local" && scope != "global" && scope != "both" {
+		return nil, FloopDeduplicateOutput{}, fmt.Errorf("invalid scope: %s (must be 'local', 'global', or 'both')", scope)
+	}
+
+	// Configure deduplicator
+	dedupConfig := dedup.DeduplicatorConfig{
+		SimilarityThreshold: threshold,
+		AutoMerge:           !args.DryRun,
+	}
+
+	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{}) // Empty config uses basic merge
+	deduplicator := dedup.NewStoreDeduplicator(s.store, merger, dedupConfig)
+
+	// Perform deduplication
+	report, err := deduplicator.DeduplicateStore(ctx, s.store)
+	if err != nil {
+		return nil, FloopDeduplicateOutput{}, fmt.Errorf("deduplication failed: %w", err)
+	}
+
+	// Sync store to persist changes (if not dry run)
+	if !args.DryRun {
+		if err := s.store.Sync(ctx); err != nil {
+			return nil, FloopDeduplicateOutput{}, fmt.Errorf("failed to sync store: %w", err)
+		}
+	}
+
+	// Convert results to output format
+	results := make([]DeduplicationResult, 0)
+	if report.MergedBehaviors != nil {
+		for _, merged := range report.MergedBehaviors {
+			results = append(results, DeduplicationResult{
+				BehaviorID:   merged.ID,
+				BehaviorName: merged.Name,
+				Action:       "merge",
+				MergedID:     merged.ID,
+			})
+		}
+	}
+
+	// Build message
+	var message string
+	if args.DryRun {
+		message = fmt.Sprintf("Dry run: found %d duplicate pairs (no changes made)", report.DuplicatesFound)
+	} else {
+		message = fmt.Sprintf("Deduplication complete: found %d duplicates, merged %d behaviors",
+			report.DuplicatesFound, report.MergesPerformed)
+	}
+
+	return nil, FloopDeduplicateOutput{
+		DuplicatesFound: report.DuplicatesFound,
+		Merged:          report.MergesPerformed,
+		Results:         results,
+		Message:         message,
+	}, nil
 }
