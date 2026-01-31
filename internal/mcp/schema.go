@@ -33,6 +33,7 @@ type FloopLearnInput struct {
 	Wrong     string `json:"wrong" jsonschema:"What the agent did that needs correction,required"`
 	Right     string `json:"right" jsonschema:"What should have been done instead,required"`
 	File      string `json:"file,omitempty" jsonschema:"Relevant file path for context"`
+	Task      string `json:"task,omitempty" jsonschema:"Current task type for context"`
 	AutoMerge bool   `json:"auto_merge,omitempty" jsonschema:"Enable automatic merging of duplicate behaviors (default: false)"`
 }
 

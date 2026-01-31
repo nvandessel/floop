@@ -139,6 +139,10 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		ctxBuilder.WithFile(filePath)
 	}
 
+	if args.Task != "" {
+		ctxBuilder.WithTask(args.Task)
+	}
+
 	ctxBuilder.WithRepoRoot(s.root)
 	ctxSnapshot := ctxBuilder.Build()
 
