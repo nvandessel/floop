@@ -56,6 +56,12 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
 
+	// Register resources for auto-loading into context
+	if err := s.registerResources(); err != nil {
+		graphStore.Close()
+		return nil, fmt.Errorf("failed to register resources: %w", err)
+	}
+
 	return s, nil
 }
 

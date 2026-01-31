@@ -289,29 +289,31 @@ func TestHandleFloopList_Behaviors(t *testing.T) {
 }
 
 func TestHandleFloopList_Corrections(t *testing.T) {
-	server, _ := setupTestServer(t)
+	server, tmpDir := setupTestServer(t)
 	defer server.Close()
 
 	ctx := context.Background()
 
-	// Add a test correction to store
-	correction := store.Node{
-		ID:   "correction-1",
-		Kind: "correction",
-		Content: map[string]interface{}{
-			"agent_action":     "Did something wrong",
-			"corrected_action": "Should do it right",
-			"processed":        false,
-			"timestamp":        time.Now().Format(time.RFC3339),
-		},
+	// Write a test correction to corrections.jsonl file
+	correctionsPath := filepath.Join(tmpDir, ".floop", "corrections.jsonl")
+	correction := models.Correction{
+		ID:              "correction-1",
+		Timestamp:       time.Now(),
+		AgentAction:     "Did something wrong",
+		CorrectedAction: "Should do it right",
+		Processed:       false,
 	}
-
-	if _, err := server.store.AddNode(ctx, correction); err != nil {
-		t.Fatalf("Failed to add test correction: %v", err)
+	f, err := os.Create(correctionsPath)
+	if err != nil {
+		t.Fatalf("Failed to create corrections file: %v", err)
 	}
-	if err := server.store.Sync(ctx); err != nil {
-		t.Fatalf("Failed to sync store: %v", err)
+	// Write as JSON line
+	corrJSON := `{"id":"correction-1","timestamp":"` + correction.Timestamp.Format(time.RFC3339) + `","agent_action":"Did something wrong","corrected_action":"Should do it right","processed":false}`
+	if _, err := f.WriteString(corrJSON + "\n"); err != nil {
+		f.Close()
+		t.Fatalf("Failed to write correction: %v", err)
 	}
+	f.Close()
 
 	// List corrections
 	req := &sdk.CallToolRequest{}

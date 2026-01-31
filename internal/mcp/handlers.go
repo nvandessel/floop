@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -41,6 +44,122 @@ func (s *Server) registerTools() error {
 	}, s.handleFloopDeduplicate)
 
 	return nil
+}
+
+// registerResources registers MCP resources for auto-loading into context.
+func (s *Server) registerResources() error {
+	// Register the active behaviors resource
+	// This gets automatically loaded into Claude's context
+	s.server.AddResource(&sdk.Resource{
+		URI:         "floop://behaviors/active",
+		Name:        "floop-active-behaviors",
+		Description: "Learned behaviors that should guide agent actions. These are corrections and preferences captured from previous sessions.",
+		MIMEType:    "text/markdown",
+	}, s.handleBehaviorsResource)
+
+	return nil
+}
+
+// handleBehaviorsResource returns active behaviors formatted for context injection.
+func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
+	// Build context for activation (default task: development)
+	ctxBuilder := activation.NewContextBuilder()
+	ctxBuilder.WithRepoRoot(s.root)
+	ctxBuilder.WithTask("development")
+	actCtx := ctxBuilder.Build()
+
+	// Load all behaviors from store
+	nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query behaviors: %w", err)
+	}
+
+	// Convert nodes to behaviors
+	behaviors := make([]models.Behavior, 0, len(nodes))
+	for _, node := range nodes {
+		behavior := learning.NodeToBehavior(node)
+		behaviors = append(behaviors, behavior)
+	}
+
+	// Evaluate which behaviors are active
+	evaluator := activation.NewEvaluator()
+	matches := evaluator.Evaluate(actCtx, behaviors)
+
+	// Resolve conflicts and get final active set
+	resolver := activation.NewResolver()
+	result := resolver.Resolve(matches)
+
+	// Format as markdown for context injection
+	var sb strings.Builder
+	sb.WriteString("# Learned Behaviors\n\n")
+	sb.WriteString("These behaviors were learned from previous corrections. Follow them.\n\n")
+
+	// Group by kind
+	directives := []models.Behavior{}
+	preferences := []models.Behavior{}
+	procedures := []models.Behavior{}
+	constraints := []models.Behavior{}
+
+	for _, b := range result.Active {
+		switch b.Kind {
+		case models.BehaviorKindDirective:
+			directives = append(directives, b)
+		case models.BehaviorKindPreference:
+			preferences = append(preferences, b)
+		case models.BehaviorKindProcedure:
+			procedures = append(procedures, b)
+		case models.BehaviorKindConstraint:
+			constraints = append(constraints, b)
+		}
+	}
+
+	if len(constraints) > 0 {
+		sb.WriteString("## Constraints (MUST follow)\n")
+		for _, b := range constraints {
+			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(directives) > 0 {
+		sb.WriteString("## Directives\n")
+		for _, b := range directives {
+			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(preferences) > 0 {
+		sb.WriteString("## Preferences\n")
+		for _, b := range preferences {
+			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(procedures) > 0 {
+		sb.WriteString("## Procedures\n")
+		for _, b := range procedures {
+			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.Active) == 0 {
+		sb.WriteString("No active behaviors for current context.\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("---\n*%d behaviors active*\n", len(result.Active)))
+	}
+
+	return &sdk.ReadResourceResult{
+		Contents: []*sdk.ResourceContents{
+			{
+				URI:      "floop://behaviors/active",
+				MIMEType: "text/markdown",
+				Text:     sb.String(),
+			},
+		},
+	}, nil
 }
 
 // handleFloopActive implements the floop_active tool.
@@ -214,31 +333,38 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 // handleFloopList implements the floop_list tool.
 func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, args FloopListInput) (*sdk.CallToolResult, FloopListOutput, error) {
 	if args.Corrections {
-		// List corrections
-		nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "correction"})
+		// List corrections from corrections.jsonl file (not graph store)
+		correctionsPath := filepath.Join(s.root, ".floop", "corrections.jsonl")
+		file, err := os.Open(correctionsPath)
 		if err != nil {
-			return nil, FloopListOutput{}, fmt.Errorf("failed to query corrections: %w", err)
+			if os.IsNotExist(err) {
+				return nil, FloopListOutput{
+					Corrections: []CorrectionListItem{},
+					Count:       0,
+				}, nil
+			}
+			return nil, FloopListOutput{}, fmt.Errorf("failed to open corrections file: %w", err)
 		}
+		defer file.Close()
 
-		corrections := make([]CorrectionListItem, len(nodes))
-		for i, node := range nodes {
-			// Extract correction data from node content
-			agentAction, _ := node.Content["agent_action"].(string)
-			correctedAction, _ := node.Content["corrected_action"].(string)
-			processed, _ := node.Content["processed"].(bool)
-
-			var timestamp time.Time
-			if ts, ok := node.Content["timestamp"].(string); ok {
-				timestamp, _ = time.Parse(time.RFC3339, ts)
+		var corrections []CorrectionListItem
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
 			}
-
-			corrections[i] = CorrectionListItem{
-				ID:              node.ID,
-				Timestamp:       timestamp,
-				AgentAction:     agentAction,
-				CorrectedAction: correctedAction,
-				Processed:       processed,
+			var c models.Correction
+			if err := json.Unmarshal([]byte(line), &c); err != nil {
+				continue // Skip malformed lines
 			}
+			corrections = append(corrections, CorrectionListItem{
+				ID:              c.ID,
+				Timestamp:       c.Timestamp,
+				AgentAction:     c.AgentAction,
+				CorrectedAction: c.CorrectedAction,
+				Processed:       c.Processed,
+			})
 		}
 
 		return nil, FloopListOutput{
