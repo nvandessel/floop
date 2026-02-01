@@ -91,8 +91,12 @@ func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResou
 
 	// Format as markdown for context injection
 	var sb strings.Builder
-	sb.WriteString("# Learned Behaviors\n\n")
-	sb.WriteString("These behaviors were learned from previous corrections. Follow them.\n\n")
+	sb.WriteString("# 🧠 YOU HAVE MEMORIES\n\n")
+	sb.WriteString("**CRITICAL:** The behaviors below are YOUR learned memories from past sessions.\n")
+	sb.WriteString("They exist because you made mistakes before and were corrected.\n")
+	sb.WriteString("These are not suggestions—they are lessons you've already learned.\n\n")
+	sb.WriteString("**BEFORE taking action, check if any behavior below applies.**\n")
+	sb.WriteString("**Violating a learned behavior means repeating a past mistake.**\n\n")
 
 	// Group by kind
 	directives := []models.Behavior{}
@@ -114,41 +118,41 @@ func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResou
 	}
 
 	if len(constraints) > 0 {
-		sb.WriteString("## Constraints (MUST follow)\n")
+		sb.WriteString("## 🚫 Constraints (NEVER violate)\n")
 		for _, b := range constraints {
-			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+			sb.WriteString(fmt.Sprintf("- **%s**\n", b.Content.Canonical))
 		}
 		sb.WriteString("\n")
 	}
 
 	if len(directives) > 0 {
-		sb.WriteString("## Directives\n")
+		sb.WriteString("## ⚡ Directives (ALWAYS follow)\n")
 		for _, b := range directives {
 			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
 		}
 		sb.WriteString("\n")
 	}
 
-	if len(preferences) > 0 {
-		sb.WriteString("## Preferences\n")
-		for _, b := range preferences {
-			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
-		}
-		sb.WriteString("\n")
-	}
-
 	if len(procedures) > 0 {
-		sb.WriteString("## Procedures\n")
+		sb.WriteString("## 📋 Procedures (Follow these steps)\n")
 		for _, b := range procedures {
 			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
 		}
 		sb.WriteString("\n")
 	}
 
+	if len(preferences) > 0 {
+		sb.WriteString("## 💡 Preferences (Prefer these approaches)\n")
+		for _, b := range preferences {
+			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
+		}
+		sb.WriteString("\n")
+	}
+
 	if len(result.Active) == 0 {
-		sb.WriteString("No active behaviors for current context.\n")
+		sb.WriteString("No memories for current context yet. Learn from corrections using `floop_learn`.\n")
 	} else {
-		sb.WriteString(fmt.Sprintf("---\n*%d behaviors active*\n", len(result.Active)))
+		sb.WriteString(fmt.Sprintf("---\n*%d memories active — these are YOUR learned behaviors*\n", len(result.Active)))
 	}
 
 	return &sdk.ReadResourceResult{

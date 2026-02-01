@@ -1,12 +1,6 @@
 # Feedback Loop - Agent Instructions
 
-## ⚠️ CRITICAL: Read This First
-
-**AT START OF SESSION:**
-Run `./floop prompt --task development` and incorporate those learned behaviors.
-
-**DURING WORK:**
-Use floop MCP tools (`floop_active`, `floop_learn`, `floop_list`) to check behaviors and capture corrections. The tool descriptions explain their usage.
+## ⚠️ CRITICAL: Read @FLOOP.md
 
 ---
 
