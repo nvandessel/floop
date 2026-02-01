@@ -22,6 +22,13 @@ type BehaviorContent struct {
 	// Expanded is the full prose version with examples and rationale
 	Expanded string `json:"expanded,omitempty" yaml:"expanded,omitempty"`
 
+	// Summary is an ultra-compressed single-line reminder (~60 chars)
+	// Used for tiered injection when token budget is constrained
+	Summary string `json:"summary,omitempty" yaml:"summary,omitempty"`
+
+	// Tags are keyword tags for clustering and categorization
+	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+
 	// Structured holds key-value data when the behavior has clear structure
 	// e.g., {"prefer": "pathlib.Path", "avoid": "os.path"}
 	Structured map[string]interface{} `json:"structured,omitempty" yaml:"structured,omitempty"`
@@ -73,7 +80,9 @@ type BehaviorStats struct {
 	TimesActivated  int        `json:"times_activated" yaml:"times_activated"`
 	TimesFollowed   int        `json:"times_followed" yaml:"times_followed"`
 	TimesOverridden int        `json:"times_overridden" yaml:"times_overridden"`
+	TimesConfirmed  int        `json:"times_confirmed" yaml:"times_confirmed"` // Positive signal when behavior was followed
 	LastActivated   *time.Time `json:"last_activated,omitempty" yaml:"last_activated,omitempty"`
+	LastConfirmed   *time.Time `json:"last_confirmed,omitempty" yaml:"last_confirmed,omitempty"` // Last time behavior was positively confirmed
 	CreatedAt       time.Time  `json:"created_at" yaml:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at" yaml:"updated_at"`
 }

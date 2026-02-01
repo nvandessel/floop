@@ -18,7 +18,10 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/store"
+	"github.com/nvandessel/feedback-loop/internal/summarization"
+	"github.com/nvandessel/feedback-loop/internal/tiering"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -84,6 +87,9 @@ context-aware behavior activation for consistent agent operation.`,
 		// Management commands
 		newDeduplicateCmd(),
 		newConfigCmd(),
+		// Token optimization commands
+		newSummarizeCmd(),
+		newStatsCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -1260,11 +1266,12 @@ func newPromptCmd() *cobra.Command {
 		Long: `Generate a prompt section containing all active behaviors for the current context.
 
 This command compiles active behaviors into a format suitable for injection into
-agent system prompts. Use --max-tokens to limit output size.
+agent system prompts. Use --token-budget to limit output size with intelligent tiering.
 
 Examples:
   floop prompt --file main.go
-  floop prompt --file main.go --format xml --max-tokens 500
+  floop prompt --file main.go --format xml --token-budget 500
+  floop prompt --file main.go --tiered --token-budget 2000
   floop prompt --file main.go --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
@@ -1273,8 +1280,15 @@ Examples:
 			env, _ := cmd.Flags().GetString("env")
 			format, _ := cmd.Flags().GetString("format")
 			maxTokens, _ := cmd.Flags().GetInt("max-tokens")
+			tokenBudget, _ := cmd.Flags().GetInt("token-budget")
+			tiered, _ := cmd.Flags().GetBool("tiered")
 			expanded, _ := cmd.Flags().GetBool("expanded")
 			jsonOut, _ := cmd.Flags().GetBool("json")
+
+			// Support both --max-tokens and --token-budget for backwards compatibility
+			if tokenBudget > 0 {
+				maxTokens = tokenBudget
+			}
 
 			floopDir := filepath.Join(root, ".floop")
 			if _, err := os.Stat(floopDir); os.IsNotExist(err) {
@@ -1310,20 +1324,7 @@ Examples:
 			resolver := activation.NewResolver()
 			resolved := resolver.Resolve(matches)
 
-			// Optimize if token limit specified
-			var activeBehaviors []models.Behavior
-			var excluded []models.Behavior
-
-			if maxTokens > 0 {
-				optimizer := assembly.NewOptimizer(maxTokens)
-				optResult := optimizer.Optimize(resolved.Active)
-				activeBehaviors = optResult.Included
-				excluded = optResult.Excluded
-			} else {
-				activeBehaviors = resolved.Active
-			}
-
-			// Compile into prompt format
+			// Set output format
 			var outputFormat assembly.Format
 			switch format {
 			case "xml":
@@ -1338,41 +1339,91 @@ Examples:
 				WithFormat(outputFormat).
 				WithExpanded(expanded)
 
-			compiled := compiler.Compile(activeBehaviors)
+			// Use tiered injection if requested
+			if tiered && maxTokens > 0 {
+				// Create tiered injection plan
+				scorer := ranking.NewRelevanceScorer(ranking.DefaultScorerConfig())
+				summarizer := summarization.NewRuleSummarizer(summarization.DefaultConfig())
+				assigner := tiering.NewTierAssigner(tiering.DefaultTierAssignerConfig(), scorer, summarizer)
 
-			// Add excluded behaviors info
-			for _, e := range excluded {
-				compiled.ExcludedBehaviors = append(compiled.ExcludedBehaviors, e.ID)
-			}
+				plan := assigner.AssignTiers(resolved.Active, &ctx, maxTokens)
+				tieredCompiled := compiler.CompileTiered(plan)
 
-			if jsonOut {
-				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-					"context":            ctx,
-					"prompt":             compiled.Text,
-					"format":             compiled.Format,
-					"total_tokens":       compiled.TotalTokens,
-					"included_behaviors": compiled.IncludedBehaviors,
-					"excluded_behaviors": compiled.ExcludedBehaviors,
-					"sections":           compiled.Sections,
-				})
+				if jsonOut {
+					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+						"context":              ctx,
+						"prompt":               tieredCompiled.Text,
+						"format":               tieredCompiled.Format,
+						"total_tokens":         tieredCompiled.TotalTokens,
+						"token_budget":         maxTokens,
+						"full_behaviors":       tieredCompiled.IncludedBehaviors,
+						"summarized_behaviors": tieredCompiled.SummarizedBehaviors,
+						"omitted_behaviors":    tieredCompiled.OmittedBehaviors,
+						"sections":             tieredCompiled.Sections,
+						"tiered":               true,
+					})
+				} else {
+					if plan.IncludedCount() == 0 {
+						fmt.Println("No active behaviors for this context.")
+						return nil
+					}
+
+					fmt.Println(tieredCompiled.Text)
+
+					fmt.Fprintln(os.Stderr)
+					fmt.Fprintf(os.Stderr, "---\n")
+					fmt.Fprintf(os.Stderr, "Behaviors: %d full, %d summarized, %d omitted\n",
+						len(plan.FullBehaviors), len(plan.SummarizedBehaviors), len(plan.OmittedBehaviors))
+					fmt.Fprintf(os.Stderr, "Tokens: ~%d / %d budget\n", plan.TotalTokens, maxTokens)
+				}
 			} else {
-				if len(activeBehaviors) == 0 {
-					fmt.Println("No active behaviors for this context.")
-					return nil
+				// Use standard optimization
+				var activeBehaviors []models.Behavior
+				var excluded []models.Behavior
+
+				if maxTokens > 0 {
+					optimizer := assembly.NewOptimizer(maxTokens)
+					optResult := optimizer.Optimize(resolved.Active)
+					activeBehaviors = optResult.Included
+					excluded = optResult.Excluded
+				} else {
+					activeBehaviors = resolved.Active
 				}
 
-				// Print the prompt text directly (for easy copy/paste)
-				fmt.Println(compiled.Text)
+				compiled := compiler.Compile(activeBehaviors)
 
-				// Print stats to stderr so they don't interfere with prompt output
-				fmt.Fprintln(os.Stderr)
-				fmt.Fprintf(os.Stderr, "---\n")
-				fmt.Fprintf(os.Stderr, "Behaviors: %d included", len(compiled.IncludedBehaviors))
-				if len(compiled.ExcludedBehaviors) > 0 {
-					fmt.Fprintf(os.Stderr, ", %d excluded (token limit)", len(compiled.ExcludedBehaviors))
+				for _, e := range excluded {
+					compiled.ExcludedBehaviors = append(compiled.ExcludedBehaviors, e.ID)
 				}
-				fmt.Fprintln(os.Stderr)
-				fmt.Fprintf(os.Stderr, "Tokens: ~%d\n", compiled.TotalTokens)
+
+				if jsonOut {
+					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+						"context":            ctx,
+						"prompt":             compiled.Text,
+						"format":             compiled.Format,
+						"total_tokens":       compiled.TotalTokens,
+						"included_behaviors": compiled.IncludedBehaviors,
+						"excluded_behaviors": compiled.ExcludedBehaviors,
+						"sections":           compiled.Sections,
+						"tiered":             false,
+					})
+				} else {
+					if len(activeBehaviors) == 0 {
+						fmt.Println("No active behaviors for this context.")
+						return nil
+					}
+
+					fmt.Println(compiled.Text)
+
+					fmt.Fprintln(os.Stderr)
+					fmt.Fprintf(os.Stderr, "---\n")
+					fmt.Fprintf(os.Stderr, "Behaviors: %d included", len(compiled.IncludedBehaviors))
+					if len(compiled.ExcludedBehaviors) > 0 {
+						fmt.Fprintf(os.Stderr, ", %d excluded (token limit)", len(compiled.ExcludedBehaviors))
+					}
+					fmt.Fprintln(os.Stderr)
+					fmt.Fprintf(os.Stderr, "Tokens: ~%d\n", compiled.TotalTokens)
+				}
 			}
 
 			return nil
@@ -1383,7 +1434,9 @@ Examples:
 	cmd.Flags().String("task", "", "Current task type")
 	cmd.Flags().String("env", "", "Environment (dev, staging, prod)")
 	cmd.Flags().String("format", "markdown", "Output format (markdown, xml, plain)")
-	cmd.Flags().Int("max-tokens", 0, "Maximum tokens (0 = unlimited)")
+	cmd.Flags().Int("max-tokens", 0, "Maximum tokens (0 = unlimited, deprecated: use --token-budget)")
+	cmd.Flags().Int("token-budget", 0, "Token budget for behavior injection (enables intelligent tiering)")
+	cmd.Flags().Bool("tiered", false, "Use tiered injection (full/summary/omit) instead of simple truncation")
 	cmd.Flags().Bool("expanded", false, "Use expanded content when available")
 
 	return cmd

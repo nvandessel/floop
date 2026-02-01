@@ -12,9 +12,13 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/activation"
+	"github.com/nvandessel/feedback-loop/internal/assembly"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/summarization"
+	"github.com/nvandessel/feedback-loop/internal/tiering"
 )
 
 // registerTools registers all floop MCP tools with the server.
@@ -57,10 +61,22 @@ func (s *Server) registerResources() error {
 		MIMEType:    "text/markdown",
 	}, s.handleBehaviorsResource)
 
+	// Register expansion resource template for getting full behavior details
+	s.server.AddResourceTemplate(&sdk.ResourceTemplate{
+		URITemplate: "floop://behaviors/expand/{id}",
+		Name:        "floop-behavior-expand",
+		Description: "Get full details for a specific behavior. Use this when you need the complete content of a summarized behavior.",
+		MIMEType:    "text/markdown",
+	}, s.handleBehaviorExpandResource)
+
 	return nil
 }
 
+// Default token budget for behavior injection
+const defaultTokenBudget = 2000
+
 // handleBehaviorsResource returns active behaviors formatted for context injection.
+// Uses tiered injection to optimize token usage while preserving critical behaviors.
 func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
 	// Build context for activation (default task: development)
 	ctxBuilder := activation.NewContextBuilder()
@@ -89,76 +105,131 @@ func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResou
 	resolver := activation.NewResolver()
 	result := resolver.Resolve(matches)
 
-	// Format as markdown for context injection
-	var sb strings.Builder
-	sb.WriteString("# 🧠 YOU HAVE MEMORIES\n\n")
-	sb.WriteString("**CRITICAL:** The behaviors below are YOUR learned memories from past sessions.\n")
-	sb.WriteString("They exist because you made mistakes before and were corrected.\n")
-	sb.WriteString("These are not suggestions—they are lessons you've already learned.\n\n")
-	sb.WriteString("**BEFORE taking action, check if any behavior below applies.**\n")
-	sb.WriteString("**Violating a learned behavior means repeating a past mistake.**\n\n")
-
-	// Group by kind
-	directives := []models.Behavior{}
-	preferences := []models.Behavior{}
-	procedures := []models.Behavior{}
-	constraints := []models.Behavior{}
-
-	for _, b := range result.Active {
-		switch b.Kind {
-		case models.BehaviorKindDirective:
-			directives = append(directives, b)
-		case models.BehaviorKindPreference:
-			preferences = append(preferences, b)
-		case models.BehaviorKindProcedure:
-			procedures = append(procedures, b)
-		case models.BehaviorKindConstraint:
-			constraints = append(constraints, b)
-		}
-	}
-
-	if len(constraints) > 0 {
-		sb.WriteString("## 🚫 Constraints (NEVER violate)\n")
-		for _, b := range constraints {
-			sb.WriteString(fmt.Sprintf("- **%s**\n", b.Content.Canonical))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(directives) > 0 {
-		sb.WriteString("## ⚡ Directives (ALWAYS follow)\n")
-		for _, b := range directives {
-			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(procedures) > 0 {
-		sb.WriteString("## 📋 Procedures (Follow these steps)\n")
-		for _, b := range procedures {
-			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(preferences) > 0 {
-		sb.WriteString("## 💡 Preferences (Prefer these approaches)\n")
-		for _, b := range preferences {
-			sb.WriteString(fmt.Sprintf("- %s\n", b.Content.Canonical))
-		}
-		sb.WriteString("\n")
-	}
-
 	if len(result.Active) == 0 {
-		sb.WriteString("No memories for current context yet. Learn from corrections using `floop_learn`.\n")
-	} else {
-		sb.WriteString(fmt.Sprintf("---\n*%d memories active — these are YOUR learned behaviors*\n", len(result.Active)))
+		return &sdk.ReadResourceResult{
+			Contents: []*sdk.ResourceContents{
+				{
+					URI:      "floop://behaviors/active",
+					MIMEType: "text/markdown",
+					Text:     "# Learned Behaviors\n\nNo memories for current context yet. Learn from corrections using `floop_learn`.\n",
+				},
+			},
+		}, nil
 	}
+
+	// Create tiered injection plan
+	scorer := ranking.NewRelevanceScorer(ranking.DefaultScorerConfig())
+	summarizer := summarization.NewRuleSummarizer(summarization.DefaultConfig())
+	assigner := tiering.NewTierAssigner(tiering.DefaultTierAssignerConfig(), scorer, summarizer)
+
+	plan := assigner.AssignTiers(result.Active, &actCtx, defaultTokenBudget)
+
+	// Compile tiered prompt
+	compiler := assembly.NewCompiler()
+	tieredPrompt := compiler.CompileTiered(plan)
+
+	// Build final output with header
+	var sb strings.Builder
+	sb.WriteString("# Learned Behaviors\n\n")
+	sb.WriteString("**CRITICAL:** These are YOUR learned memories from past sessions.\n")
+	sb.WriteString("Violating a learned behavior means repeating a past mistake.\n\n")
+
+	// Add the compiled tiered content
+	if tieredPrompt.Text != "" {
+		sb.WriteString(tieredPrompt.Text)
+		sb.WriteString("\n\n")
+	}
+
+	// Add footer with stats
+	sb.WriteString(fmt.Sprintf("---\n*%d memories active", plan.IncludedCount()))
+	if len(plan.OmittedBehaviors) > 0 {
+		sb.WriteString(fmt.Sprintf(" (%d summarized, %d available via floop://behaviors/expand/{id})",
+			len(plan.SummarizedBehaviors), len(plan.OmittedBehaviors)))
+	}
+	sb.WriteString("*\n")
 
 	return &sdk.ReadResourceResult{
 		Contents: []*sdk.ResourceContents{
 			{
 				URI:      "floop://behaviors/active",
+				MIMEType: "text/markdown",
+				Text:     sb.String(),
+			},
+		},
+	}, nil
+}
+
+// handleBehaviorExpandResource returns full details for a specific behavior.
+// This allows agents to retrieve complete content for summarized or omitted behaviors.
+func (s *Server) handleBehaviorExpandResource(ctx context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
+	// Extract behavior ID from URI
+	// URI format: floop://behaviors/expand/{id}
+	uri := req.Params.URI
+	prefix := "floop://behaviors/expand/"
+	if !strings.HasPrefix(uri, prefix) {
+		return nil, fmt.Errorf("invalid URI format: %s", uri)
+	}
+	behaviorID := strings.TrimPrefix(uri, prefix)
+	if behaviorID == "" {
+		return nil, fmt.Errorf("behavior ID is required")
+	}
+
+	// Query for the specific behavior
+	nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{
+		"kind": "behavior",
+		"id":   behaviorID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query behavior: %w", err)
+	}
+
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("behavior not found: %s", behaviorID)
+	}
+
+	behavior := learning.NodeToBehavior(nodes[0])
+
+	// Format full behavior details
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Behavior: %s\n\n", behavior.Name))
+	sb.WriteString(fmt.Sprintf("**ID:** %s\n", behavior.ID))
+	sb.WriteString(fmt.Sprintf("**Kind:** %s\n", behavior.Kind))
+	sb.WriteString(fmt.Sprintf("**Confidence:** %.2f\n", behavior.Confidence))
+	sb.WriteString(fmt.Sprintf("**Priority:** %d\n\n", behavior.Priority))
+
+	sb.WriteString("## Content\n\n")
+	sb.WriteString(behavior.Content.Canonical)
+	sb.WriteString("\n")
+
+	if behavior.Content.Expanded != "" {
+		sb.WriteString("\n### Expanded\n\n")
+		sb.WriteString(behavior.Content.Expanded)
+		sb.WriteString("\n")
+	}
+
+	if len(behavior.When) > 0 {
+		sb.WriteString("\n## Activation Context\n\n")
+		for k, v := range behavior.When {
+			sb.WriteString(fmt.Sprintf("- **%s:** %v\n", k, v))
+		}
+	}
+
+	if behavior.Stats.TimesActivated > 0 {
+		sb.WriteString("\n## Statistics\n\n")
+		sb.WriteString(fmt.Sprintf("- Times Activated: %d\n", behavior.Stats.TimesActivated))
+		sb.WriteString(fmt.Sprintf("- Times Followed: %d\n", behavior.Stats.TimesFollowed))
+		if behavior.Stats.TimesConfirmed > 0 {
+			sb.WriteString(fmt.Sprintf("- Times Confirmed: %d\n", behavior.Stats.TimesConfirmed))
+		}
+		if behavior.Stats.TimesOverridden > 0 {
+			sb.WriteString(fmt.Sprintf("- Times Overridden: %d\n", behavior.Stats.TimesOverridden))
+		}
+	}
+
+	return &sdk.ReadResourceResult{
+		Contents: []*sdk.ResourceContents{
+			{
+				URI:      uri,
 				MIMEType: "text/markdown",
 				Text:     sb.String(),
 			},

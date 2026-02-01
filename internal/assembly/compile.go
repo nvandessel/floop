@@ -265,3 +265,158 @@ func estimateTokens(text string) int {
 	// Rough estimate: 1 token ≈ 4 characters for English text
 	return (len(text) + 3) / 4
 }
+
+// TieredCompiledPrompt extends CompiledPrompt with tiering information
+type TieredCompiledPrompt struct {
+	CompiledPrompt
+
+	// SummarizedBehaviors are behaviors included as summaries
+	SummarizedBehaviors []string `json:"summarized_behaviors,omitempty"`
+
+	// OmittedBehaviors are behaviors referenced but not included
+	OmittedBehaviors []string `json:"omitted_behaviors,omitempty"`
+
+	// QuickReferenceSection contains summarized behaviors
+	QuickReferenceSection string `json:"quick_reference_section,omitempty"`
+}
+
+// CompileTiered transforms an injection plan into a tiered prompt
+func (c *Compiler) CompileTiered(plan *models.InjectionPlan) *TieredCompiledPrompt {
+	if plan == nil {
+		return &TieredCompiledPrompt{
+			CompiledPrompt: CompiledPrompt{
+				Text:              "",
+				Sections:          []PromptSection{},
+				TotalTokens:       0,
+				Format:            c.format,
+				IncludedBehaviors: []string{},
+			},
+		}
+	}
+
+	// Compile full-tier behaviors normally
+	fullBehaviors := make([]models.Behavior, 0, len(plan.FullBehaviors))
+	for _, ib := range plan.FullBehaviors {
+		if ib.Behavior != nil {
+			fullBehaviors = append(fullBehaviors, *ib.Behavior)
+		}
+	}
+
+	basePrompt := c.Compile(fullBehaviors)
+
+	// Build tiered prompt
+	result := &TieredCompiledPrompt{
+		CompiledPrompt: *basePrompt,
+	}
+
+	// Collect IDs
+	for _, ib := range plan.SummarizedBehaviors {
+		if ib.Behavior != nil {
+			result.SummarizedBehaviors = append(result.SummarizedBehaviors, ib.Behavior.ID)
+		}
+	}
+	for _, ib := range plan.OmittedBehaviors {
+		if ib.Behavior != nil {
+			result.OmittedBehaviors = append(result.OmittedBehaviors, ib.Behavior.ID)
+		}
+	}
+
+	// Build quick reference section for summarized behaviors
+	if len(plan.SummarizedBehaviors) > 0 {
+		result.QuickReferenceSection = c.buildQuickReferenceSection(plan.SummarizedBehaviors)
+	}
+
+	// Assemble final text with quick reference
+	result.Text = c.assembleTieredText(basePrompt.Text, result.QuickReferenceSection, plan.OmittedBehaviors)
+	result.TotalTokens = estimateTokens(result.Text)
+
+	return result
+}
+
+// buildQuickReferenceSection creates the summarized behaviors section
+func (c *Compiler) buildQuickReferenceSection(summarized []models.InjectedBehavior) string {
+	if len(summarized) == 0 {
+		return ""
+	}
+
+	var lines []string
+	for _, ib := range summarized {
+		if ib.Behavior == nil {
+			continue
+		}
+		// Format: [short-id] summary content
+		shortID := ib.Behavior.ID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		lines = append(lines, fmt.Sprintf("- [%s] %s", shortID, ib.Content))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// assembleTieredText combines full content, quick reference, and omitted info
+func (c *Compiler) assembleTieredText(fullText, quickRef string, omitted []models.InjectedBehavior) string {
+	var parts []string
+
+	// Add full content
+	if fullText != "" {
+		parts = append(parts, fullText)
+	}
+
+	// Add quick reference section
+	if quickRef != "" {
+		switch c.format {
+		case FormatXML:
+			parts = append(parts, "<quick-reference>")
+			parts = append(parts, quickRef)
+			parts = append(parts, "</quick-reference>")
+		case FormatPlain:
+			parts = append(parts, "")
+			parts = append(parts, "Quick Reference (ask for details if needed):")
+			parts = append(parts, quickRef)
+		default: // FormatMarkdown
+			parts = append(parts, "")
+			parts = append(parts, "### Quick Reference (ask for details if needed)")
+			parts = append(parts, quickRef)
+		}
+	}
+
+	// Add omitted behaviors footer
+	if len(omitted) > 0 {
+		var omittedIDs []string
+		for _, ib := range omitted {
+			if ib.Behavior != nil {
+				shortID := ib.Behavior.ID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				omittedIDs = append(omittedIDs, shortID)
+			}
+		}
+
+		if len(omittedIDs) > 0 {
+			// Show first few IDs
+			displayIDs := omittedIDs
+			if len(displayIDs) > 3 {
+				displayIDs = displayIDs[:3]
+			}
+
+			footer := fmt.Sprintf("*%d additional behaviors available: floop show %s...*",
+				len(omitted), strings.Join(displayIDs, ", "))
+
+			switch c.format {
+			case FormatXML:
+				parts = append(parts, fmt.Sprintf("<omitted count=\"%d\"/>", len(omitted)))
+			case FormatPlain:
+				parts = append(parts, "")
+				parts = append(parts, footer)
+			default: // FormatMarkdown
+				parts = append(parts, "")
+				parts = append(parts, footer)
+			}
+		}
+	}
+
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}

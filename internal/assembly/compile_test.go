@@ -235,3 +235,139 @@ func TestEstimateTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestCompiler_CompileTiered_Nil(t *testing.T) {
+	compiler := NewCompiler()
+	result := compiler.CompileTiered(nil)
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Text != "" {
+		t.Errorf("expected empty text, got %q", result.Text)
+	}
+}
+
+func TestCompiler_CompileTiered_FullOnly(t *testing.T) {
+	compiler := NewCompiler()
+
+	b1 := models.Behavior{
+		ID:   "b1",
+		Kind: models.BehaviorKindDirective,
+		Content: models.BehaviorContent{
+			Canonical: "Use Go modules",
+		},
+	}
+	b2 := models.Behavior{
+		ID:   "b2",
+		Kind: models.BehaviorKindConstraint,
+		Content: models.BehaviorContent{
+			Canonical: "Never commit secrets",
+		},
+	}
+
+	plan := &models.InjectionPlan{
+		FullBehaviors: []models.InjectedBehavior{
+			{Behavior: &b1, Tier: models.TierFull, Content: b1.Content.Canonical},
+			{Behavior: &b2, Tier: models.TierFull, Content: b2.Content.Canonical},
+		},
+		TokenBudget: 1000,
+	}
+
+	result := compiler.CompileTiered(plan)
+
+	if !strings.Contains(result.Text, "Use Go modules") {
+		t.Error("expected full behavior content")
+	}
+	if !strings.Contains(result.Text, "Never commit secrets") {
+		t.Error("expected constraint content")
+	}
+	if len(result.SummarizedBehaviors) != 0 {
+		t.Errorf("expected no summarized behaviors, got %d", len(result.SummarizedBehaviors))
+	}
+}
+
+func TestCompiler_CompileTiered_WithSummaries(t *testing.T) {
+	compiler := NewCompiler()
+
+	b1 := models.Behavior{
+		ID:   "b1",
+		Kind: models.BehaviorKindDirective,
+		Content: models.BehaviorContent{
+			Canonical: "Use Go modules for dependency management",
+		},
+	}
+	b2 := models.Behavior{
+		ID:   "summarized-behavior",
+		Kind: models.BehaviorKindPreference,
+		Content: models.BehaviorContent{
+			Canonical: "Prefer interfaces over concrete types",
+			Summary:   "Prefer interfaces",
+		},
+	}
+
+	plan := &models.InjectionPlan{
+		FullBehaviors: []models.InjectedBehavior{
+			{Behavior: &b1, Tier: models.TierFull, Content: b1.Content.Canonical},
+		},
+		SummarizedBehaviors: []models.InjectedBehavior{
+			{Behavior: &b2, Tier: models.TierSummary, Content: "Prefer interfaces"},
+		},
+		TokenBudget: 500,
+	}
+
+	result := compiler.CompileTiered(plan)
+
+	if !strings.Contains(result.Text, "Quick Reference") {
+		t.Error("expected quick reference section for summarized behaviors")
+	}
+	if !strings.Contains(result.Text, "Prefer interfaces") {
+		t.Error("expected summary content")
+	}
+	if len(result.SummarizedBehaviors) != 1 {
+		t.Errorf("expected 1 summarized behavior, got %d", len(result.SummarizedBehaviors))
+	}
+}
+
+func TestCompiler_CompileTiered_WithOmitted(t *testing.T) {
+	compiler := NewCompiler()
+
+	b1 := models.Behavior{
+		ID:   "full-b1",
+		Kind: models.BehaviorKindDirective,
+		Content: models.BehaviorContent{
+			Canonical: "Full content here",
+		},
+	}
+	b2 := models.Behavior{
+		ID:   "omitted-behavior-1",
+		Kind: models.BehaviorKindPreference,
+	}
+	b3 := models.Behavior{
+		ID:   "omitted-behavior-2",
+		Kind: models.BehaviorKindPreference,
+	}
+
+	plan := &models.InjectionPlan{
+		FullBehaviors: []models.InjectedBehavior{
+			{Behavior: &b1, Tier: models.TierFull, Content: b1.Content.Canonical},
+		},
+		OmittedBehaviors: []models.InjectedBehavior{
+			{Behavior: &b2, Tier: models.TierOmitted},
+			{Behavior: &b3, Tier: models.TierOmitted},
+		},
+		TokenBudget: 100,
+	}
+
+	result := compiler.CompileTiered(plan)
+
+	if !strings.Contains(result.Text, "additional behaviors available") {
+		t.Error("expected omitted behaviors footer")
+	}
+	if !strings.Contains(result.Text, "floop show") {
+		t.Error("expected floop show hint")
+	}
+	if len(result.OmittedBehaviors) != 2 {
+		t.Errorf("expected 2 omitted behaviors, got %d", len(result.OmittedBehaviors))
+	}
+}
