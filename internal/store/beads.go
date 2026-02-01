@@ -24,6 +24,18 @@ type BeadsGraphStore struct {
 	nodes map[string]Node
 	edges []Edge
 	dirty bool // tracks if there are unsaved changes
+
+	// LoadErrors tracks any errors encountered while loading data.
+	// Malformed lines are skipped but recorded here for debugging.
+	LoadErrors []LoadError
+}
+
+// LoadError represents an error encountered while loading data from disk.
+type LoadError struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Content string `json:"content"`
+	Error   string `json:"error"`
 }
 
 // NewBeadsGraphStore creates a new BeadsGraphStore rooted at projectRoot.
@@ -37,11 +49,12 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
 	}
 
 	s := &BeadsGraphStore{
-		floopDir:  floopDir,
-		nodesFile: filepath.Join(floopDir, "nodes.jsonl"),
-		edgesFile: filepath.Join(floopDir, "edges.jsonl"),
-		nodes:     make(map[string]Node),
-		edges:     make([]Edge, 0),
+		floopDir:   floopDir,
+		nodesFile:  filepath.Join(floopDir, "nodes.jsonl"),
+		edgesFile:  filepath.Join(floopDir, "edges.jsonl"),
+		nodes:      make(map[string]Node),
+		edges:      make([]Edge, 0),
+		LoadErrors: make([]LoadError, 0),
 	}
 
 	// Load existing data
@@ -67,14 +80,23 @@ func (s *BeadsGraphStore) loadNodes() error {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
 		var node Node
 		if err := json.Unmarshal([]byte(line), &node); err != nil {
-			continue // Skip malformed lines
+			// Record the error but continue loading
+			s.LoadErrors = append(s.LoadErrors, LoadError{
+				File:    s.nodesFile,
+				Line:    lineNum,
+				Content: truncateForError(line),
+				Error:   err.Error(),
+			})
+			continue
 		}
 		s.nodes[node.ID] = node
 	}
@@ -93,14 +115,23 @@ func (s *BeadsGraphStore) loadEdges() error {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
 		var edge Edge
 		if err := json.Unmarshal([]byte(line), &edge); err != nil {
-			continue // Skip malformed lines
+			// Record the error but continue loading
+			s.LoadErrors = append(s.LoadErrors, LoadError{
+				File:    s.edgesFile,
+				Line:    lineNum,
+				Content: truncateForError(line),
+				Error:   err.Error(),
+			})
+			continue
 		}
 		s.edges = append(s.edges, edge)
 	}
@@ -348,4 +379,13 @@ func (s *BeadsGraphStore) writeEdges() error {
 // Close syncs and closes the store.
 func (s *BeadsGraphStore) Close() error {
 	return s.Sync(context.Background())
+}
+
+// truncateForError truncates a string for error reporting to avoid huge messages.
+func truncateForError(s string) string {
+	const maxLen = 100
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
