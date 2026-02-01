@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
@@ -78,15 +79,15 @@ func (c *correctionCapture) MightBeCorrection(text string) bool {
 }
 
 // generateID creates a content-addressed hash ID for a correction.
-// The ID is based on the first 100 characters of both wrong and right strings.
+// The ID is based on the first MaxCorrectionPreviewLen characters of both wrong and right strings.
 func (c *correctionCapture) generateID(wrong, right string) string {
 	wrongPart := wrong
-	if len(wrong) > 100 {
-		wrongPart = wrong[:100]
+	if len(wrong) > constants.MaxCorrectionPreviewLen {
+		wrongPart = wrong[:constants.MaxCorrectionPreviewLen]
 	}
 	rightPart := right
-	if len(right) > 100 {
-		rightPart = right[:100]
+	if len(right) > constants.MaxCorrectionPreviewLen {
+		rightPart = right[:constants.MaxCorrectionPreviewLen]
 	}
 	content := wrongPart + rightPart
 	hash := sha256.Sum256([]byte(content))

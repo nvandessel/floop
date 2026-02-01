@@ -1,6 +1,8 @@
 package activation
 
 import (
+	"sort"
+
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
@@ -61,20 +63,12 @@ func (e *Evaluator) matchesBehavior(ctx models.ContextSnapshot, b models.Behavio
 
 // sortBySpecificityAndPriority sorts results by specificity desc, then priority desc
 func sortBySpecificityAndPriority(results []ActivationResult) {
-	// Simple bubble sort for small lists
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			// Compare by specificity first
-			if results[j].Specificity > results[i].Specificity {
-				results[i], results[j] = results[j], results[i]
-			} else if results[j].Specificity == results[i].Specificity {
-				// Then by priority
-				if results[j].Behavior.Priority > results[i].Behavior.Priority {
-					results[i], results[j] = results[j], results[i]
-				}
-			}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Specificity != results[j].Specificity {
+			return results[i].Specificity > results[j].Specificity
 		}
-	}
+		return results[i].Behavior.Priority > results[j].Behavior.Priority
+	})
 }
 
 // IsActive is a convenience method to check if a specific behavior is active
@@ -104,7 +98,7 @@ func (e *Evaluator) WhyActive(ctx models.ContextSnapshot, b models.Behavior) Act
 		}
 
 		// Get actual value from context
-		conditionResult.Actual = getContextField(ctx, key)
+		conditionResult.Actual = ctx.GetField(key)
 		conditionResult.Matched = ctx.Matches(map[string]interface{}{key: required})
 
 		explanation.Conditions = append(explanation.Conditions, conditionResult)
@@ -143,31 +137,4 @@ type ConditionResult struct {
 	Required interface{} `json:"required"`
 	Actual   interface{} `json:"actual"`
 	Matched  bool        `json:"matched"`
-}
-
-// getContextField retrieves a field value from a context snapshot
-func getContextField(ctx models.ContextSnapshot, key string) interface{} {
-	switch key {
-	case "repo":
-		return ctx.Repo
-	case "branch":
-		return ctx.Branch
-	case "file_path", "file.path":
-		return ctx.FilePath
-	case "file_language", "file.language", "language":
-		return ctx.FileLanguage
-	case "file_ext", "file.ext", "ext":
-		return ctx.FileExt
-	case "task":
-		return ctx.Task
-	case "user":
-		return ctx.User
-	case "environment", "env":
-		return ctx.Environment
-	default:
-		if ctx.Custom != nil {
-			return ctx.Custom[key]
-		}
-		return nil
-	}
 }

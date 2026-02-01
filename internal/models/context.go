@@ -37,7 +37,7 @@ type ContextSnapshot struct {
 // Matches checks if this context matches a 'when' predicate
 func (c *ContextSnapshot) Matches(predicate map[string]interface{}) bool {
 	for key, required := range predicate {
-		actual := c.getField(key)
+		actual := c.GetField(key)
 		if !matchValue(actual, required) {
 			return false
 		}
@@ -45,8 +45,8 @@ func (c *ContextSnapshot) Matches(predicate map[string]interface{}) bool {
 	return true
 }
 
-// getField retrieves a field value by name
-func (c *ContextSnapshot) getField(key string) interface{} {
+// GetField retrieves a field value by name (exported for use by activation package)
+func (c *ContextSnapshot) GetField(key string) interface{} {
 	switch key {
 	case "repo":
 		return c.Repo

@@ -3,6 +3,7 @@ package learning
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
@@ -464,6 +465,9 @@ func NodeToBehavior(node store.Node) models.Behavior {
 		if expanded, ok := content["expanded"].(string); ok {
 			b.Content.Expanded = expanded
 		}
+		if summary, ok := content["summary"].(string); ok {
+			b.Content.Summary = summary
+		}
 		if structured, ok := content["structured"].(map[string]interface{}); ok {
 			b.Content.Structured = structured
 		}
@@ -479,6 +483,35 @@ func NodeToBehavior(node store.Node) models.Behavior {
 	// Extract priority from metadata
 	if priority, ok := node.Metadata["priority"].(int); ok {
 		b.Priority = priority
+	}
+
+	// Extract provenance from metadata
+	if provenance, ok := node.Metadata["provenance"].(map[string]interface{}); ok {
+		if sourceType, ok := provenance["source_type"].(string); ok {
+			b.Provenance.SourceType = models.SourceType(sourceType)
+		}
+		if createdAt, ok := provenance["created_at"].(time.Time); ok {
+			b.Provenance.CreatedAt = createdAt
+		}
+		if author, ok := provenance["author"].(string); ok {
+			b.Provenance.Author = author
+		}
+	}
+
+	// Extract stats from metadata
+	if stats, ok := node.Metadata["stats"].(map[string]interface{}); ok {
+		if activated, ok := stats["times_activated"].(int); ok {
+			b.Stats.TimesActivated = activated
+		}
+		if followed, ok := stats["times_followed"].(int); ok {
+			b.Stats.TimesFollowed = followed
+		}
+		if confirmed, ok := stats["times_confirmed"].(int); ok {
+			b.Stats.TimesConfirmed = confirmed
+		}
+		if overridden, ok := stats["times_overridden"].(int); ok {
+			b.Stats.TimesOverridden = overridden
+		}
 	}
 
 	return b

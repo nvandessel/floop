@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,7 +77,7 @@ func Default() *FloopConfig {
 		},
 		Deduplication: DeduplicationConfig{
 			AutoMerge:           false,
-			SimilarityThreshold: 0.95,
+			SimilarityThreshold: constants.DefaultSimilarityThreshold,
 		},
 	}
 }

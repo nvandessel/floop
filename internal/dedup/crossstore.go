@@ -223,6 +223,9 @@ func nodeToBehavior(node store.Node) models.Behavior {
 		if expanded, ok := content["expanded"].(string); ok {
 			b.Content.Expanded = expanded
 		}
+		if summary, ok := content["summary"].(string); ok {
+			b.Content.Summary = summary
+		}
 		if structured, ok := content["structured"].(map[string]interface{}); ok {
 			b.Content.Structured = structured
 		}
@@ -250,6 +253,22 @@ func nodeToBehavior(node store.Node) models.Behavior {
 		}
 		if author, ok := provenance["author"].(string); ok {
 			b.Provenance.Author = author
+		}
+	}
+
+	// Extract stats
+	if stats, ok := node.Metadata["stats"].(map[string]interface{}); ok {
+		if activated, ok := stats["times_activated"].(int); ok {
+			b.Stats.TimesActivated = activated
+		}
+		if followed, ok := stats["times_followed"].(int); ok {
+			b.Stats.TimesFollowed = followed
+		}
+		if confirmed, ok := stats["times_confirmed"].(int); ok {
+			b.Stats.TimesConfirmed = confirmed
+		}
+		if overridden, ok := stats["times_overridden"].(int); ok {
+			b.Stats.TimesOverridden = overridden
 		}
 	}
 

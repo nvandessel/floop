@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
@@ -81,7 +82,7 @@ func (e *behaviorExtractor) Extract(correction models.Correction) (*models.Behav
 		When:       when,
 		Content:    content,
 		Provenance: provenance,
-		Confidence: 0.6, // Learned behaviors start with lower confidence
+		Confidence: constants.DefaultLearnedConfidence,
 		Priority:   0,
 		Stats: models.BehaviorStats{
 			CreatedAt: time.Now(),
@@ -245,8 +246,8 @@ func (e *behaviorExtractor) generateName(correction models.Correction) string {
 	name := correction.CorrectedAction
 
 	// Truncate to reasonable length
-	if len(name) > 50 {
-		name = name[:50]
+	if len(name) > constants.MaxBehaviorNameLen {
+		name = name[:constants.MaxBehaviorNameLen]
 	}
 
 	// Clean up the name

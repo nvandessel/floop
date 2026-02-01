@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
@@ -253,7 +254,7 @@ func (l *learningLoop) needsReview(candidate *models.Behavior, placement *Placem
 	}
 
 	// Low confidence placements need review
-	if placement.Confidence < 0.6 {
+	if placement.Confidence < constants.LowConfidenceThreshold {
 		reasons = append(reasons, fmt.Sprintf("Low placement confidence: %.2f", placement.Confidence))
 	}
 
