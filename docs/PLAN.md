@@ -126,9 +126,9 @@ floop why behavior-xxx --file "setup.py"  # Explains why active
 Dependencies: Phase 3 complete
 
 **Tasks**:
-- [x] `internal/store/beads.go` - BeadsGraphStore implementation
-- [x] `internal/store/beads_test.go` - Test coverage (85.4%)
-- [x] Switch CLI from InMemoryGraphStore to BeadsGraphStore
+- [x] `internal/store/file.go` - FileGraphStore implementation
+- [x] `internal/store/file_test.go` - Test coverage (85.4%)
+- [x] Switch CLI from InMemoryGraphStore to FileGraphStore
 - [x] Behaviors persist to `.floop/nodes.jsonl`
 - [x] Edges persist to `.floop/edges.jsonl`
 

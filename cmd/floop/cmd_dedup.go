@@ -111,13 +111,13 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 
 	switch scope {
 	case store.ScopeLocal:
-		graphStore, err = store.NewBeadsGraphStore(root)
+		graphStore, err = store.NewFileGraphStore(root)
 	case store.ScopeGlobal:
 		homeDir, homeErr := os.UserHomeDir()
 		if homeErr != nil {
 			return fmt.Errorf("failed to get home directory: %w", homeErr)
 		}
-		graphStore, err = store.NewBeadsGraphStore(homeDir)
+		graphStore, err = store.NewFileGraphStore(homeDir)
 	}
 
 	if err != nil {
@@ -295,7 +295,7 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 // runCrossStoreDedup runs deduplication across local and global stores.
 func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.DeduplicatorConfig, dryRun, jsonOut bool) error {
 	// Open local store
-	localStore, err := store.NewBeadsGraphStore(root)
+	localStore, err := store.NewFileGraphStore(root)
 	if err != nil {
 		return fmt.Errorf("failed to open local store: %w", err)
 	}
@@ -306,7 +306,7 @@ func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.Deduplicator
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
-	globalStore, err := store.NewBeadsGraphStore(homeDir)
+	globalStore, err := store.NewFileGraphStore(homeDir)
 	if err != nil {
 		return fmt.Errorf("failed to open global store: %w", err)
 	}

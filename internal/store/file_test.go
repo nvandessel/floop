@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-func TestNewBeadsGraphStore(t *testing.T) {
+func TestNewFileGraphStore(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -23,11 +23,11 @@ func TestNewBeadsGraphStore(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_AddGetNode(t *testing.T) {
+func TestFileGraphStore_AddGetNode(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -65,11 +65,11 @@ func TestBeadsGraphStore_AddGetNode(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_AddNodeRequiresID(t *testing.T) {
+func TestFileGraphStore_AddNodeRequiresID(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -82,11 +82,11 @@ func TestBeadsGraphStore_AddNodeRequiresID(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_UpdateNode(t *testing.T) {
+func TestFileGraphStore_UpdateNode(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -113,11 +113,11 @@ func TestBeadsGraphStore_UpdateNode(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_UpdateNodeNotFound(t *testing.T) {
+func TestFileGraphStore_UpdateNodeNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -130,11 +130,11 @@ func TestBeadsGraphStore_UpdateNodeNotFound(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_DeleteNode(t *testing.T) {
+func TestFileGraphStore_DeleteNode(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -164,11 +164,11 @@ func TestBeadsGraphStore_DeleteNode(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_QueryNodes(t *testing.T) {
+func TestFileGraphStore_QueryNodes(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -187,11 +187,11 @@ func TestBeadsGraphStore_QueryNodes(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_Edges(t *testing.T) {
+func TestFileGraphStore_Edges(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -229,11 +229,11 @@ func TestBeadsGraphStore_Edges(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_Traverse(t *testing.T) {
+func TestFileGraphStore_Traverse(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 
@@ -258,13 +258,13 @@ func TestBeadsGraphStore_Traverse(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_Persistence(t *testing.T) {
+func TestFileGraphStore_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create store and add data
-	store1, err := NewBeadsGraphStore(tmpDir)
+	store1, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 
 	ctx := context.Background()
@@ -277,9 +277,9 @@ func TestBeadsGraphStore_Persistence(t *testing.T) {
 	}
 
 	// Reopen and verify
-	store2, err := NewBeadsGraphStore(tmpDir)
+	store2, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() reopen error = %v", err)
+		t.Fatalf("NewFileGraphStore() reopen error = %v", err)
 	}
 	defer store2.Close()
 
@@ -297,11 +297,11 @@ func TestBeadsGraphStore_Persistence(t *testing.T) {
 	}
 }
 
-func TestBeadsGraphStore_SyncOnlyWhenDirty(t *testing.T) {
+func TestFileGraphStore_SyncOnlyWhenDirty(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 
 	ctx := context.Background()
@@ -326,11 +326,11 @@ func TestBeadsGraphStore_SyncOnlyWhenDirty(t *testing.T) {
 	store.Close()
 }
 
-func TestBeadsGraphStore_GetNodeNotFound(t *testing.T) {
+func TestFileGraphStore_GetNodeNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	store, err := NewBeadsGraphStore(tmpDir)
+	store, err := NewFileGraphStore(tmpDir)
 	if err != nil {
-		t.Fatalf("NewBeadsGraphStore() error = %v", err)
+		t.Fatalf("NewFileGraphStore() error = %v", err)
 	}
 	defer store.Close()
 

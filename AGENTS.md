@@ -74,7 +74,7 @@ feedback-loop/
 ├── cmd/floop/main.go       # CLI entry point
 ├── internal/
 │   ├── models/             # Behavior, Correction, Context, Provenance
-│   ├── store/              # GraphStore interface, InMemoryGraphStore, BeadsGraphStore
+│   ├── store/              # GraphStore interface, InMemoryGraphStore, FileGraphStore
 │   ├── learning/           # CorrectionCapture, BehaviorExtractor, GraphPlacer
 │   ├── activation/         # ContextBuilder, predicate evaluation, conflict resolution
 │   └── assembly/           # Behavior compilation for prompts

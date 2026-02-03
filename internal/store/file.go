@@ -11,10 +11,10 @@ import (
 	"sync"
 )
 
-// BeadsGraphStore implements GraphStore using JSONL files for persistence.
+// FileGraphStore implements GraphStore using JSONL files for persistence.
 // It stores nodes and edges in .floop/nodes.jsonl and .floop/edges.jsonl.
 // Thread-safe for concurrent access.
-type BeadsGraphStore struct {
+type FileGraphStore struct {
 	mu        sync.RWMutex
 	floopDir  string
 	nodesFile string
@@ -38,9 +38,9 @@ type LoadError struct {
 	Error   string `json:"error"`
 }
 
-// NewBeadsGraphStore creates a new BeadsGraphStore rooted at projectRoot.
+// NewFileGraphStore creates a new FileGraphStore rooted at projectRoot.
 // It loads existing data from .floop/nodes.jsonl and .floop/edges.jsonl.
-func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
+func NewFileGraphStore(projectRoot string) (*FileGraphStore, error) {
 	floopDir := filepath.Join(projectRoot, ".floop")
 
 	// Ensure .floop directory exists
@@ -48,7 +48,7 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
 		return nil, fmt.Errorf("failed to create .floop directory: %w", err)
 	}
 
-	s := &BeadsGraphStore{
+	s := &FileGraphStore{
 		floopDir:   floopDir,
 		nodesFile:  filepath.Join(floopDir, "nodes.jsonl"),
 		edgesFile:  filepath.Join(floopDir, "edges.jsonl"),
@@ -69,7 +69,7 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
 }
 
 // loadNodes reads nodes from the JSONL file into memory.
-func (s *BeadsGraphStore) loadNodes() error {
+func (s *FileGraphStore) loadNodes() error {
 	f, err := os.Open(s.nodesFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -104,7 +104,7 @@ func (s *BeadsGraphStore) loadNodes() error {
 }
 
 // loadEdges reads edges from the JSONL file into memory.
-func (s *BeadsGraphStore) loadEdges() error {
+func (s *FileGraphStore) loadEdges() error {
 	f, err := os.Open(s.edgesFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -139,7 +139,7 @@ func (s *BeadsGraphStore) loadEdges() error {
 }
 
 // AddNode adds a node to the store.
-func (s *BeadsGraphStore) AddNode(ctx context.Context, node Node) (string, error) {
+func (s *FileGraphStore) AddNode(ctx context.Context, node Node) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (s *BeadsGraphStore) AddNode(ctx context.Context, node Node) (string, error
 }
 
 // UpdateNode updates an existing node in the store.
-func (s *BeadsGraphStore) UpdateNode(ctx context.Context, node Node) error {
+func (s *FileGraphStore) UpdateNode(ctx context.Context, node Node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -167,7 +167,7 @@ func (s *BeadsGraphStore) UpdateNode(ctx context.Context, node Node) error {
 }
 
 // GetNode retrieves a node by ID. Returns nil if not found.
-func (s *BeadsGraphStore) GetNode(ctx context.Context, id string) (*Node, error) {
+func (s *FileGraphStore) GetNode(ctx context.Context, id string) (*Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -179,7 +179,7 @@ func (s *BeadsGraphStore) GetNode(ctx context.Context, id string) (*Node, error)
 }
 
 // DeleteNode removes a node and its associated edges.
-func (s *BeadsGraphStore) DeleteNode(ctx context.Context, id string) error {
+func (s *FileGraphStore) DeleteNode(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -199,7 +199,7 @@ func (s *BeadsGraphStore) DeleteNode(ctx context.Context, id string) error {
 }
 
 // QueryNodes returns nodes matching the predicate.
-func (s *BeadsGraphStore) QueryNodes(ctx context.Context, predicate map[string]interface{}) ([]Node, error) {
+func (s *FileGraphStore) QueryNodes(ctx context.Context, predicate map[string]interface{}) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -213,7 +213,7 @@ func (s *BeadsGraphStore) QueryNodes(ctx context.Context, predicate map[string]i
 }
 
 // AddEdge adds an edge to the store.
-func (s *BeadsGraphStore) AddEdge(ctx context.Context, edge Edge) error {
+func (s *FileGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -223,7 +223,7 @@ func (s *BeadsGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge matching source, target, and kind.
-func (s *BeadsGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *FileGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -239,7 +239,7 @@ func (s *BeadsGraphStore) RemoveEdge(ctx context.Context, source, target, kind s
 }
 
 // GetEdges returns edges connected to a node.
-func (s *BeadsGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *FileGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -268,7 +268,7 @@ func (s *BeadsGraphStore) GetEdges(ctx context.Context, nodeID string, direction
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
-func (s *BeadsGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *FileGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -280,7 +280,7 @@ func (s *BeadsGraphStore) Traverse(ctx context.Context, start string, edgeKinds 
 	return results, nil
 }
 
-func (s *BeadsGraphStore) traverseRecursive(current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *FileGraphStore) traverseRecursive(current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
 	if depth > maxDepth || visited[current] {
 		return
 	}
@@ -320,7 +320,7 @@ func (s *BeadsGraphStore) traverseRecursive(current string, edgeKinds []string, 
 }
 
 // Sync writes all changes to disk.
-func (s *BeadsGraphStore) Sync(ctx context.Context) error {
+func (s *FileGraphStore) Sync(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -343,7 +343,7 @@ func (s *BeadsGraphStore) Sync(ctx context.Context) error {
 }
 
 // writeNodes writes all nodes to the JSONL file.
-func (s *BeadsGraphStore) writeNodes() error {
+func (s *FileGraphStore) writeNodes() error {
 	f, err := os.Create(s.nodesFile)
 	if err != nil {
 		return err
@@ -360,7 +360,7 @@ func (s *BeadsGraphStore) writeNodes() error {
 }
 
 // writeEdges writes all edges to the JSONL file.
-func (s *BeadsGraphStore) writeEdges() error {
+func (s *FileGraphStore) writeEdges() error {
 	f, err := os.Create(s.edgesFile)
 	if err != nil {
 		return err
@@ -377,7 +377,7 @@ func (s *BeadsGraphStore) writeEdges() error {
 }
 
 // Close syncs and closes the store.
-func (s *BeadsGraphStore) Close() error {
+func (s *FileGraphStore) Close() error {
 	return s.Sync(context.Background())
 }
 

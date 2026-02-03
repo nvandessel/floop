@@ -20,7 +20,7 @@ const (
 	ScopeBoth StoreScope = "both"
 )
 
-// MultiGraphStore implements GraphStore by wrapping two BeadsGraphStore instances:
+// MultiGraphStore implements GraphStore by wrapping two FileGraphStore instances:
 // one for local project behaviors (./.floop/) and one for global user behaviors (~/.floop/).
 // Thread-safe through delegation to thread-safe underlying stores.
 type MultiGraphStore struct {
@@ -35,7 +35,7 @@ type MultiGraphStore struct {
 // writeScope controls where new nodes are written (ScopeLocal, ScopeGlobal, or ScopeBoth).
 func NewMultiGraphStore(projectRoot string, writeScope StoreScope) (*MultiGraphStore, error) {
 	// Create local store
-	localStore, err := NewBeadsGraphStore(projectRoot)
+	localStore, err := NewFileGraphStore(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create local store: %w", err)
 	}
@@ -46,7 +46,7 @@ func NewMultiGraphStore(projectRoot string, writeScope StoreScope) (*MultiGraphS
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	globalStore, err := NewBeadsGraphStore(homeDir)
+	globalStore, err := NewFileGraphStore(homeDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create global store: %w", err)
 	}

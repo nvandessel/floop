@@ -76,7 +76,7 @@ feedback-loop/
 │   │   └── provenance.go      # Provenance, SourceType
 │   ├── store/
 │   │   ├── store.go           # GraphStore interface
-│   │   ├── beads.go           # BeadsGraphStore implementation
+│   │   ├── file.go           # FileGraphStore implementation
 │   │   └── memory.go          # InMemoryGraphStore (for testing)
 │   ├── learning/
 │   │   ├── capture.go         # CorrectionCapture
@@ -503,7 +503,7 @@ const (
 )
 ```
 
-### internal/store/beads.go
+### internal/store/file.go
 
 ```go
 package store
@@ -518,14 +518,14 @@ import (
     "strings"
 )
 
-// BeadsGraphStore implements GraphStore using Beads as the backend
-type BeadsGraphStore struct {
+// FileGraphStore implements GraphStore using Beads as the backend
+type FileGraphStore struct {
     root       string // Path to .behaviors directory
     beadsRoot  string // Path to .beads directory (for the beads CLI)
 }
 
-// NewBeadsGraphStore creates a new BeadsGraphStore
-func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
+// NewFileGraphStore creates a new FileGraphStore
+func NewFileGraphStore(projectRoot string) (*FileGraphStore, error) {
     behaviorsRoot := filepath.Join(projectRoot, ".behaviors")
     beadsRoot := filepath.Join(projectRoot, ".beads")
     
@@ -534,7 +534,7 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
         return nil, fmt.Errorf("failed to create .behaviors directory: %w", err)
     }
     
-    return &BeadsGraphStore{
+    return &FileGraphStore{
         root:      behaviorsRoot,
         beadsRoot: beadsRoot,
     }, nil
@@ -558,64 +558,64 @@ func NewBeadsGraphStore(projectRoot string) (*BeadsGraphStore, error) {
 // The bd CLI can be used for some operations, but we may need to
 // read/write the JSONL directly for full control.
 
-func (s *BeadsGraphStore) AddNode(ctx context.Context, node Node) (string, error) {
+func (s *FileGraphStore) AddNode(ctx context.Context, node Node) (string, error) {
     // TODO: Implement
     // Option 1: Use bd create with custom type
     // Option 2: Write directly to a behaviors.jsonl file
     return "", fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) UpdateNode(ctx context.Context, node Node) error {
+func (s *FileGraphStore) UpdateNode(ctx context.Context, node Node) error {
     // TODO: Implement
     return fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) GetNode(ctx context.Context, id string) (*Node, error) {
+func (s *FileGraphStore) GetNode(ctx context.Context, id string) (*Node, error) {
     // TODO: Implement
     return nil, fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) DeleteNode(ctx context.Context, id string) error {
+func (s *FileGraphStore) DeleteNode(ctx context.Context, id string) error {
     // TODO: Implement
     return fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) QueryNodes(ctx context.Context, predicate map[string]interface{}) ([]Node, error) {
+func (s *FileGraphStore) QueryNodes(ctx context.Context, predicate map[string]interface{}) ([]Node, error) {
     // TODO: Implement
     return nil, fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) AddEdge(ctx context.Context, edge Edge) error {
+func (s *FileGraphStore) AddEdge(ctx context.Context, edge Edge) error {
     // TODO: Implement
     return fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *FileGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
     // TODO: Implement
     return fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *FileGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
     // TODO: Implement
     return nil, fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *FileGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
     // TODO: Implement
     return nil, fmt.Errorf("not implemented")
 }
 
-func (s *BeadsGraphStore) Sync(ctx context.Context) error {
+func (s *FileGraphStore) Sync(ctx context.Context) error {
     // TODO: Implement - ensure all changes are written to disk
     return nil
 }
 
-func (s *BeadsGraphStore) Close() error {
+func (s *FileGraphStore) Close() error {
     return s.Sync(context.Background())
 }
 
 // Helper: run bd command and return output
-func (s *BeadsGraphStore) runBd(args ...string) ([]byte, error) {
+func (s *FileGraphStore) runBd(args ...string) ([]byte, error) {
     cmd := exec.Command("bd", args...)
     cmd.Dir = filepath.Dir(s.beadsRoot)
     return cmd.Output()
@@ -2117,10 +2117,10 @@ floop active --file "db/migrate.py" --json
 
 **Files to create:**
 ```
-internal/store/beads.go  # BeadsGraphStore implementation
+internal/store/file.go  # FileGraphStore implementation
 ```
 
-**Modify**: All commands to use BeadsGraphStore by default.
+**Modify**: All commands to use FileGraphStore by default.
 
 **Success criteria**: 
 ```bash

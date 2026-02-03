@@ -212,7 +212,7 @@ func loadBehaviors(floopDir string) ([]models.Behavior, error) {
 	projectRoot := filepath.Dir(floopDir)
 
 	// Open the graph store
-	graphStore, err := store.NewBeadsGraphStore(projectRoot)
+	graphStore, err := store.NewFileGraphStore(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open graph store: %w", err)
 	}
@@ -244,7 +244,7 @@ func loadBehaviorsWithScope(projectRoot string, scope store.StoreScope) ([]model
 	switch scope {
 	case store.ScopeLocal:
 		// Load from local store only
-		graphStore, err = store.NewBeadsGraphStore(projectRoot)
+		graphStore, err = store.NewFileGraphStore(projectRoot)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open local store: %w", err)
 		}
@@ -255,7 +255,7 @@ func loadBehaviorsWithScope(projectRoot string, scope store.StoreScope) ([]model
 		if err != nil {
 			return nil, fmt.Errorf("failed to get home directory: %w", err)
 		}
-		graphStore, err = store.NewBeadsGraphStore(homeDir)
+		graphStore, err = store.NewFileGraphStore(homeDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open global store: %w", err)
 		}

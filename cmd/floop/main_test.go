@@ -477,7 +477,7 @@ func TestCurationWorkflow(t *testing.T) {
 	}
 
 	// Get behavior ID from store
-	graphStore, err := store.NewBeadsGraphStore(tmpDir)
+	graphStore, err := store.NewFileGraphStore(tmpDir)
 	if err != nil {
 		t.Fatalf("failed to open store: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestCurationWorkflow(t *testing.T) {
 	}
 
 	// Verify node kind changed
-	graphStore, _ = store.NewBeadsGraphStore(tmpDir)
+	graphStore, _ = store.NewFileGraphStore(tmpDir)
 	node, _ := graphStore.GetNode(ctx, behaviorID)
 	if node.Kind != "forgotten-behavior" {
 		t.Errorf("after forget, kind = %q, want 'forgotten-behavior'", node.Kind)
@@ -530,7 +530,7 @@ func TestCurationWorkflow(t *testing.T) {
 	}
 
 	// Verify restored
-	graphStore, _ = store.NewBeadsGraphStore(tmpDir)
+	graphStore, _ = store.NewFileGraphStore(tmpDir)
 	node, _ = graphStore.GetNode(ctx, behaviorID)
 	if node.Kind != "behavior" {
 		t.Errorf("after restore, kind = %q, want 'behavior'", node.Kind)
@@ -554,7 +554,7 @@ func TestCurationWorkflow(t *testing.T) {
 	}
 
 	// Verify deprecated
-	graphStore, _ = store.NewBeadsGraphStore(tmpDir)
+	graphStore, _ = store.NewFileGraphStore(tmpDir)
 	node, _ = graphStore.GetNode(ctx, behaviorID)
 	if node.Kind != "deprecated-behavior" {
 		t.Errorf("after deprecate, kind = %q, want 'deprecated-behavior'", node.Kind)
@@ -577,7 +577,7 @@ func TestCurationWorkflow(t *testing.T) {
 	}
 
 	// Verify restored again
-	graphStore, _ = store.NewBeadsGraphStore(tmpDir)
+	graphStore, _ = store.NewFileGraphStore(tmpDir)
 	node, _ = graphStore.GetNode(ctx, behaviorID)
 	if node.Kind != "behavior" {
 		t.Errorf("after second restore, kind = %q, want 'behavior'", node.Kind)
@@ -629,7 +629,7 @@ func TestMergeWorkflow(t *testing.T) {
 
 	// Get behavior IDs from store
 	ctx := context.Background()
-	graphStore, err := store.NewBeadsGraphStore(tmpDir)
+	graphStore, err := store.NewFileGraphStore(tmpDir)
 	if err != nil {
 		t.Fatalf("failed to open store: %v", err)
 	}
@@ -658,7 +658,7 @@ func TestMergeWorkflow(t *testing.T) {
 	}
 
 	// Verify source is now merged-behavior
-	graphStore, _ = store.NewBeadsGraphStore(tmpDir)
+	graphStore, _ = store.NewFileGraphStore(tmpDir)
 	sourceNode, _ := graphStore.GetNode(ctx, id1)
 	if sourceNode.Kind != "merged-behavior" {
 		t.Errorf("source kind = %q, want 'merged-behavior'", sourceNode.Kind)
@@ -761,7 +761,7 @@ func TestRestoreActiveBehaviorFails(t *testing.T) {
 
 	// Get behavior ID from store
 	ctx := context.Background()
-	graphStore, err := store.NewBeadsGraphStore(tmpDir)
+	graphStore, err := store.NewFileGraphStore(tmpDir)
 	if err != nil {
 		t.Fatalf("failed to open store: %v", err)
 	}

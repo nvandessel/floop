@@ -75,7 +75,7 @@ Review what you learned:
 ./floop learn \
   --wrong "Used print() for debugging output" \
   --right "Use logging.debug() for debug output, logging.info() for normal output" \
-  --file "internal/store/beads.go"
+  --file "internal/store/file.go"
 ```
 
 ### Example 2: Design Insight
@@ -105,7 +105,7 @@ Review what you learned:
 ./floop learn \
   --wrong "Wrote individual test functions" \
   --right "Use table-driven tests with subtests for all Go test functions" \
-  --file "internal/store/beads_test.go"
+  --file "internal/store/file_test.go"
 ```
 
 ## Integration with Development Workflow
@@ -131,7 +131,7 @@ Review what you learned:
 
 ```bash
 # Before editing a Go file:
-./floop active --file "internal/store/beads.go" --json | jq -r '.behaviors[].content.canonical'
+./floop active --file "internal/store/file.go" --json | jq -r '.behaviors[].content.canonical'
 
 # This shows you all relevant behaviors for:
 # - Go language
@@ -143,13 +143,13 @@ Review what you learned:
 
 ```bash
 # Before writing tests:
-./floop active --file "internal/store/beads_test.go" --task "testing"
+./floop active --file "internal/store/file_test.go" --task "testing"
 
 # Capture testing patterns:
 ./floop learn \
   --wrong "Didn't test error cases" \
   --right "Always test both success and error paths in table-driven tests" \
-  --file "internal/store/beads_test.go"
+  --file "internal/store/file_test.go"
 ```
 
 ## Common Patterns to Capture
