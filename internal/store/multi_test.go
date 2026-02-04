@@ -233,17 +233,31 @@ func TestMultiGraphStore_GetNode_PreferLocal(t *testing.T) {
 
 	// Add node to global store
 	globalNode := Node{
-		ID:      "shared-id",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "global"},
+		ID:   "shared-id",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "global content",
+			},
+			"source": "global",
+		},
 	}
 	store.globalStore.AddNode(ctx, globalNode)
 
 	// Add same ID to local store with different content
 	localNode := Node{
-		ID:      "shared-id",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "local"},
+		ID:   "shared-id",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "local-node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "local content",
+			},
+			"source": "local",
+		},
 	}
 	store.localStore.AddNode(ctx, localNode)
 
@@ -255,8 +269,9 @@ func TestMultiGraphStore_GetNode_PreferLocal(t *testing.T) {
 	if result == nil {
 		t.Fatal("GetNode() returned nil")
 	}
-	if result.Content["source"] != "local" {
-		t.Errorf("GetNode() returned source = %v, want local", result.Content["source"])
+	// Check name to verify we got the local version
+	if result.Content["name"] != "local-node" {
+		t.Errorf("GetNode() returned name = %v, want local-node", result.Content["name"])
 	}
 }
 
@@ -276,31 +291,30 @@ func TestMultiGraphStore_QueryNodes_LocalWins(t *testing.T) {
 
 	ctx := context.Background()
 
+	// Helper to create a behavior node with proper structure
+	makeNode := func(id, namePrefix string) Node {
+		return Node{
+			ID:   id,
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": namePrefix + "-" + id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": "content for " + id,
+				},
+			},
+		}
+	}
+
 	// Add nodes to global
-	store.globalStore.AddNode(ctx, Node{
-		ID:      "node-1",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "global"},
-	})
-	store.globalStore.AddNode(ctx, Node{
-		ID:      "node-2",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "global"},
-	})
+	store.globalStore.AddNode(ctx, makeNode("node-1", "global"))
+	store.globalStore.AddNode(ctx, makeNode("node-2", "global"))
 
 	// Override node-1 in local
-	store.localStore.AddNode(ctx, Node{
-		ID:      "node-1",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "local"},
-	})
+	store.localStore.AddNode(ctx, makeNode("node-1", "local"))
 
 	// Add node-3 only in local
-	store.localStore.AddNode(ctx, Node{
-		ID:      "node-3",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"source": "local"},
-	})
+	store.localStore.AddNode(ctx, makeNode("node-3", "local"))
 
 	// Query for all behaviors
 	results, err := store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
@@ -315,8 +329,8 @@ func TestMultiGraphStore_QueryNodes_LocalWins(t *testing.T) {
 
 	// Verify node-1 is from local (local wins)
 	for _, node := range results {
-		if node.ID == "node-1" && node.Content["source"] != "local" {
-			t.Error("node-1 should be from local store (local wins)")
+		if node.ID == "node-1" && node.Content["name"] != "local-node-1" {
+			t.Errorf("node-1 should be from local store (local wins), got name=%v", node.Content["name"])
 		}
 	}
 }
@@ -337,18 +351,30 @@ func TestMultiGraphStore_UpdateNode_FindsCorrectStore(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add node to global store
+	// Add node to global store with proper structure
 	store.globalStore.AddNode(ctx, Node{
-		ID:      "global-node",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"value": 1},
+		ID:   "global-node",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "original content",
+			},
+		},
 	})
 
 	// Update the node
 	err = store.UpdateNode(ctx, Node{
-		ID:      "global-node",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"value": 2},
+		ID:   "global-node",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-node-updated",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "updated content",
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("UpdateNode() failed: %v", err)
@@ -359,23 +385,9 @@ func TestMultiGraphStore_UpdateNode_FindsCorrectStore(t *testing.T) {
 	if err != nil || updated == nil {
 		t.Fatal("failed to get updated node from global store")
 	}
-	// Check value is 2 (could be int or float64 depending on JSON marshaling)
-	val, ok := updated.Content["value"]
-	if !ok {
-		t.Fatal("value field not found in updated node")
-	}
-	// Convert to float64 for comparison
-	var numVal float64
-	switch v := val.(type) {
-	case int:
-		numVal = float64(v)
-	case float64:
-		numVal = v
-	default:
-		t.Fatalf("value has unexpected type: %T", v)
-	}
-	if numVal != 2.0 {
-		t.Errorf("updated value = %v, want 2", numVal)
+	// Check name was updated
+	if updated.Content["name"] != "global-node-updated" {
+		t.Errorf("updated name = %v, want global-node-updated", updated.Content["name"])
 	}
 }
 
@@ -471,9 +483,29 @@ func TestMultiGraphStore_AddEdge(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add nodes
-	store.localStore.AddNode(ctx, Node{ID: "node-a", Kind: "behavior"})
-	store.localStore.AddNode(ctx, Node{ID: "node-b", Kind: "behavior"})
+	// Add nodes with proper structure
+	store.localStore.AddNode(ctx, Node{
+		ID:   "node-a",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "node-a",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "content a",
+			},
+		},
+	})
+	store.localStore.AddNode(ctx, Node{
+		ID:   "node-b",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "node-b",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "content b",
+			},
+		},
+	})
 
 	// Add edge
 	edge := Edge{Source: "node-a", Target: "node-b", Kind: "requires"}

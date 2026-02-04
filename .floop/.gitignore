@@ -1,0 +1,4 @@
+# SQLite database files (source of truth is JSONL)
+*.db
+*.db-shm
+*.db-wal

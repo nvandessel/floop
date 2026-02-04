@@ -23,6 +23,21 @@ func newTestRootCmd() *cobra.Command {
 	return rootCmd
 }
 
+// isolateHome sets HOME to a temp directory to avoid touching real ~/.floop/
+// MUST be called for any test that creates stores
+func isolateHome(t *testing.T, tmpDir string) {
+	t.Helper()
+	tmpHome := filepath.Join(tmpDir, "home")
+	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+		t.Fatalf("Failed to create temp home: %v", err)
+	}
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() {
+		os.Setenv("HOME", oldHome)
+	})
+}
+
 func TestSplitLines(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -110,6 +125,7 @@ func TestNewListCmd(t *testing.T) {
 func TestInitCmdCreatesDirectory(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Run init command with root command context
 	rootCmd := newTestRootCmd()
@@ -141,6 +157,7 @@ func TestInitCmdCreatesDirectory(t *testing.T) {
 
 func TestLearnCmdRequiresInit(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newLearnCmd())
@@ -157,6 +174,7 @@ func TestLearnCmdRequiresInit(t *testing.T) {
 
 func TestLearnCmdCapturesCorrection(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize first
 	rootCmd := newTestRootCmd()
@@ -220,6 +238,7 @@ func TestLearnCmdCapturesCorrection(t *testing.T) {
 
 func TestListCorrectionsEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize
 	rootCmd := newTestRootCmd()
@@ -239,6 +258,7 @@ func TestListCorrectionsEmpty(t *testing.T) {
 
 func TestListCorrectionsNotInitialized(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// List should succeed gracefully
 	err := listCorrections(tmpDir, false)
@@ -249,6 +269,7 @@ func TestListCorrectionsNotInitialized(t *testing.T) {
 
 func TestListCmdGlobalAndAllFlagsConflict(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize local
 	rootCmd := newTestRootCmd()
@@ -275,6 +296,7 @@ func TestListCmdGlobalAndAllFlagsConflict(t *testing.T) {
 
 func TestListCmdWithGlobalFlag(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize local
 	rootCmd := newTestRootCmd()
@@ -312,6 +334,7 @@ func TestListCmdWithGlobalFlag(t *testing.T) {
 
 func TestListCmdWithAllFlag(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize local
 	rootCmd := newTestRootCmd()
@@ -409,6 +432,7 @@ func TestNewMergeCmd(t *testing.T) {
 
 func TestForgetCmdRequiresInit(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newForgetCmd())
@@ -425,6 +449,7 @@ func TestForgetCmdRequiresInit(t *testing.T) {
 
 func TestDeprecateCmdRequiresReason(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize first
 	rootCmd := newTestRootCmd()
@@ -451,6 +476,7 @@ func TestDeprecateCmdRequiresReason(t *testing.T) {
 
 func TestCurationWorkflow(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize
 	rootCmd := newTestRootCmd()
@@ -587,6 +613,7 @@ func TestCurationWorkflow(t *testing.T) {
 
 func TestMergeWorkflow(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize
 	rootCmd := newTestRootCmd()
@@ -704,6 +731,7 @@ func TestMergeWorkflow(t *testing.T) {
 
 func TestForgetBehaviorNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize
 	rootCmd := newTestRootCmd()
@@ -734,6 +762,7 @@ func TestForgetBehaviorNotFound(t *testing.T) {
 
 func TestRestoreActiveBehaviorFails(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize
 	rootCmd := newTestRootCmd()
