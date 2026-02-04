@@ -95,12 +95,6 @@ func newListCmd() *cobra.Command {
 				}
 				json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			} else {
-				if len(behaviors) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "No behaviors learned yet.")
-					fmt.Fprintln(cmd.OutOrStdout(), "\nUse 'floop learn --wrong \"X\" --right \"Y\"' to capture corrections.")
-					return nil
-				}
-
 				// Show scope in header
 				scopeStr := "local"
 				if globalFlag {
@@ -108,6 +102,13 @@ func newListCmd() *cobra.Command {
 				} else if allFlag {
 					scopeStr = "all (local + global)"
 				}
+
+				if len(behaviors) == 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "No behaviors learned yet (%s scope).\n", scopeStr)
+					fmt.Fprintln(cmd.OutOrStdout(), "\nUse 'floop learn --wrong \"X\" --right \"Y\"' to capture corrections.")
+					return nil
+				}
+
 				fmt.Fprintf(cmd.OutOrStdout(), "Learned behaviors - %s (%d):\n\n", scopeStr, len(behaviors))
 
 				for i, b := range behaviors {

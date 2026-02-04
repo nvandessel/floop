@@ -7,9 +7,24 @@ import (
 	"testing"
 )
 
+// isolateHome sets HOME to a temp directory to avoid touching real ~/.floop/
+func isolateHome(t *testing.T, tmpDir string) {
+	t.Helper()
+	tmpHome := filepath.Join(tmpDir, "home")
+	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+		t.Fatalf("Failed to create temp home: %v", err)
+	}
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpHome)
+	t.Cleanup(func() {
+		os.Setenv("HOME", oldHome)
+	})
+}
+
 func TestNewServer(t *testing.T) {
 	// Create temp directory for test
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	// Initialize .floop directory
 	floopDir := filepath.Join(tmpDir, ".floop")
@@ -46,6 +61,7 @@ func TestNewServer(t *testing.T) {
 func TestNewServer_CreatesFloopDir(t *testing.T) {
 	// Create temp directory WITHOUT .floop
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 
 	cfg := &Config{
 		Name:    "test-server",
@@ -68,6 +84,7 @@ func TestNewServer_CreatesFloopDir(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
 	if err := os.MkdirAll(floopDir, 0755); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
@@ -97,6 +114,7 @@ func TestClose(t *testing.T) {
 
 func TestRun_CancelledContext(t *testing.T) {
 	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
 	if err := os.MkdirAll(floopDir, 0755); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
