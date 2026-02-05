@@ -48,7 +48,10 @@ func NewSQLiteGraphStore(projectRoot string) (*SQLiteGraphStore, error) {
 	}
 
 	// Set connection pool settings
-	db.SetMaxOpenConns(1) // SQLite works best with single writer
+	db.SetMaxOpenConns(25)                 // Allow multiple readers
+	db.SetMaxIdleConns(5)                  // Keep some connections warm
+	db.SetConnMaxLifetime(time.Hour)       // Recycle connections after 1 hour
+	db.SetConnMaxIdleTime(10 * time.Minute) // Close idle connections after 10 minutes
 
 	ctx := context.Background()
 

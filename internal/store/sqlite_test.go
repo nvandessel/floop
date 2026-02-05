@@ -575,3 +575,21 @@ func TestSQLiteGraphStore_DirtyTracking(t *testing.T) {
 		t.Error("IsDirty() = true, want false after Sync")
 	}
 }
+
+func TestSQLiteGraphStore_ConnectionPoolSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	// Get the pool stats
+	stats := store.db.Stats()
+
+	// Verify pool settings are applied
+	// MaxOpenConns should be 25
+	if stats.MaxOpenConnections != 25 {
+		t.Errorf("MaxOpenConnections = %d, want 25", stats.MaxOpenConnections)
+	}
+}
