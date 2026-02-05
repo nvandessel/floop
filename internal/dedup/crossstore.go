@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -50,6 +51,9 @@ type CrossStoreDeduplicator struct {
 
 	// config contains deduplication settings
 	config DeduplicatorConfig
+
+	// llmClient is the optional LLM client for semantic comparison
+	llmClient llm.Client
 }
 
 // NewCrossStoreDeduplicator creates a new CrossStoreDeduplicator with the given
@@ -71,6 +75,18 @@ func NewCrossStoreDeduplicatorWithConfig(localStore, globalStore store.GraphStor
 		globalStore: globalStore,
 		merger:      merger,
 		config:      config,
+	}
+}
+
+// NewCrossStoreDeduplicatorWithLLM creates a new CrossStoreDeduplicator with
+// LLM support for semantic comparison.
+func NewCrossStoreDeduplicatorWithLLM(localStore, globalStore store.GraphStore, merger *BehaviorMerger, config DeduplicatorConfig, client llm.Client) *CrossStoreDeduplicator {
+	return &CrossStoreDeduplicator{
+		localStore:  localStore,
+		globalStore: globalStore,
+		merger:      merger,
+		config:      config,
+		llmClient:   client,
 	}
 }
 
@@ -275,9 +291,23 @@ func nodeToBehavior(node store.Node) models.Behavior {
 	return b
 }
 
-// computeSimilarity calculates similarity between two behaviors using
-// Jaccard word overlap combined with when-condition overlap.
+// computeSimilarity calculates similarity between two behaviors.
+// Uses LLM-based comparison if available and configured, otherwise falls back
+// to Jaccard word overlap combined with when-condition overlap.
 func (d *CrossStoreDeduplicator) computeSimilarity(a, b *models.Behavior) float64 {
+	// Try LLM-based comparison if configured and available
+	if d.config.UseLLM && d.llmClient != nil && d.llmClient.Available() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := d.llmClient.CompareBehaviors(ctx, a, b)
+		if err == nil && result != nil {
+			return result.SemanticSimilarity
+		}
+		// Fall through to Jaccard on error
+	}
+
+	// Fallback: weighted Jaccard similarity
 	score := 0.0
 
 	// Check 'when' overlap (40% weight)

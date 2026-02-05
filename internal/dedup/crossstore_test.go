@@ -3,6 +3,7 @@ package dedup
 import (
 	"testing"
 
+	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -425,4 +426,109 @@ func TestValuesEqual(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewCrossStoreDeduplicatorWithLLM(t *testing.T) {
+	localStore := store.NewInMemoryGraphStore()
+	globalStore := store.NewInMemoryGraphStore()
+	merger := NewBehaviorMerger(MergerConfig{})
+	config := DeduplicatorConfig{
+		SimilarityThreshold: 0.9,
+		UseLLM:              true,
+	}
+	mockClient := llm.NewMockClient()
+
+	dedup := NewCrossStoreDeduplicatorWithLLM(localStore, globalStore, merger, config, mockClient)
+
+	if dedup.localStore != localStore {
+		t.Error("expected local store to be set")
+	}
+	if dedup.globalStore != globalStore {
+		t.Error("expected global store to be set")
+	}
+	if dedup.llmClient != mockClient {
+		t.Error("expected LLM client to be set")
+	}
+	if !dedup.config.UseLLM {
+		t.Error("expected UseLLM to be true")
+	}
+}
+
+func TestCrossStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
+	t.Run("uses LLM when available and configured", func(t *testing.T) {
+		mockClient := llm.NewMockClient().
+			WithComparisonResult(&llm.ComparisonResult{
+				SemanticSimilarity: 0.92,
+				IntentMatch:        true,
+			})
+
+		dedup := &CrossStoreDeduplicator{
+			config:    DeduplicatorConfig{UseLLM: true},
+			llmClient: mockClient,
+		}
+
+		a := &models.Behavior{Content: models.BehaviorContent{Canonical: "use pathlib"}}
+		b := &models.Behavior{Content: models.BehaviorContent{Canonical: "prefer pathlib"}}
+
+		sim := dedup.computeSimilarity(a, b)
+
+		if sim != 0.92 {
+			t.Errorf("expected LLM similarity 0.92, got %f", sim)
+		}
+
+		if mockClient.CompareCallCount() != 1 {
+			t.Errorf("expected 1 LLM call, got %d", mockClient.CompareCallCount())
+		}
+	})
+
+	t.Run("falls back to Jaccard when LLM disabled", func(t *testing.T) {
+		mockClient := llm.NewMockClient()
+
+		dedup := &CrossStoreDeduplicator{
+			config:    DeduplicatorConfig{UseLLM: false},
+			llmClient: mockClient,
+		}
+
+		a := &models.Behavior{
+			Content: models.BehaviorContent{Canonical: "use pathlib"},
+			When:    map[string]interface{}{"language": "python"},
+		}
+		b := &models.Behavior{
+			Content: models.BehaviorContent{Canonical: "use pathlib"},
+			When:    map[string]interface{}{"language": "python"},
+		}
+
+		sim := dedup.computeSimilarity(a, b)
+
+		if sim != 1.0 {
+			t.Errorf("expected Jaccard similarity 1.0, got %f", sim)
+		}
+
+		if mockClient.CompareCallCount() != 0 {
+			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompareCallCount())
+		}
+	})
+
+	t.Run("handles nil LLM client gracefully", func(t *testing.T) {
+		dedup := &CrossStoreDeduplicator{
+			config:    DeduplicatorConfig{UseLLM: true},
+			llmClient: nil,
+		}
+
+		a := &models.Behavior{
+			Content: models.BehaviorContent{Canonical: "hello"},
+			When:    map[string]interface{}{},
+		}
+		b := &models.Behavior{
+			Content: models.BehaviorContent{Canonical: "hello"},
+			When:    map[string]interface{}{},
+		}
+
+		// Should not panic
+		sim := dedup.computeSimilarity(a, b)
+
+		if sim != 1.0 {
+			t.Errorf("expected Jaccard similarity 1.0, got %f", sim)
+		}
+	})
 }

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -14,9 +16,10 @@ import (
 // StoreDeduplicator implements the Deduplicator interface for a single store.
 // It provides methods for finding and merging duplicate behaviors within a store.
 type StoreDeduplicator struct {
-	store  store.GraphStore
-	merger *BehaviorMerger
-	config DeduplicatorConfig
+	store     store.GraphStore
+	merger    *BehaviorMerger
+	config    DeduplicatorConfig
+	llmClient llm.Client
 }
 
 // NewStoreDeduplicator creates a new StoreDeduplicator with the given store and configuration.
@@ -25,6 +28,16 @@ func NewStoreDeduplicator(s store.GraphStore, merger *BehaviorMerger, config Ded
 		store:  s,
 		merger: merger,
 		config: config,
+	}
+}
+
+// NewStoreDeduplicatorWithLLM creates a new StoreDeduplicator with LLM support.
+func NewStoreDeduplicatorWithLLM(s store.GraphStore, merger *BehaviorMerger, config DeduplicatorConfig, client llm.Client) *StoreDeduplicator {
+	return &StoreDeduplicator{
+		store:     s,
+		merger:    merger,
+		config:    config,
+		llmClient: client,
 	}
 }
 
@@ -181,9 +194,23 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 	return report, nil
 }
 
-// computeSimilarity calculates similarity between two behaviors using
-// Jaccard word overlap combined with when-condition overlap.
+// computeSimilarity calculates similarity between two behaviors.
+// Uses LLM-based comparison if available and configured, otherwise falls back
+// to Jaccard word overlap combined with when-condition overlap.
 func (d *StoreDeduplicator) computeSimilarity(a, b *models.Behavior) float64 {
+	// Try LLM-based comparison if configured and available
+	if d.config.UseLLM && d.llmClient != nil && d.llmClient.Available() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := d.llmClient.CompareBehaviors(ctx, a, b)
+		if err == nil && result != nil {
+			return result.SemanticSimilarity
+		}
+		// Fall through to Jaccard on error
+	}
+
+	// Fallback: weighted Jaccard similarity
 	score := 0.0
 
 	// Check 'when' overlap (40% weight)
