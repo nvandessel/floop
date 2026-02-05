@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/utils"
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
@@ -187,9 +188,9 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 		behaviorContent = make(map[string]interface{})
 	}
 
-	canonical, _ := behaviorContent["canonical"].(string)
-	expanded, _ := behaviorContent["expanded"].(string)
-	summary, _ := behaviorContent["summary"].(string)
+	canonical := utils.GetString(behaviorContent, "canonical", "")
+	expanded := utils.GetString(behaviorContent, "expanded", "")
+	summary := utils.GetString(behaviorContent, "summary", "")
 	structuredRaw, _ := behaviorContent["structured"]
 	tagsRaw, _ := behaviorContent["tags"]
 
@@ -209,10 +210,10 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	}
 
 	// Get other fields
-	name, _ := content["name"].(string)
+	name := utils.GetString(content, "name", "")
 	// behaviorType is the specific type (directive, constraint, etc.)
 	// stored in content["kind"], used for reconstruction
-	behaviorType, _ := content["kind"].(string)
+	behaviorType := utils.GetString(content, "kind", "")
 	// kind is the node kind - can be "behavior", "forgotten-behavior", "merged-behavior", etc.
 	// Use the original node.Kind to preserve special states
 	kind := node.Kind
@@ -234,9 +235,9 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	if provenance == nil {
 		provenance = make(map[string]interface{})
 	}
-	sourceType, _ := provenance["source_type"].(string)
-	correctionID, _ := provenance["correction_id"].(string)
-	createdAtStr, _ := provenance["created_at"].(string)
+	sourceType := utils.GetString(provenance, "source_type", "")
+	correctionID := utils.GetString(provenance, "correction_id", "")
+	createdAtStr := utils.GetString(provenance, "created_at", "")
 
 	// Relationships
 	requiresRaw, _ := content["requires"]
@@ -267,15 +268,9 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	}
 
 	// Metadata
-	confidence, _ := metadata["confidence"].(float64)
-	if confidence == 0 {
-		confidence = 0.6
-	}
-	priority, _ := metadata["priority"].(float64)
-	scope, _ := metadata["scope"].(string)
-	if scope == "" {
-		scope = "local"
-	}
+	confidence := utils.GetFloat64(metadata, "confidence", 0.6)
+	priority := utils.GetFloat64(metadata, "priority", 0)
+	scope := utils.GetString(metadata, "scope", "local")
 
 	// Collect extra metadata fields (not confidence, priority, scope, stats)
 	knownMetadataFields := map[string]bool{
@@ -357,12 +352,12 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	if stats == nil {
 		stats = make(map[string]interface{})
 	}
-	timesActivated, _ := stats["times_activated"].(float64)
-	timesFollowed, _ := stats["times_followed"].(float64)
-	timesOverridden, _ := stats["times_overridden"].(float64)
-	timesConfirmed, _ := stats["times_confirmed"].(float64)
-	lastActivated, _ := stats["last_activated"].(string)
-	lastConfirmed, _ := stats["last_confirmed"].(string)
+	timesActivated := utils.GetFloat64(stats, "times_activated", 0)
+	timesFollowed := utils.GetFloat64(stats, "times_followed", 0)
+	timesOverridden := utils.GetFloat64(stats, "times_overridden", 0)
+	timesConfirmed := utils.GetFloat64(stats, "times_confirmed", 0)
+	lastActivated := utils.GetString(stats, "last_activated", "")
+	lastConfirmed := utils.GetString(stats, "last_confirmed", "")
 
 	_, err = s.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO behavior_stats (
