@@ -145,6 +145,7 @@ END;
 
 // InitSchema initializes the database schema.
 // It creates all tables and applies migrations as needed.
+// Runs integrity validation before migrations on existing databases.
 func InitSchema(ctx context.Context, db *sql.DB) error {
 	// Check current schema version
 	currentVersion, err := getSchemaVersion(ctx, db)
@@ -154,6 +155,11 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("failed to create schema: %w", err)
 		}
 		return nil
+	}
+
+	// Validate database integrity before migrations
+	if err := ValidateIntegrity(ctx, db); err != nil {
+		return fmt.Errorf("database integrity check failed: %w", err)
 	}
 
 	// Apply migrations if needed
@@ -206,6 +212,50 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
 	// Currently only one version, no migrations needed
 	// When we add v2, migrations go here
 	_ = currentVersion
+	return nil
+}
+
+// ValidateIntegrity runs SQLite integrity checks on the database.
+// It runs PRAGMA integrity_check and PRAGMA foreign_key_check.
+// Returns an error if any issues are found.
+func ValidateIntegrity(ctx context.Context, db *sql.DB) error {
+	// Run PRAGMA integrity_check
+	rows, err := db.QueryContext(ctx, `PRAGMA integrity_check`)
+	if err != nil {
+		return fmt.Errorf("failed to run integrity_check: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return fmt.Errorf("failed to scan integrity_check result: %w", err)
+		}
+		if result != "ok" {
+			return fmt.Errorf("integrity_check failed: %s", result)
+		}
+	}
+
+	// Run PRAGMA foreign_key_check
+	fkRows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("failed to run foreign_key_check: %w", err)
+	}
+	defer fkRows.Close()
+
+	var fkErrors []string
+	for fkRows.Next() {
+		var table, rowid, parent, fkid string
+		if err := fkRows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return fmt.Errorf("failed to scan foreign_key_check result: %w", err)
+		}
+		fkErrors = append(fkErrors, fmt.Sprintf("table=%s rowid=%s parent=%s fkid=%s", table, rowid, parent, fkid))
+	}
+
+	if len(fkErrors) > 0 {
+		return fmt.Errorf("foreign_key_check failed: %v", fkErrors)
+	}
+
 	return nil
 }
 

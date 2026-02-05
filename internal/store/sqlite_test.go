@@ -708,3 +708,70 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+func TestValidateIntegrity(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Integrity check should pass on a fresh database
+	if err := ValidateIntegrity(ctx, store.db); err != nil {
+		t.Errorf("ValidateIntegrity() on fresh DB error = %v", err)
+	}
+}
+
+func TestValidateIntegrity_WithData(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add some data
+	store.AddNode(ctx, Node{
+		ID:   "test-1",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test content",
+			},
+		},
+	})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires"})
+
+	// Integrity check should still pass
+	if err := ValidateIntegrity(ctx, store.db); err != nil {
+		t.Errorf("ValidateIntegrity() with data error = %v", err)
+	}
+}
+
+func TestInitSchema_RunsIntegrityCheck(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create first store to initialize schema
+	store1, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	store1.Close()
+
+	// Re-open - this should trigger InitSchema with integrity check
+	store2, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() reopen error = %v", err)
+	}
+	defer store2.Close()
+
+	// If we got here, integrity check passed during InitSchema
+	// (The test would fail with an error if integrity check failed)
+}
