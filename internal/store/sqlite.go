@@ -874,16 +874,36 @@ func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string
 }
 
 // Sync exports dirty behaviors to JSONL files.
+// Uses incremental export when possible: only processes dirty behaviors
+// instead of full table scans.
 func (s *SQLiteGraphStore) Sync(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Export all behaviors to nodes.jsonl
-	if err := s.exportNodesToJSONL(ctx); err != nil {
-		return fmt.Errorf("failed to export nodes: %w", err)
+	// Check if we have dirty behaviors
+	dirtyOps, err := s.getDirtyOperations(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get dirty operations: %w", err)
 	}
 
-	// Export all edges to edges.jsonl
+	// If there are dirty behaviors, use incremental export
+	if len(dirtyOps) > 0 {
+		if err := s.incrementalExportNodes(ctx, dirtyOps); err != nil {
+			// Fall back to full export on error
+			if err := s.exportNodesToJSONL(ctx); err != nil {
+				return fmt.Errorf("failed to export nodes: %w", err)
+			}
+		}
+	} else {
+		// No dirty behaviors, but JSONL file might not exist - ensure it does
+		if _, err := os.Stat(s.nodesFile); os.IsNotExist(err) {
+			if err := s.exportNodesToJSONL(ctx); err != nil {
+				return fmt.Errorf("failed to export nodes: %w", err)
+			}
+		}
+	}
+
+	// Export all edges to edges.jsonl (edges don't have dirty tracking yet)
 	if err := s.exportEdgesToJSONL(ctx); err != nil {
 		return fmt.Errorf("failed to export edges: %w", err)
 	}
@@ -894,6 +914,111 @@ func (s *SQLiteGraphStore) Sync(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// dirtyOperation represents a dirty behavior and its operation type.
+type dirtyOperation struct {
+	BehaviorID string
+	Operation  string // "insert", "update", "delete"
+}
+
+// getDirtyOperations returns all dirty behaviors and their operation types.
+func (s *SQLiteGraphStore) getDirtyOperations(ctx context.Context) ([]dirtyOperation, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT behavior_id, operation FROM dirty_behaviors`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query dirty behaviors: %w", err)
+	}
+	defer rows.Close()
+
+	var ops []dirtyOperation
+	for rows.Next() {
+		var op dirtyOperation
+		if err := rows.Scan(&op.BehaviorID, &op.Operation); err != nil {
+			return nil, fmt.Errorf("failed to scan dirty operation: %w", err)
+		}
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+// incrementalExportNodes performs an incremental export of only dirty behaviors.
+// It reads the existing JSONL, applies changes, and writes back.
+func (s *SQLiteGraphStore) incrementalExportNodes(ctx context.Context, dirtyOps []dirtyOperation) error {
+	// Build lookup maps
+	deletedIDs := make(map[string]bool)
+	updatedIDs := make(map[string]bool)
+	for _, op := range dirtyOps {
+		if op.Operation == "delete" {
+			deletedIDs[op.BehaviorID] = true
+		} else {
+			updatedIDs[op.BehaviorID] = true
+		}
+	}
+
+	// Read existing nodes from JSONL (if exists)
+	existingNodes := make(map[string]Node)
+	if _, err := os.Stat(s.nodesFile); err == nil {
+		nodes, err := s.readNodesFromJSONL()
+		if err != nil {
+			return fmt.Errorf("failed to read existing nodes: %w", err)
+		}
+		for _, node := range nodes {
+			existingNodes[node.ID] = node
+		}
+	}
+
+	// Remove deleted nodes
+	for id := range deletedIDs {
+		delete(existingNodes, id)
+	}
+
+	// Fetch and update changed nodes from DB
+	for id := range updatedIDs {
+		node, err := s.getNodeUnlocked(ctx, id)
+		if err != nil {
+			return fmt.Errorf("failed to get updated node %s: %w", id, err)
+		}
+		if node != nil {
+			existingNodes[node.ID] = *node
+		}
+	}
+
+	// Write all nodes back to file
+	f, err := os.Create(s.nodesFile)
+	if err != nil {
+		return fmt.Errorf("failed to create nodes file: %w", err)
+	}
+	defer f.Close()
+
+	encoder := json.NewEncoder(f)
+	for _, node := range existingNodes {
+		if err := encoder.Encode(node); err != nil {
+			return fmt.Errorf("failed to encode node: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// readNodesFromJSONL reads nodes from the JSONL file.
+func (s *SQLiteGraphStore) readNodesFromJSONL() ([]Node, error) {
+	f, err := os.Open(s.nodesFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open nodes file: %w", err)
+	}
+	defer f.Close()
+
+	var nodes []Node
+	decoder := json.NewDecoder(f)
+	for decoder.More() {
+		var node Node
+		if err := decoder.Decode(&node); err != nil {
+			// Skip malformed lines
+			continue
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, nil
 }
 
 // exportNodesToJSONL exports all behaviors to the nodes.jsonl file.

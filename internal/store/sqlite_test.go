@@ -593,3 +593,118 @@ func TestSQLiteGraphStore_ConnectionPoolSettings(t *testing.T) {
 		t.Errorf("MaxOpenConnections = %d, want 25", stats.MaxOpenConnections)
 	}
 }
+
+func TestSQLiteGraphStore_IncrementalExport(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add two behaviors and sync
+	store.AddNode(ctx, Node{
+		ID:   "b-1",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Behavior 1",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "First behavior",
+			},
+		},
+	})
+	store.AddNode(ctx, Node{
+		ID:   "b-2",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Behavior 2",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Second behavior",
+			},
+		},
+	})
+
+	// First sync - full export
+	if err := store.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Get dirty IDs - should be empty after sync
+	dirtyIDs, err := store.GetDirtyBehaviorIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetDirtyBehaviorIDs() error = %v", err)
+	}
+	if len(dirtyIDs) != 0 {
+		t.Errorf("After sync, dirty count = %d, want 0", len(dirtyIDs))
+	}
+
+	// Update only one behavior
+	store.UpdateNode(ctx, Node{
+		ID:   "b-1",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Behavior 1 Updated",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "First behavior updated",
+			},
+		},
+	})
+
+	// Only b-1 should be dirty
+	dirtyIDs, err = store.GetDirtyBehaviorIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetDirtyBehaviorIDs() error = %v", err)
+	}
+	if len(dirtyIDs) != 1 {
+		t.Errorf("After update, dirty count = %d, want 1", len(dirtyIDs))
+	}
+	if len(dirtyIDs) == 1 && dirtyIDs[0] != "b-1" {
+		t.Errorf("Dirty ID = %s, want b-1", dirtyIDs[0])
+	}
+
+	// Sync should use incremental export (only dirty behaviors)
+	if err := store.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Dirty should be cleared
+	dirtyIDs, err = store.GetDirtyBehaviorIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetDirtyBehaviorIDs() error = %v", err)
+	}
+	if len(dirtyIDs) != 0 {
+		t.Errorf("After incremental sync, dirty count = %d, want 0", len(dirtyIDs))
+	}
+
+	// Verify the file still contains both behaviors
+	nodesFile := filepath.Join(tmpDir, ".floop", "nodes.jsonl")
+	content, err := os.ReadFile(nodesFile)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	contentStr := string(content)
+	if !contains(contentStr, "b-1") || !contains(contentStr, "b-2") {
+		t.Error("nodes.jsonl should contain both behaviors")
+	}
+	if !contains(contentStr, "First behavior updated") {
+		t.Error("nodes.jsonl should contain the updated content")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
