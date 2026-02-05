@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -31,15 +32,15 @@ func newListCmd() *cobra.Command {
 			}
 
 			// Determine scope
-			scope := store.ScopeLocal
+			scope := constants.ScopeLocal
 			if globalFlag {
-				scope = store.ScopeGlobal
+				scope = constants.ScopeGlobal
 			} else if allFlag {
-				scope = store.ScopeBoth
+				scope = constants.ScopeBoth
 			}
 
 			// Check initialization based on scope
-			if scope == store.ScopeLocal || scope == store.ScopeBoth {
+			if scope == constants.ScopeLocal || scope == constants.ScopeBoth {
 				floopDir := filepath.Join(root, ".floop")
 				if _, err := os.Stat(floopDir); os.IsNotExist(err) {
 					if jsonOut {
@@ -53,11 +54,11 @@ func newListCmd() *cobra.Command {
 				}
 			}
 
-			if scope == store.ScopeGlobal || scope == store.ScopeBoth {
+			if scope == constants.ScopeGlobal || scope == constants.ScopeBoth {
 				globalPath, err := store.GlobalFloopPath()
 				if err == nil {
 					if _, err := os.Stat(globalPath); os.IsNotExist(err) {
-						if scope == store.ScopeGlobal {
+						if scope == constants.ScopeGlobal {
 							if jsonOut {
 								json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
 									"error": "global .floop not initialized",
@@ -87,18 +88,18 @@ func newListCmd() *cobra.Command {
 					"count":     len(behaviors),
 				}
 				if globalFlag {
-					result["scope"] = "global"
+					result["scope"] = string(constants.ScopeGlobal)
 				} else if allFlag {
 					result["scope"] = "all"
 				} else {
-					result["scope"] = "local"
+					result["scope"] = string(constants.ScopeLocal)
 				}
 				json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			} else {
 				// Show scope in header
-				scopeStr := "local"
+				scopeStr := string(constants.ScopeLocal)
 				if globalFlag {
-					scopeStr = "global"
+					scopeStr = string(constants.ScopeGlobal)
 				} else if allFlag {
 					scopeStr = "all (local + global)"
 				}
@@ -237,20 +238,20 @@ func loadBehaviors(floopDir string) ([]models.Behavior, error) {
 }
 
 // loadBehaviorsWithScope loads behaviors from the specified scope (local, global, or both).
-func loadBehaviorsWithScope(projectRoot string, scope store.StoreScope) ([]models.Behavior, error) {
+func loadBehaviorsWithScope(projectRoot string, scope constants.Scope) ([]models.Behavior, error) {
 	ctx := context.Background()
 	var graphStore store.GraphStore
 	var err error
 
 	switch scope {
-	case store.ScopeLocal:
+	case constants.ScopeLocal:
 		// Load from local store only
 		graphStore, err = store.NewFileGraphStore(projectRoot)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open local store: %w", err)
 		}
 
-	case store.ScopeGlobal:
+	case constants.ScopeGlobal:
 		// Load from global store only
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -261,9 +262,9 @@ func loadBehaviorsWithScope(projectRoot string, scope store.StoreScope) ([]model
 			return nil, fmt.Errorf("failed to open global store: %w", err)
 		}
 
-	case store.ScopeBoth:
+	case constants.ScopeBoth:
 		// Load from both stores using MultiGraphStore
-		graphStore, err = store.NewMultiGraphStore(projectRoot, store.ScopeLocal)
+		graphStore, err = store.NewMultiGraphStore(projectRoot, constants.ScopeLocal)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open multi-store: %w", err)
 		}
@@ -318,7 +319,7 @@ Use --json for machine-readable output suitable for agent consumption.`,
 			}
 
 			// Load all behaviors from both local and global stores
-			behaviors, err := loadBehaviorsWithScope(root, store.ScopeBoth)
+			behaviors, err := loadBehaviorsWithScope(root, constants.ScopeBoth)
 			if err != nil {
 				return fmt.Errorf("failed to load behaviors: %w", err)
 			}

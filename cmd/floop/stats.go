@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
@@ -33,12 +34,9 @@ Examples:
 			scope, _ := cmd.Flags().GetString("scope")
 
 			// Parse scope
-			storeScope := store.ScopeLocal
-			switch scope {
-			case "global":
-				storeScope = store.ScopeGlobal
-			case "both":
-				storeScope = store.ScopeBoth
+			storeScope := constants.Scope(scope)
+			if !storeScope.Valid() {
+				storeScope = constants.ScopeLocal
 			}
 
 			// Open graph store

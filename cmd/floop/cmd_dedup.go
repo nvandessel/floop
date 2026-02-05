@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/config"
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/llm"
@@ -41,15 +42,8 @@ Examples:
 			scope, _ := cmd.Flags().GetString("scope")
 
 			// Validate scope
-			var storeScope store.StoreScope
-			switch scope {
-			case "local":
-				storeScope = store.ScopeLocal
-			case "global":
-				storeScope = store.ScopeGlobal
-			case "both":
-				storeScope = store.ScopeBoth
-			default:
+			storeScope := constants.Scope(scope)
+			if !storeScope.Valid() {
 				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
 			}
 

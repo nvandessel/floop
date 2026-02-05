@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
@@ -271,7 +272,7 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	priority, _ := metadata["priority"].(float64)
 	scope, _ := metadata["scope"].(string)
 	if scope == "" {
-		scope = "local"
+		scope = string(constants.ScopeLocal)
 	}
 
 	// Collect extra metadata fields (not confidence, priority, scope, stats)
@@ -393,7 +394,7 @@ func (s *SQLiteGraphStore) addGenericNode(ctx context.Context, node Node) (strin
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, node.ID, node.ID, node.Kind,
 		"", contentJSON,
-		0.6, 0, "local",
+		0.6, 0, string(constants.ScopeLocal),
 		now, now)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert generic node: %w", err)

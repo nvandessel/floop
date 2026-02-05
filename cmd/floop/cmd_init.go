@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/hooks"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
@@ -91,7 +92,7 @@ created: %s
 				"path":   floopDir,
 			}
 			if globalInit {
-				result["scope"] = "global"
+				result["scope"] = string(constants.ScopeGlobal)
 			}
 
 			// Human-readable output for floop init

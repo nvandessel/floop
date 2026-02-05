@@ -6,18 +6,20 @@ import (
 	"fmt"
 	"os"
 	"sync"
+
+	"github.com/nvandessel/feedback-loop/internal/constants"
 )
 
-// StoreScope defines where to read from or write to in MultiGraphStore.
-type StoreScope string
+// StoreScope is an alias for constants.Scope for backward compatibility.
+type StoreScope = constants.Scope
 
 const (
 	// ScopeLocal means operations target only the local project store.
-	ScopeLocal StoreScope = "local"
+	ScopeLocal = constants.ScopeLocal
 	// ScopeGlobal means operations target only the global user store.
-	ScopeGlobal StoreScope = "global"
+	ScopeGlobal = constants.ScopeGlobal
 	// ScopeBoth means operations target both stores.
-	ScopeBoth StoreScope = "both"
+	ScopeBoth = constants.ScopeBoth
 )
 
 // MultiGraphStore implements GraphStore by wrapping two SQLiteGraphStore instances:
@@ -71,13 +73,13 @@ func (m *MultiGraphStore) AddNode(ctx context.Context, node Node) (string, error
 
 	switch m.writeScope {
 	case ScopeLocal:
-		node.Metadata["scope"] = "local"
+		node.Metadata["scope"] = string(constants.ScopeLocal)
 		return m.localStore.AddNode(ctx, node)
 	case ScopeGlobal:
-		node.Metadata["scope"] = "global"
+		node.Metadata["scope"] = string(constants.ScopeGlobal)
 		return m.globalStore.AddNode(ctx, node)
 	case ScopeBoth:
-		node.Metadata["scope"] = "both"
+		node.Metadata["scope"] = string(constants.ScopeBoth)
 		// Write to local first
 		id, err := m.localStore.AddNode(ctx, node)
 		if err != nil {

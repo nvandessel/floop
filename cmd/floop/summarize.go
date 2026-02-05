@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
@@ -39,12 +40,9 @@ Examples:
 			}
 
 			// Parse scope
-			storeScope := store.ScopeLocal
-			switch scope {
-			case "global":
-				storeScope = store.ScopeGlobal
-			case "both":
-				storeScope = store.ScopeBoth
+			storeScope := constants.Scope(scope)
+			if !storeScope.Valid() {
+				storeScope = constants.ScopeLocal
 			}
 
 			// Open graph store

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -71,15 +72,8 @@ Example:
 			}
 
 			// Parse scope and convert to StoreScope
-			storeScope := store.ScopeLocal
-			switch scope {
-			case "global":
-				storeScope = store.ScopeGlobal
-			case "both":
-				storeScope = store.ScopeBoth
-			case "local":
-				storeScope = store.ScopeLocal
-			default:
+			storeScope := constants.Scope(scope)
+			if !storeScope.Valid() {
 				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
 			}
 
@@ -268,15 +262,8 @@ Example:
 			}
 
 			// Parse scope
-			storeScope := store.ScopeLocal
-			switch scope {
-			case "global":
-				storeScope = store.ScopeGlobal
-			case "both":
-				storeScope = store.ScopeBoth
-			case "local":
-				storeScope = store.ScopeLocal
-			default:
+			storeScope := constants.Scope(scope)
+			if !storeScope.Valid() {
 				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
 			}
 

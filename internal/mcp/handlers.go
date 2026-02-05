@@ -13,6 +13,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/assembly"
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
@@ -513,14 +514,14 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 		threshold = 0.9
 	}
 
-	scope := args.Scope
-	if scope == "" {
-		scope = "both"
+	scope := constants.Scope(args.Scope)
+	if args.Scope == "" {
+		scope = constants.ScopeBoth
 	}
 
 	// Validate scope
-	if scope != "local" && scope != "global" && scope != "both" {
-		return nil, FloopDeduplicateOutput{}, fmt.Errorf("invalid scope: %s (must be 'local', 'global', or 'both')", scope)
+	if !scope.Valid() {
+		return nil, FloopDeduplicateOutput{}, fmt.Errorf("invalid scope: %s (must be 'local', 'global', or 'both')", args.Scope)
 	}
 
 	// Configure deduplicator
