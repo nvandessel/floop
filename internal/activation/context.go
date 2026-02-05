@@ -79,11 +79,13 @@ func (b *ContextBuilder) Build() models.ContextSnapshot {
 		ctx.Task = b.Task
 	}
 
-	// Set environment
+	// Set environment - check override, then FLOOP_ENV, then auto-detect
 	if b.Environment != "" {
 		ctx.Environment = b.Environment
 	} else if env := os.Getenv("FLOOP_ENV"); env != "" {
 		ctx.Environment = env
+	} else {
+		ctx.Environment = detectEnvironment()
 	}
 
 	// Get git info
@@ -95,12 +97,43 @@ func (b *ContextBuilder) Build() models.ContextSnapshot {
 	ctx.Repo = getGitRemote(repoRoot)
 	ctx.Branch = getGitBranch(repoRoot)
 
+	// Infer project type from repo root
+	ctx.ProjectType = models.InferProjectType(repoRoot)
+
 	// Get user info
 	if u, err := user.Current(); err == nil {
 		ctx.User = u.Username
 	}
 
 	return ctx
+}
+
+// detectEnvironment detects CI/test environment from environment variables
+func detectEnvironment() string {
+	// Check specific CI providers first (more specific)
+	if os.Getenv("GITHUB_ACTIONS") != "" {
+		return "github-actions"
+	}
+	if os.Getenv("GITLAB_CI") != "" {
+		return "gitlab-ci"
+	}
+	if os.Getenv("JENKINS_URL") != "" {
+		return "jenkins"
+	}
+	if os.Getenv("CIRCLECI") != "" {
+		return "circleci"
+	}
+	if os.Getenv("TRAVIS") != "" {
+		return "travis"
+	}
+
+	// Check generic CI env var
+	ci := os.Getenv("CI")
+	if ci == "true" || ci == "1" {
+		return "ci"
+	}
+
+	return "development"
 }
 
 // getGitRemote returns the git remote URL

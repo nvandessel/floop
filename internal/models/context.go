@@ -1,9 +1,21 @@
 package models
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
+)
+
+// ProjectType represents the type of project based on files present
+type ProjectType string
+
+const (
+	ProjectTypeGo      ProjectType = "go"
+	ProjectTypeNode    ProjectType = "node"
+	ProjectTypePython  ProjectType = "python"
+	ProjectTypeRust    ProjectType = "rust"
+	ProjectTypeUnknown ProjectType = "unknown"
 )
 
 // ContextSnapshot captures the environment at a point in time
@@ -11,9 +23,10 @@ type ContextSnapshot struct {
 	Timestamp time.Time `json:"timestamp" yaml:"timestamp"`
 
 	// Repository info
-	Repo     string `json:"repo,omitempty" yaml:"repo,omitempty"`
-	RepoRoot string `json:"repo_root,omitempty" yaml:"repo_root,omitempty"`
-	Branch   string `json:"branch,omitempty" yaml:"branch,omitempty"`
+	Repo        string      `json:"repo,omitempty" yaml:"repo,omitempty"`
+	RepoRoot    string      `json:"repo_root,omitempty" yaml:"repo_root,omitempty"`
+	Branch      string      `json:"branch,omitempty" yaml:"branch,omitempty"`
+	ProjectType ProjectType `json:"project_type,omitempty" yaml:"project_type,omitempty"`
 
 	// File info
 	FilePath     string `json:"file_path,omitempty" yaml:"file_path,omitempty"`
@@ -28,7 +41,7 @@ type ContextSnapshot struct {
 	Roles []string `json:"roles,omitempty" yaml:"roles,omitempty"`
 
 	// Environment
-	Environment string `json:"environment,omitempty" yaml:"environment,omitempty"` // dev, staging, prod
+	Environment string `json:"environment,omitempty" yaml:"environment,omitempty"` // dev, staging, prod, ci
 
 	// Custom fields for extensibility
 	Custom map[string]interface{} `json:"custom,omitempty" yaml:"custom,omitempty"`
@@ -52,6 +65,8 @@ func (c *ContextSnapshot) GetField(key string) interface{} {
 		return c.Repo
 	case "branch":
 		return c.Branch
+	case "project_type":
+		return string(c.ProjectType)
 	case "file_path", "file.path":
 		return c.FilePath
 	case "file_language", "file.language", "language":
@@ -151,4 +166,102 @@ func InferLanguage(filePath string) string {
 	default:
 		return ""
 	}
+}
+
+// InferLanguageFromContent attempts to detect language from file content.
+// It checks shebang lines and common language patterns.
+func InferLanguageFromContent(content string) string {
+	if content == "" {
+		return ""
+	}
+
+	// Check shebang first
+	if strings.HasPrefix(content, "#!") {
+		firstLine := strings.Split(content, "\n")[0]
+		if strings.Contains(firstLine, "python") {
+			return "python"
+		}
+		if strings.Contains(firstLine, "node") {
+			return "javascript"
+		}
+		// Check for shell: /bin/bash, /bin/sh, /usr/bin/env bash, /usr/bin/env sh
+		if strings.Contains(firstLine, "bash") ||
+			strings.Contains(firstLine, "/sh") ||
+			strings.HasSuffix(firstLine, " sh") {
+			return "shell"
+		}
+		if strings.Contains(firstLine, "ruby") {
+			return "ruby"
+		}
+		if strings.Contains(firstLine, "perl") {
+			return "perl"
+		}
+	}
+
+	// Check patterns line by line
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Skip empty lines and comments for pattern detection
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// Go: package declaration
+		if strings.HasPrefix(trimmed, "package ") {
+			return "go"
+		}
+
+		// Rust: fn main or fn keyword with braces
+		if strings.HasPrefix(trimmed, "fn ") {
+			return "rust"
+		}
+
+		// Python: def or class
+		if strings.HasPrefix(trimmed, "def ") || strings.HasPrefix(trimmed, "class ") {
+			return "python"
+		}
+
+		// JavaScript: function, const, let, var keywords
+		if strings.HasPrefix(trimmed, "function ") ||
+			strings.HasPrefix(trimmed, "const ") ||
+			strings.HasPrefix(trimmed, "let ") ||
+			strings.HasPrefix(trimmed, "var ") {
+			return "javascript"
+		}
+	}
+
+	return ""
+}
+
+// InferProjectType detects project type from root directory
+func InferProjectType(rootDir string) ProjectType {
+	// Check for go.mod (Go project)
+	if _, err := os.Stat(filepath.Join(rootDir, "go.mod")); err == nil {
+		return ProjectTypeGo
+	}
+
+	// Check for Cargo.toml (Rust project)
+	if _, err := os.Stat(filepath.Join(rootDir, "Cargo.toml")); err == nil {
+		return ProjectTypeRust
+	}
+
+	// Check for package.json (Node project)
+	if _, err := os.Stat(filepath.Join(rootDir, "package.json")); err == nil {
+		return ProjectTypeNode
+	}
+
+	// Check for Python project markers
+	if _, err := os.Stat(filepath.Join(rootDir, "pyproject.toml")); err == nil {
+		return ProjectTypePython
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, "requirements.txt")); err == nil {
+		return ProjectTypePython
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, "setup.py")); err == nil {
+		return ProjectTypePython
+	}
+
+	return ProjectTypeUnknown
 }
