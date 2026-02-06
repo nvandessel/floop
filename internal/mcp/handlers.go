@@ -389,6 +389,12 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		return nil, FloopLearnOutput{}, fmt.Errorf("failed to sync store: %w", err)
 	}
 
+	// Refresh PageRank cache after graph mutation
+	if err := s.refreshPageRank(ctx); err != nil {
+		// Non-fatal: PageRank will be stale but still functional
+		fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after learn: %v\n", err)
+	}
+
 	// Mark correction as processed and write to corrections log for audit trail
 	correction.Processed = true
 	processedAt := time.Now()
@@ -550,6 +556,12 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 	if !args.DryRun {
 		if err := s.store.Sync(ctx); err != nil {
 			return nil, FloopDeduplicateOutput{}, fmt.Errorf("failed to sync store: %w", err)
+		}
+
+		// Refresh PageRank cache after graph mutation
+		if err := s.refreshPageRank(ctx); err != nil {
+			// Non-fatal: PageRank will be stale but still functional
+			fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after deduplicate: %v\n", err)
 		}
 	}
 
