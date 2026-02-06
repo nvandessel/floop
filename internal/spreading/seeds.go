@@ -67,8 +67,8 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	for _, match := range matches {
 		seeds = append(seeds, Seed{
 			BehaviorID: match.Behavior.ID,
-			Activation: specificityToActivation(match.Specificity),
-			Source:     buildSourceLabel(match.MatchedConditions),
+			Activation: SpecificityToActivation(match.Specificity),
+			Source:     BuildSourceLabel(match.MatchedConditions),
 		})
 	}
 
@@ -80,9 +80,9 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	return seeds, nil
 }
 
-// specificityToActivation maps specificity (number of matched conditions)
+// SpecificityToActivation maps specificity (number of matched conditions)
 // to a seed activation level in [0, 1].
-func specificityToActivation(specificity int) float64 {
+func SpecificityToActivation(specificity int) float64 {
 	switch {
 	case specificity == 0:
 		return 0.3
@@ -103,10 +103,10 @@ func specificityToActivation(specificity int) float64 {
 	}
 }
 
-// buildSourceLabel formats matched conditions into a source label string.
+// BuildSourceLabel formats matched conditions into a source label string.
 // Format: "context:" + comma-joined "key=value" pairs.
 // For always-active behaviors (no matched conditions), returns "context:always".
-func buildSourceLabel(matchedConditions map[string]interface{}) string {
+func BuildSourceLabel(matchedConditions map[string]interface{}) string {
 	if len(matchedConditions) == 0 {
 		return "context:always"
 	}

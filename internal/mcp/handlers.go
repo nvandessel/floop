@@ -19,6 +19,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
 	"github.com/nvandessel/feedback-loop/internal/tiering"
@@ -303,9 +304,24 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	evaluator := activation.NewEvaluator()
 	matches := evaluator.Evaluate(actCtx, behaviors)
 
+	// Spread activation through graph edges
+	seeds := matchesToSeeds(matches)
+	if len(seeds) > 0 {
+		engine := spreading.NewEngine(s.store, spreading.DefaultConfig())
+		spreadResults, err := engine.Activate(ctx, seeds)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: spreading activation failed: %v\n", err)
+		} else {
+			matches = mergeSpreadResults(ctx, s.store, matches, spreadResults)
+		}
+	}
+
 	// Resolve conflicts and get final active set
 	resolver := activation.NewResolver()
 	result := resolver.Resolve(matches)
+
+	// Build spread metadata index for populating summaries
+	spreadIndex := buildSpreadIndex(seeds, matches)
 
 	// Convert to summary format
 	summaries := make([]BehaviorSummary, len(result.Active))
@@ -314,7 +330,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		if when == nil {
 			when = make(map[string]interface{})
 		}
-		summaries[i] = BehaviorSummary{
+		summary := BehaviorSummary{
 			ID:         b.ID,
 			Name:       b.Name,
 			Kind:       string(b.Kind),
@@ -322,6 +338,12 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 			Confidence: b.Confidence,
 			When:       when,
 		}
+		if meta, ok := spreadIndex[b.ID]; ok {
+			summary.Activation = meta.activation
+			summary.Distance = meta.distance
+			summary.SeedSource = meta.seedSource
+		}
+		summaries[i] = summary
 	}
 
 	// Build context map for output
@@ -577,6 +599,91 @@ func behaviorContentToMap(content models.BehaviorContent) map[string]interface{}
 		m["structured"] = content.Structured
 	}
 	return m
+}
+
+// matchesToSeeds converts activation results to spreading seeds.
+func matchesToSeeds(matches []activation.ActivationResult) []spreading.Seed {
+	seeds := make([]spreading.Seed, len(matches))
+	for i, m := range matches {
+		seeds[i] = spreading.Seed{
+			BehaviorID: m.Behavior.ID,
+			Activation: spreading.SpecificityToActivation(m.Specificity),
+			Source:     spreading.BuildSourceLabel(m.MatchedConditions),
+		}
+	}
+	return seeds
+}
+
+// mergeSpreadResults merges spreading engine results back into the activation
+// matches slice. Behaviors already present via direct match are kept as-is;
+// spread-only behaviors are loaded from the store and appended with Specificity 0
+// so the Resolver ranks them below direct matches.
+func mergeSpreadResults(ctx context.Context, gs store.GraphStore, matches []activation.ActivationResult, spread []spreading.Result) []activation.ActivationResult {
+	// Index existing matches by ID.
+	seen := make(map[string]bool, len(matches))
+	for _, m := range matches {
+		seen[m.Behavior.ID] = true
+	}
+
+	for _, sr := range spread {
+		if seen[sr.BehaviorID] {
+			continue
+		}
+		// Load the full behavior node for spread-only results.
+		node, err := gs.GetNode(ctx, sr.BehaviorID)
+		if err != nil || node == nil {
+			continue
+		}
+		if node.Kind != "behavior" {
+			continue
+		}
+		behavior := learning.NodeToBehavior(*node)
+		matches = append(matches, activation.ActivationResult{
+			Behavior:    behavior,
+			Specificity: 0, // Spread-only: always lower than direct matches in Resolver
+		})
+		seen[sr.BehaviorID] = true
+	}
+
+	return matches
+}
+
+// spreadMeta holds spreading activation metadata for a single behavior.
+type spreadMeta struct {
+	activation float64
+	distance   int
+	seedSource string
+}
+
+// buildSpreadIndex creates a lookup from behavior ID to spreading metadata.
+// It uses the seeds (for distance=0 entries) and the matches list to correlate
+// with the activation results from the engine.
+func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationResult) map[string]spreadMeta {
+	index := make(map[string]spreadMeta, len(seeds))
+
+	// Seed behaviors are distance 0.
+	for _, s := range seeds {
+		index[s.BehaviorID] = spreadMeta{
+			activation: s.Activation,
+			distance:   0,
+			seedSource: s.Source,
+		}
+	}
+
+	// Spread-only behaviors (added via mergeSpreadResults) have Specificity 0
+	// and won't be in the seed list. Mark them as distance > 0.
+	for _, m := range matches {
+		if _, ok := index[m.Behavior.ID]; !ok {
+			// Not a seed — this was discovered via spreading.
+			index[m.Behavior.ID] = spreadMeta{
+				activation: spreading.SpecificityToActivation(m.Specificity),
+				distance:   1, // At least 1 hop away
+				seedSource: "spread",
+			}
+		}
+	}
+
+	return index
 }
 
 // handleFloopDeduplicate implements the floop_deduplicate tool.

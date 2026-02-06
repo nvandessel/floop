@@ -26,6 +26,9 @@ type BehaviorSummary struct {
 	Content    map[string]interface{} `json:"content"`
 	Confidence float64                `json:"confidence"`
 	When       map[string]interface{} `json:"when,omitempty"`
+	Activation float64                `json:"activation,omitempty"`
+	Distance   int                    `json:"distance,omitempty"`
+	SeedSource string                 `json:"seed_source,omitempty"`
 }
 
 // FloopLearnInput defines the input for floop_learn tool.

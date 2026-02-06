@@ -351,6 +351,185 @@ func TestHandleFloopList_Corrections(t *testing.T) {
 	}
 }
 
+func TestHandleFloopActive_SpreadingActivation(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// Create a test Go file so language detection works.
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Behavior A: matches Go context.
+	nodeA := store.Node{
+		ID:   "behavior-a",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Go Behavior A",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Use gofmt",
+			},
+			"when": map[string]interface{}{
+				"language": "go",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.9,
+			"priority":   1,
+		},
+	}
+
+	// Behavior B: no matching When — won't activate via context alone.
+	nodeB := store.Node{
+		ID:   "behavior-b",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Related Behavior B",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Run go vet",
+			},
+			"when": map[string]interface{}{
+				"language": "rust",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.85,
+			"priority":   1,
+		},
+	}
+
+	if _, err := server.store.AddNode(ctx, nodeA); err != nil {
+		t.Fatalf("Failed to add node A: %v", err)
+	}
+	if _, err := server.store.AddNode(ctx, nodeB); err != nil {
+		t.Fatalf("Failed to add node B: %v", err)
+	}
+
+	// Wire edge A→B (similar-to, weight 0.8).
+	edge := store.Edge{
+		Source:    "behavior-a",
+		Target:    "behavior-b",
+		Kind:      "similar-to",
+		Weight:    0.8,
+		CreatedAt: time.Now(),
+	}
+	if err := server.store.AddEdge(ctx, edge); err != nil {
+		t.Fatalf("Failed to add edge: %v", err)
+	}
+	if err := server.store.Sync(ctx); err != nil {
+		t.Fatalf("Failed to sync: %v", err)
+	}
+
+	// Activate with Go context — should get both A (direct) and B (spread).
+	req := &sdk.CallToolRequest{}
+	args := FloopActiveInput{
+		File: "main.go",
+	}
+
+	_, output, err := server.handleFloopActive(ctx, req, args)
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	if output.Count < 2 {
+		t.Errorf("Count = %d, want at least 2 (direct + spread)", output.Count)
+	}
+
+	// Verify both behaviors are present.
+	foundA, foundB := false, false
+	for _, s := range output.Active {
+		switch s.ID {
+		case "behavior-a":
+			foundA = true
+			if s.Distance != 0 {
+				t.Errorf("Behavior A distance = %d, want 0 (direct seed)", s.Distance)
+			}
+		case "behavior-b":
+			foundB = true
+			if s.Distance == 0 {
+				t.Errorf("Behavior B distance = %d, want > 0 (spread-activated)", s.Distance)
+			}
+			if s.SeedSource == "" {
+				t.Error("Behavior B should have a SeedSource")
+			}
+		}
+	}
+
+	if !foundA {
+		t.Error("Behavior A not found in active results")
+	}
+	if !foundB {
+		t.Error("Behavior B not found in active results (should be spread-activated via edge from A)")
+	}
+}
+
+func TestHandleFloopActive_NoEdgesBackwardCompat(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Add a single behavior that matches Go context — no edges.
+	node := store.Node{
+		ID:   "solo-behavior",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Solo Go Behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Always use table-driven tests",
+			},
+			"when": map[string]interface{}{
+				"language": "go",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.9,
+			"priority":   1,
+		},
+	}
+
+	if _, err := server.store.AddNode(ctx, node); err != nil {
+		t.Fatalf("Failed to add node: %v", err)
+	}
+	if err := server.store.Sync(ctx); err != nil {
+		t.Fatalf("Failed to sync: %v", err)
+	}
+
+	req := &sdk.CallToolRequest{}
+	args := FloopActiveInput{
+		File: "main.go",
+	}
+
+	_, output, err := server.handleFloopActive(ctx, req, args)
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	// Should still find the direct match.
+	if output.Count != 1 {
+		t.Errorf("Count = %d, want 1", output.Count)
+	}
+
+	if len(output.Active) != 1 {
+		t.Fatalf("len(Active) = %d, want 1", len(output.Active))
+	}
+
+	if output.Active[0].ID != "solo-behavior" {
+		t.Errorf("Active[0].ID = %q, want %q", output.Active[0].ID, "solo-behavior")
+	}
+}
+
 func TestBehaviorContentToMap(t *testing.T) {
 	content := models.BehaviorContent{
 		Canonical: "Use X instead of Y",

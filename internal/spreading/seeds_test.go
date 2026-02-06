@@ -311,9 +311,9 @@ func TestSpecificityToActivation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := specificityToActivation(tt.specificity)
+			got := SpecificityToActivation(tt.specificity)
 			if got != tt.want {
-				t.Errorf("specificityToActivation(%d) = %f, want %f", tt.specificity, got, tt.want)
+				t.Errorf("SpecificityToActivation(%d) = %f, want %f", tt.specificity, got, tt.want)
 			}
 		})
 	}
@@ -341,9 +341,9 @@ func TestBuildSourceLabel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildSourceLabel(tt.conditions)
+			got := BuildSourceLabel(tt.conditions)
 			if got != tt.want {
-				t.Errorf("buildSourceLabel() = %q, want %q", got, tt.want)
+				t.Errorf("BuildSourceLabel() = %q, want %q", got, tt.want)
 			}
 		})
 	}
