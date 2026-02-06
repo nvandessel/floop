@@ -108,6 +108,25 @@ type DeduplicationResult struct {
 	Error        string  `json:"error,omitempty" jsonschema:"Error message if operation failed"`
 }
 
+// FloopConnectInput defines the input for floop_connect tool.
+type FloopConnectInput struct {
+	Source        string  `json:"source" jsonschema:"Source behavior ID,required"`
+	Target        string  `json:"target" jsonschema:"Target behavior ID,required"`
+	Kind          string  `json:"kind" jsonschema:"Edge type: requires, overrides, conflicts, similar-to, learned-from,required"`
+	Weight        float64 `json:"weight,omitempty" jsonschema:"Edge weight (0.0-1.0, default 0.8)"`
+	Bidirectional bool    `json:"bidirectional,omitempty" jsonschema:"Create edges in both directions (default: false)"`
+}
+
+// FloopConnectOutput defines the output for floop_connect tool.
+type FloopConnectOutput struct {
+	Source        string  `json:"source" jsonschema:"Source behavior ID"`
+	Target        string  `json:"target" jsonschema:"Target behavior ID"`
+	Kind          string  `json:"kind" jsonschema:"Edge type"`
+	Weight        float64 `json:"weight" jsonschema:"Edge weight"`
+	Bidirectional bool    `json:"bidirectional" jsonschema:"Whether reverse edge was also created"`
+	Message       string  `json:"message" jsonschema:"Human-readable result message"`
+}
+
 // FloopValidateInput defines the input for floop_validate tool.
 type FloopValidateInput struct {
 	// No required inputs - validates current store

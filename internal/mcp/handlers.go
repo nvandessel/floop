@@ -49,6 +49,12 @@ func (s *Server) registerTools() error {
 		Description: "Find and merge duplicate behaviors in the store",
 	}, s.handleFloopDeduplicate)
 
+	// Register floop_connect tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_connect",
+		Description: "Create an edge between two behaviors for spreading activation",
+	}, s.handleFloopConnect)
+
 	// Register floop_validate tool
 	sdk.AddTool(s.server, &sdk.Tool{
 		Name:        "floop_validate",
@@ -592,6 +598,129 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 		Merged:          report.MergesPerformed,
 		Results:         results,
 		Message:         message,
+	}, nil
+}
+
+// validEdgeKinds defines the allowed edge kinds for floop_connect.
+var validEdgeKinds = map[string]bool{
+	"requires":     true,
+	"overrides":    true,
+	"conflicts":    true,
+	"similar-to":   true,
+	"learned-from": true,
+}
+
+// handleFloopConnect implements the floop_connect tool.
+func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolRequest, args FloopConnectInput) (*sdk.CallToolResult, FloopConnectOutput, error) {
+	// Validate required fields
+	if args.Source == "" {
+		return nil, FloopConnectOutput{}, fmt.Errorf("'source' parameter is required")
+	}
+	if args.Target == "" {
+		return nil, FloopConnectOutput{}, fmt.Errorf("'target' parameter is required")
+	}
+	if args.Kind == "" {
+		return nil, FloopConnectOutput{}, fmt.Errorf("'kind' parameter is required")
+	}
+
+	// Validate kind
+	if !validEdgeKinds[args.Kind] {
+		return nil, FloopConnectOutput{}, fmt.Errorf("invalid edge kind: %s (must be one of: requires, overrides, conflicts, similar-to, learned-from)", args.Kind)
+	}
+
+	// Default weight
+	weight := args.Weight
+	if weight == 0 {
+		weight = 0.8
+	}
+	if weight <= 0 || weight > 1.0 {
+		return nil, FloopConnectOutput{}, fmt.Errorf("weight must be in (0.0, 1.0], got %f", weight)
+	}
+
+	// No self-edges
+	if args.Source == args.Target {
+		return nil, FloopConnectOutput{}, fmt.Errorf("self-edges are not allowed: source and target are both %s", args.Source)
+	}
+
+	// Validate source exists
+	sourceNode, err := s.store.GetNode(ctx, args.Source)
+	if err != nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("failed to check source node: %w", err)
+	}
+	if sourceNode == nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("source node not found: %s", args.Source)
+	}
+
+	// Validate target exists
+	targetNode, err := s.store.GetNode(ctx, args.Target)
+	if err != nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("failed to check target node: %w", err)
+	}
+	if targetNode == nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("target node not found: %s", args.Target)
+	}
+
+	// Check for duplicate edge
+	existing, err := s.store.GetEdges(ctx, args.Source, store.DirectionOutbound, args.Kind)
+	if err != nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("failed to check existing edges: %w", err)
+	}
+	for _, e := range existing {
+		if e.Target == args.Target {
+			fmt.Fprintf(os.Stderr, "warning: edge %s -[%s]-> %s already exists (weight: %.2f)\n", args.Source, args.Kind, args.Target, e.Weight)
+		}
+	}
+
+	// Create edge
+	now := time.Now()
+	edge := store.Edge{
+		Source:    args.Source,
+		Target:    args.Target,
+		Kind:      args.Kind,
+		Weight:    weight,
+		CreatedAt: now,
+	}
+
+	if err := s.store.AddEdge(ctx, edge); err != nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("failed to add edge: %w", err)
+	}
+
+	// Create reverse edge if bidirectional
+	if args.Bidirectional {
+		reverseEdge := store.Edge{
+			Source:    args.Target,
+			Target:    args.Source,
+			Kind:      args.Kind,
+			Weight:    weight,
+			CreatedAt: now,
+		}
+		if err := s.store.AddEdge(ctx, reverseEdge); err != nil {
+			return nil, FloopConnectOutput{}, fmt.Errorf("failed to add reverse edge: %w", err)
+		}
+	}
+
+	// Sync store
+	if err := s.store.Sync(ctx); err != nil {
+		return nil, FloopConnectOutput{}, fmt.Errorf("failed to sync store: %w", err)
+	}
+
+	// Refresh PageRank cache
+	if err := s.refreshPageRank(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after connect: %v\n", err)
+	}
+
+	message := fmt.Sprintf("Edge created: %s -[%s (%.2f)]-> %s", args.Source, args.Kind, weight, args.Target)
+	if args.Bidirectional {
+		message += fmt.Sprintf(" (bidirectional)")
+	}
+
+	return nil, FloopConnectOutput{
+		Source:        args.Source,
+		Target:        args.Target,
+		Kind:          args.Kind,
+		Weight:        weight,
+		Bidirectional: args.Bidirectional,
+		Message:       message,
 	}, nil
 }
 

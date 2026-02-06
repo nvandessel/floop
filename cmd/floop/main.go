@@ -96,6 +96,8 @@ context-aware behavior activation for consistent agent operation.`,
 		// Hook support commands
 		newDetectCorrectionCmd(),
 		newActivateCmd(),
+		// Graph management commands
+		newConnectCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
