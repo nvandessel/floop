@@ -11,6 +11,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/session"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -19,6 +20,7 @@ type Server struct {
 	server        *sdk.Server
 	store         store.GraphStore
 	root          string
+	session       *session.State
 	pageRankMu    sync.RWMutex
 	pageRankCache map[string]float64
 }
@@ -52,6 +54,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		server:        mcpServer,
 		store:         graphStore,
 		root:          cfg.Root,
+		session:       session.NewState(session.DefaultConfig()),
 		pageRankCache: make(map[string]float64),
 	}
 
