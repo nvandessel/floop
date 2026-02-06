@@ -273,11 +273,17 @@ type TieredCompiledPrompt struct {
 	// SummarizedBehaviors are behaviors included as summaries
 	SummarizedBehaviors []string `json:"summarized_behaviors,omitempty"`
 
+	// NameOnlyBehaviorIDs are behaviors included as name + kind + tags only
+	NameOnlyBehaviorIDs []string `json:"name_only_behaviors,omitempty"`
+
 	// OmittedBehaviors are behaviors referenced but not included
 	OmittedBehaviors []string `json:"omitted_behaviors,omitempty"`
 
 	// QuickReferenceSection contains summarized behaviors
 	QuickReferenceSection string `json:"quick_reference_section,omitempty"`
+
+	// NameOnlySection contains name-only behaviors
+	NameOnlySection string `json:"name_only_section,omitempty"`
 }
 
 // CompileTiered transforms an injection plan into a tiered prompt
@@ -315,6 +321,11 @@ func (c *Compiler) CompileTiered(plan *models.InjectionPlan) *TieredCompiledProm
 			result.SummarizedBehaviors = append(result.SummarizedBehaviors, ib.Behavior.ID)
 		}
 	}
+	for _, ib := range plan.NameOnlyBehaviors {
+		if ib.Behavior != nil {
+			result.NameOnlyBehaviorIDs = append(result.NameOnlyBehaviorIDs, ib.Behavior.ID)
+		}
+	}
 	for _, ib := range plan.OmittedBehaviors {
 		if ib.Behavior != nil {
 			result.OmittedBehaviors = append(result.OmittedBehaviors, ib.Behavior.ID)
@@ -326,8 +337,13 @@ func (c *Compiler) CompileTiered(plan *models.InjectionPlan) *TieredCompiledProm
 		result.QuickReferenceSection = c.buildQuickReferenceSection(plan.SummarizedBehaviors)
 	}
 
-	// Assemble final text with quick reference
-	result.Text = c.assembleTieredText(basePrompt.Text, result.QuickReferenceSection, plan.OmittedBehaviors)
+	// Build name-only section
+	if len(plan.NameOnlyBehaviors) > 0 {
+		result.NameOnlySection = c.buildNameOnlySection(plan.NameOnlyBehaviors)
+	}
+
+	// Assemble final text with quick reference and name-only section
+	result.Text = c.assembleTieredText(basePrompt.Text, result.QuickReferenceSection, result.NameOnlySection, plan.OmittedBehaviors)
 	result.TotalTokens = estimateTokens(result.Text)
 
 	return result
@@ -355,8 +371,27 @@ func (c *Compiler) buildQuickReferenceSection(summarized []models.InjectedBehavi
 	return strings.Join(lines, "\n")
 }
 
-// assembleTieredText combines full content, quick reference, and omitted info
-func (c *Compiler) assembleTieredText(fullText, quickRef string, omitted []models.InjectedBehavior) string {
+// buildNameOnlySection creates the name-only behaviors section.
+// Format: `{name}` [{kind}] #tag1 #tag2
+func (c *Compiler) buildNameOnlySection(nameOnly []models.InjectedBehavior) string {
+	if len(nameOnly) == 0 {
+		return ""
+	}
+
+	var lines []string
+	for _, ib := range nameOnly {
+		if ib.Behavior == nil {
+			continue
+		}
+		// Content is pre-formatted by the tier mapper as `name` [kind] #tags
+		lines = append(lines, fmt.Sprintf("- %s", ib.Content))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// assembleTieredText combines full content, quick reference, name-only, and omitted info
+func (c *Compiler) assembleTieredText(fullText, quickRef, nameOnly string, omitted []models.InjectedBehavior) string {
 	var parts []string
 
 	// Add full content
@@ -379,6 +414,24 @@ func (c *Compiler) assembleTieredText(fullText, quickRef string, omitted []model
 			parts = append(parts, "")
 			parts = append(parts, "### Quick Reference (ask for details if needed)")
 			parts = append(parts, quickRef)
+		}
+	}
+
+	// Add name-only section
+	if nameOnly != "" {
+		switch c.format {
+		case FormatXML:
+			parts = append(parts, "<also-available>")
+			parts = append(parts, nameOnly)
+			parts = append(parts, "</also-available>")
+		case FormatPlain:
+			parts = append(parts, "")
+			parts = append(parts, "Also Available (activate with floop show <id>):")
+			parts = append(parts, nameOnly)
+		default: // FormatMarkdown
+			parts = append(parts, "")
+			parts = append(parts, "### Also Available (activate with floop show <id>)")
+			parts = append(parts, nameOnly)
 		}
 	}
 

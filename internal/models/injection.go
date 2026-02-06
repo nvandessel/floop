@@ -8,6 +8,8 @@ const (
 	TierFull InjectionTier = iota
 	// TierSummary includes only a one-line summary
 	TierSummary
+	// TierNameOnly includes only the behavior name, kind, and tags
+	TierNameOnly
 	// TierOmitted means the behavior is referenced but not included
 	TierOmitted
 )
@@ -19,6 +21,8 @@ func (t InjectionTier) String() string {
 		return "full"
 	case TierSummary:
 		return "summary"
+	case TierNameOnly:
+		return "name-only"
 	case TierOmitted:
 		return "omitted"
 	default:
@@ -52,6 +56,9 @@ type InjectionPlan struct {
 	// SummarizedBehaviors are behaviors included as summaries only
 	SummarizedBehaviors []InjectedBehavior `json:"summarized_behaviors"`
 
+	// NameOnlyBehaviors are behaviors included as name + kind + tags only
+	NameOnlyBehaviors []InjectedBehavior `json:"name_only_behaviors,omitempty"`
+
 	// OmittedBehaviors are behaviors referenced but not included
 	OmittedBehaviors []InjectedBehavior `json:"omitted_behaviors"`
 
@@ -64,27 +71,29 @@ type InjectionPlan struct {
 
 // AllBehaviors returns all behaviors in the plan, regardless of tier
 func (p *InjectionPlan) AllBehaviors() []InjectedBehavior {
-	all := make([]InjectedBehavior, 0, len(p.FullBehaviors)+len(p.SummarizedBehaviors)+len(p.OmittedBehaviors))
+	all := make([]InjectedBehavior, 0, len(p.FullBehaviors)+len(p.SummarizedBehaviors)+len(p.NameOnlyBehaviors)+len(p.OmittedBehaviors))
 	all = append(all, p.FullBehaviors...)
 	all = append(all, p.SummarizedBehaviors...)
+	all = append(all, p.NameOnlyBehaviors...)
 	all = append(all, p.OmittedBehaviors...)
 	return all
 }
 
-// IncludedBehaviors returns all behaviors that will be injected (full + summarized)
+// IncludedBehaviors returns all behaviors that will be injected (full + summarized + name-only)
 func (p *InjectionPlan) IncludedBehaviors() []InjectedBehavior {
-	included := make([]InjectedBehavior, 0, len(p.FullBehaviors)+len(p.SummarizedBehaviors))
+	included := make([]InjectedBehavior, 0, len(p.FullBehaviors)+len(p.SummarizedBehaviors)+len(p.NameOnlyBehaviors))
 	included = append(included, p.FullBehaviors...)
 	included = append(included, p.SummarizedBehaviors...)
+	included = append(included, p.NameOnlyBehaviors...)
 	return included
 }
 
 // BehaviorCount returns the total number of behaviors in the plan
 func (p *InjectionPlan) BehaviorCount() int {
-	return len(p.FullBehaviors) + len(p.SummarizedBehaviors) + len(p.OmittedBehaviors)
+	return len(p.FullBehaviors) + len(p.SummarizedBehaviors) + len(p.NameOnlyBehaviors) + len(p.OmittedBehaviors)
 }
 
 // IncludedCount returns the number of behaviors that will be injected
 func (p *InjectionPlan) IncludedCount() int {
-	return len(p.FullBehaviors) + len(p.SummarizedBehaviors)
+	return len(p.FullBehaviors) + len(p.SummarizedBehaviors) + len(p.NameOnlyBehaviors)
 }
