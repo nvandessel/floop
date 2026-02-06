@@ -154,7 +154,30 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 	// Check current schema version
 	currentVersion, err := getSchemaVersion(ctx, db)
 	if err != nil {
-		// Schema version table doesn't exist yet, create fresh schema
+		// Schema version table doesn't exist. Check if this is a
+		// pre-schema_version database (tables exist but no version tracking)
+		// or a truly fresh database.
+		if tableExists(ctx, db, "behaviors") {
+			// Pre-schema_version DB: create the schema_version table and
+			// run all migrations from version 0.
+			if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (
+				version INTEGER PRIMARY KEY,
+				applied_at TEXT NOT NULL
+			)`); err != nil {
+				return fmt.Errorf("failed to create schema_version table: %w", err)
+			}
+			if _, err := db.ExecContext(ctx,
+				`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`, 1); err != nil {
+				return fmt.Errorf("failed to record initial version: %w", err)
+			}
+			// Run all migrations from version 1
+			if err := migrateSchema(ctx, db, 1); err != nil {
+				return fmt.Errorf("failed to migrate pre-schema_version database: %w", err)
+			}
+			return nil
+		}
+
+		// Truly fresh database — create everything from scratch
 		if err := createSchema(ctx, db); err != nil {
 			return fmt.Errorf("failed to create schema: %w", err)
 		}
@@ -174,6 +197,14 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// tableExists checks if a table exists in the database.
+func tableExists(ctx context.Context, db *sql.DB, table string) bool {
+	var name string
+	err := db.QueryRowContext(ctx,
+		`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+	return err == nil
 }
 
 // getSchemaVersion returns the current schema version from the database.
