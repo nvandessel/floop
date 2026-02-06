@@ -567,4 +567,16 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.TemporalDecayRate != 0.01 {
 		t.Errorf("expected TemporalDecayRate=0.01, got %f", cfg.TemporalDecayRate)
 	}
+	if cfg.Inhibition == nil {
+		t.Fatal("expected Inhibition to be non-nil in DefaultConfig")
+	}
+	if cfg.Inhibition.Strength != 0.15 {
+		t.Errorf("expected Inhibition.Strength=0.15, got %f", cfg.Inhibition.Strength)
+	}
+	if cfg.Inhibition.Breadth != 7 {
+		t.Errorf("expected Inhibition.Breadth=7, got %d", cfg.Inhibition.Breadth)
+	}
+	if !cfg.Inhibition.Enabled {
+		t.Error("expected Inhibition.Enabled=true")
+	}
 }

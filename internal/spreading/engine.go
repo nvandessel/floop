@@ -34,16 +34,22 @@ type Config struct {
 
 	// TemporalDecayRate is the rho parameter for edge temporal decay. Default: 0.01.
 	TemporalDecayRate float64
+
+	// Inhibition configures lateral inhibition. When non-nil, highly activated
+	// nodes suppress weaker competitors, focusing the activation pattern.
+	Inhibition *InhibitionConfig
 }
 
 // DefaultConfig returns the default spreading activation configuration.
 func DefaultConfig() Config {
+	inh := DefaultInhibitionConfig()
 	return Config{
 		MaxSteps:          3,
 		DecayFactor:       0.5,
 		SpreadFactor:      0.8,
 		MinActivation:     0.01,
 		TemporalDecayRate: ranking.DefaultDecayRate,
+		Inhibition:        &inh,
 	}
 }
 
@@ -149,12 +155,17 @@ func (e *Engine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
 		activation = newActivation
 	}
 
-	// Step 3: Sigmoid squashing — centered at 0.3.
+	// Step 3: Lateral inhibition — winners suppress losers.
+	if e.config.Inhibition != nil {
+		activation = ApplyInhibition(activation, *e.config.Inhibition)
+	}
+
+	// Step 4: Sigmoid squashing — centered at 0.3.
 	for id, act := range activation {
 		activation[id] = sigmoid(act)
 	}
 
-	// Step 4: Filter by MinActivation and build results.
+	// Step 5: Filter by MinActivation and build results.
 	results := make([]Result, 0, len(activation))
 	for id, act := range activation {
 		if act < e.config.MinActivation {
@@ -168,7 +179,7 @@ func (e *Engine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
 		})
 	}
 
-	// Step 5: Sort by activation descending.
+	// Step 6: Sort by activation descending.
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Activation > results[j].Activation
 	})
