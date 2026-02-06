@@ -1283,3 +1283,58 @@ func TestSQLiteGraphStore_EdgeJSONLRoundTrip(t *testing.T) {
 		t.Errorf("LastActivated = %v, want nil", got2[0].LastActivated)
 	}
 }
+
+func TestSQLiteGraphStore_ProvenanceCreatedAtRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second) // RFC3339 precision
+
+	node := Node{
+		ID:   "ts-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Timestamp Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test timestamp round-trip",
+			},
+			"provenance": map[string]interface{}{
+				"source_type": "correction",
+				"created_at":  now.Format(time.RFC3339),
+			},
+		},
+	}
+
+	_, err = s.AddNode(ctx, node)
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	got, err := s.GetNode(ctx, "ts-test")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil")
+	}
+
+	provenance, ok := got.Content["provenance"].(map[string]interface{})
+	if !ok {
+		t.Fatal("provenance not found in content")
+	}
+
+	createdAt, ok := provenance["created_at"].(time.Time)
+	if !ok {
+		t.Fatalf("created_at is %T, want time.Time", provenance["created_at"])
+	}
+
+	if createdAt.Sub(now).Abs() > time.Second {
+		t.Errorf("created_at = %v, want ~%v", createdAt, now)
+	}
+}

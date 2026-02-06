@@ -266,6 +266,10 @@ func nodeToBehavior(node store.Node) models.Behavior {
 		}
 		if createdAt, ok := provenance["created_at"].(time.Time); ok {
 			b.Provenance.CreatedAt = createdAt
+		} else if createdAtStr, ok := provenance["created_at"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+				b.Provenance.CreatedAt = t
+			}
 		}
 		if author, ok := provenance["author"].(string); ok {
 			b.Provenance.Author = author

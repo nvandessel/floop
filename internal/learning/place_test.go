@@ -520,6 +520,37 @@ func TestNodeToBehavior(t *testing.T) {
 	}
 }
 
+func TestNodeToBehavior_StringCreatedAt(t *testing.T) {
+	now := "2026-02-06T10:30:00Z"
+	node := store.Node{
+		ID:   "str-ts-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"kind": "directive",
+			"name": "timestamp-test",
+			"content": map[string]interface{}{
+				"canonical": "Test string timestamp parsing",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.7,
+			"provenance": map[string]interface{}{
+				"source_type": "correction",
+				"created_at":  now, // string, not time.Time
+			},
+		},
+	}
+
+	b := NodeToBehavior(node)
+
+	if b.Provenance.CreatedAt.IsZero() {
+		t.Error("NodeToBehavior() CreatedAt is zero, want parsed time from string")
+	}
+	if b.Provenance.CreatedAt.Year() != 2026 {
+		t.Errorf("NodeToBehavior() CreatedAt year = %d, want 2026", b.Provenance.CreatedAt.Year())
+	}
+}
+
 func TestGraphPlacer_determineEdges(t *testing.T) {
 	s := store.NewInMemoryGraphStore()
 	gp := NewGraphPlacer(s).(*graphPlacer)

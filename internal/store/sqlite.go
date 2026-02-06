@@ -570,7 +570,11 @@ func (s *SQLiteGraphStore) getNodeUnlocked(ctx context.Context, id string) (*Nod
 		provenance["correction_id"] = correctionID.String
 	}
 	if provenanceCreatedAt.Valid {
-		provenance["created_at"] = provenanceCreatedAt.String
+		if t, err := time.Parse(time.RFC3339, provenanceCreatedAt.String); err == nil {
+			provenance["created_at"] = t
+		} else {
+			provenance["created_at"] = provenanceCreatedAt.String
+		}
 	}
 	content["provenance"] = provenance
 
