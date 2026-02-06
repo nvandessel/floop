@@ -1,3 +1,3 @@
-{"source":"behavior-9f86d081884c","target":"test-behavior-1","kind":"similar-to"}
-{"source":"behavior-f7e52c6a8bc7","target":"behavior-da53f95a09b3","kind":"similar-to"}
-{"source":"behavior-9d180407fda6","target":"behavior-dfdc5e16b9e0","kind":"overrides"}
+{"source":"behavior-9f86d081884c","target":"test-behavior-1","kind":"similar-to","weight":1,"created_at":"2026-02-06T09:52:57-08:00"}
+{"source":"behavior-f7e52c6a8bc7","target":"behavior-da53f95a09b3","kind":"similar-to","weight":1,"created_at":"2026-02-06T09:52:57-08:00"}
+{"source":"behavior-9d180407fda6","target":"behavior-dfdc5e16b9e0","kind":"overrides","weight":1,"created_at":"2026-02-06T09:52:57-08:00"}
