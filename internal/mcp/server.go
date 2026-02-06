@@ -6,17 +6,21 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
 // Server wraps the MCP SDK server and provides floop-specific functionality.
 type Server struct {
-	server *sdk.Server
-	store  store.GraphStore
-	root   string
+	server        *sdk.Server
+	store         store.GraphStore
+	root          string
+	pageRankMu    sync.RWMutex
+	pageRankCache map[string]float64
 }
 
 // Config holds server configuration.
@@ -45,9 +49,10 @@ func NewServer(cfg *Config) (*Server, error) {
 	})
 
 	s := &Server{
-		server: mcpServer,
-		store:  graphStore,
-		root:   cfg.Root,
+		server:        mcpServer,
+		store:         graphStore,
+		root:          cfg.Root,
+		pageRankCache: make(map[string]float64),
 	}
 
 	// Register tools
@@ -62,7 +67,41 @@ func NewServer(cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to register resources: %w", err)
 	}
 
+	// Compute initial PageRank cache
+	if err := s.refreshPageRank(context.Background()); err != nil {
+		// Non-fatal: log but don't fail startup
+		fmt.Fprintf(os.Stderr, "warning: failed to compute initial PageRank: %v\n", err)
+	}
+
 	return s, nil
+}
+
+// refreshPageRank recomputes the PageRank cache from the current graph state.
+// This should be called after any operation that modifies the behavior graph
+// (e.g., floop_learn, floop_deduplicate).
+func (s *Server) refreshPageRank(ctx context.Context) error {
+	scores, err := ranking.ComputePageRank(ctx, s.store, ranking.DefaultPageRankConfig())
+	if err != nil {
+		return fmt.Errorf("refreshing pagerank: %w", err)
+	}
+
+	s.pageRankMu.Lock()
+	s.pageRankCache = scores
+	s.pageRankMu.Unlock()
+
+	return nil
+}
+
+// getPageRankScores returns a copy of the current PageRank cache.
+func (s *Server) getPageRankScores() map[string]float64 {
+	s.pageRankMu.RLock()
+	defer s.pageRankMu.RUnlock()
+
+	scores := make(map[string]float64, len(s.pageRankCache))
+	for k, v := range s.pageRankCache {
+		scores[k] = v
+	}
+	return scores
 }
 
 // Run starts the MCP server over stdio transport.
