@@ -20,6 +20,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/pathutil"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/sanitize"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -269,6 +270,10 @@ func (s *Server) handleBehaviorExpandResource(ctx context.Context, req *sdk.Read
 
 // handleFloopActive implements the floop_active tool.
 func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest, args FloopActiveInput) (*sdk.CallToolResult, FloopActiveOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_active"); err != nil {
+		return nil, FloopActiveOutput{}, err
+	}
+
 	// Build context from parameters
 	ctxBuilder := activation.NewContextBuilder()
 
@@ -356,15 +361,17 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		"repo":     actCtx.RepoRoot,
 	}
 
-	// Fire-and-forget confidence reinforcement
-	go func() {
-		// Build active and all behavior ID→confidence maps
-		activeConfs := make(map[string]float64, len(result.Active))
-		for _, b := range result.Active {
+	// Bounded confidence reinforcement (background worker pool)
+	activeBehaviors := result.Active
+	allBehaviors := behaviors
+	s.runBackground("confidence-reinforcement", func() {
+		// Build active and all behavior ID->confidence maps
+		activeConfs := make(map[string]float64, len(activeBehaviors))
+		for _, b := range activeBehaviors {
 			activeConfs[b.ID] = b.Confidence
 		}
-		allConfs := make(map[string]float64, len(behaviors))
-		for _, b := range behaviors {
+		allConfs := make(map[string]float64, len(allBehaviors))
+		for _, b := range allBehaviors {
 			allConfs[b.ID] = b.Confidence
 		}
 
@@ -378,7 +385,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 				fmt.Fprintf(os.Stderr, "warning: confidence reinforcement failed: %v\n", err)
 			}
 		}
-	}()
+	})
 
 	return nil, FloopActiveOutput{
 		Context: ctxMap,
@@ -389,6 +396,10 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 
 // handleFloopLearn implements the floop_learn tool.
 func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest, args FloopLearnInput) (*sdk.CallToolResult, FloopLearnOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_learn"); err != nil {
+		return nil, FloopLearnOutput{}, err
+	}
+
 	// Validate required parameters
 	if args.Wrong == "" {
 		return nil, FloopLearnOutput{}, fmt.Errorf("'wrong' parameter is required")
@@ -468,8 +479,8 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		return nil, FloopLearnOutput{}, fmt.Errorf("failed to sync store: %w", err)
 	}
 
-	// Auto-backup after successful learn (fire-and-forget)
-	go func() {
+	// Auto-backup after successful learn (bounded background worker)
+	s.runBackground("auto-backup", func() {
 		backupDir, err := backup.DefaultBackupDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: auto-backup failed (dir): %v\n", err)
@@ -483,13 +494,10 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		if err := backup.RotateBackups(backupDir, 10); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: auto-backup rotation failed: %v\n", err)
 		}
-	}()
+	})
 
-	// Refresh PageRank cache after graph mutation
-	if err := s.refreshPageRank(ctx); err != nil {
-		// Non-fatal: PageRank will be stale but still functional
-		fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after learn: %v\n", err)
-	}
+	// Debounced PageRank refresh after graph mutation
+	s.debouncedRefreshPageRank()
 
 	// Mark correction as processed and write to corrections log for audit trail
 	correction.Processed = true
@@ -529,6 +537,10 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 
 // handleFloopList implements the floop_list tool.
 func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, args FloopListInput) (*sdk.CallToolResult, FloopListOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_list"); err != nil {
+		return nil, FloopListOutput{}, err
+	}
+
 	if args.Corrections {
 		// List corrections from corrections.jsonl file (not graph store)
 		correctionsPath := filepath.Join(s.root, ".floop", "corrections.jsonl")
@@ -702,6 +714,10 @@ func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationRes
 
 // handleFloopDeduplicate implements the floop_deduplicate tool.
 func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRequest, args FloopDeduplicateInput) (*sdk.CallToolResult, FloopDeduplicateOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_deduplicate"); err != nil {
+		return nil, FloopDeduplicateOutput{}, err
+	}
+
 	// Set defaults
 	threshold := args.Threshold
 	if threshold <= 0 || threshold > 1.0 {
@@ -739,11 +755,8 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 			return nil, FloopDeduplicateOutput{}, fmt.Errorf("failed to sync store: %w", err)
 		}
 
-		// Refresh PageRank cache after graph mutation
-		if err := s.refreshPageRank(ctx); err != nil {
-			// Non-fatal: PageRank will be stale but still functional
-			fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after deduplicate: %v\n", err)
-		}
+		// Debounced PageRank refresh after graph mutation
+		s.debouncedRefreshPageRank()
 	}
 
 	// Convert results to output format
@@ -778,6 +791,10 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 
 // handleFloopBackup implements the floop_backup tool.
 func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest, args FloopBackupInput) (*sdk.CallToolResult, FloopBackupOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_backup"); err != nil {
+		return nil, FloopBackupOutput{}, err
+	}
+
 	outputPath := args.OutputPath
 	if outputPath == "" {
 		// Default path -- controlled by us, no validation needed
@@ -818,6 +835,10 @@ func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest
 
 // handleFloopRestore implements the floop_restore tool.
 func (s *Server) handleFloopRestore(ctx context.Context, req *sdk.CallToolRequest, args FloopRestoreInput) (*sdk.CallToolResult, FloopRestoreOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_restore"); err != nil {
+		return nil, FloopRestoreOutput{}, err
+	}
+
 	if args.InputPath == "" {
 		return nil, FloopRestoreOutput{}, fmt.Errorf("'input_path' parameter is required")
 	}
@@ -841,10 +862,8 @@ func (s *Server) handleFloopRestore(ctx context.Context, req *sdk.CallToolReques
 		return nil, FloopRestoreOutput{}, fmt.Errorf("restore failed: %w", err)
 	}
 
-	// Refresh PageRank after restore
-	if err := s.refreshPageRank(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after restore: %v\n", err)
-	}
+	// Debounced PageRank refresh after restore
+	s.debouncedRefreshPageRank()
 
 	return nil, FloopRestoreOutput{
 		NodesRestored: result.NodesRestored,
@@ -866,6 +885,10 @@ var validEdgeKinds = map[string]bool{
 
 // handleFloopConnect implements the floop_connect tool.
 func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolRequest, args FloopConnectInput) (*sdk.CallToolResult, FloopConnectOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_connect"); err != nil {
+		return nil, FloopConnectOutput{}, err
+	}
+
 	// Validate required fields
 	if args.Source == "" {
 		return nil, FloopConnectOutput{}, fmt.Errorf("'source' parameter is required")
@@ -958,10 +981,8 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 		return nil, FloopConnectOutput{}, fmt.Errorf("failed to sync store: %w", err)
 	}
 
-	// Refresh PageRank cache
-	if err := s.refreshPageRank(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to refresh PageRank after connect: %v\n", err)
-	}
+	// Debounced PageRank refresh after connect
+	s.debouncedRefreshPageRank()
 
 	message := fmt.Sprintf("Edge created: %s -[%s (%.2f)]-> %s", args.Source, args.Kind, weight, args.Target)
 	if args.Bidirectional {
@@ -980,6 +1001,10 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 
 // handleFloopValidate implements the floop_validate tool.
 func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolRequest, args FloopValidateInput) (*sdk.CallToolResult, FloopValidateOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_validate"); err != nil {
+		return nil, FloopValidateOutput{}, err
+	}
+
 	// Check if the store supports validation (MultiGraphStore or SQLiteGraphStore)
 	type graphValidator interface {
 		ValidateBehaviorGraph(ctx context.Context) ([]store.ValidationError, error)

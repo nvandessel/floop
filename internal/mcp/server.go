@@ -8,12 +8,17 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/session"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
+
+// maxBackgroundWorkers is the maximum number of concurrent background goroutines.
+const maxBackgroundWorkers = 5
 
 // Server wraps the MCP SDK server and provides floop-specific functionality.
 type Server struct {
@@ -23,6 +28,20 @@ type Server struct {
 	session       *session.State
 	pageRankMu    sync.RWMutex
 	pageRankCache map[string]float64
+
+	// Rate limiting
+	toolLimiters ratelimit.ToolLimiters
+
+	// PageRank debounce
+	pageRankDebounce   *time.Timer
+	pageRankDebounceMu sync.Mutex
+
+	// Bounded worker pool for background goroutines
+	workerPool chan struct{}
+
+	// Shutdown coordination
+	done      chan struct{} // closed on shutdown
+	closeOnce sync.Once
 }
 
 // Config holds server configuration.
@@ -56,6 +75,9 @@ func NewServer(cfg *Config) (*Server, error) {
 		root:          cfg.Root,
 		session:       session.NewState(session.DefaultConfig()),
 		pageRankCache: make(map[string]float64),
+		toolLimiters:  ratelimit.NewToolLimiters(),
+		workerPool:    make(chan struct{}, maxBackgroundWorkers),
+		done:          make(chan struct{}),
 	}
 
 	// Register tools
@@ -107,6 +129,49 @@ func (s *Server) getPageRankScores() map[string]float64 {
 	return scores
 }
 
+// debouncedRefreshPageRank schedules a PageRank refresh after a short delay.
+// Multiple rapid calls coalesce into a single recomputation.
+func (s *Server) debouncedRefreshPageRank() {
+	s.pageRankDebounceMu.Lock()
+	defer s.pageRankDebounceMu.Unlock()
+
+	if s.pageRankDebounce != nil {
+		s.pageRankDebounce.Stop()
+	}
+	s.pageRankDebounce = time.AfterFunc(2*time.Second, func() {
+		select {
+		case <-s.done:
+			return // server is shutting down
+		default:
+		}
+		if err := s.refreshPageRank(context.Background()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: debounced PageRank refresh failed: %v\n", err)
+		}
+	})
+}
+
+// runBackground executes fn in a bounded goroutine pool.
+// If the pool is full, the task is dropped with a warning.
+// If the server is shutting down, the task is not started.
+func (s *Server) runBackground(name string, fn func()) {
+	select {
+	case <-s.done:
+		return // server is shutting down
+	case s.workerPool <- struct{}{}:
+		go func() {
+			defer func() { <-s.workerPool }()
+			select {
+			case <-s.done:
+				return
+			default:
+			}
+			fn()
+		}()
+	default:
+		fmt.Fprintf(os.Stderr, "warning: background worker pool full, skipping %s\n", name)
+	}
+}
+
 // Run starts the MCP server over stdio transport.
 // This blocks until the client disconnects or the context is cancelled.
 func (s *Server) Run(ctx context.Context) error {
@@ -126,13 +191,26 @@ func (s *Server) Run(ctx context.Context) error {
 	// Run server (blocks)
 	err := s.server.Run(ctx, &sdk.StdioTransport{})
 
-	// Clean up
-	s.store.Close()
+	// Clean up (idempotent — safe if Close() was already called)
+	s.Close()
 
 	return err
 }
 
 // Close closes the server and releases resources.
+// It is safe to call Close multiple times; only the first call takes effect.
 func (s *Server) Close() error {
-	return s.store.Close()
+	var closeErr error
+	s.closeOnce.Do(func() {
+		close(s.done)
+
+		s.pageRankDebounceMu.Lock()
+		if s.pageRankDebounce != nil {
+			s.pageRankDebounce.Stop()
+		}
+		s.pageRankDebounceMu.Unlock()
+
+		closeErr = s.store.Close()
+	})
+	return closeErr
 }

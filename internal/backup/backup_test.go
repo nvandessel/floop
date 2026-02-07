@@ -356,6 +356,38 @@ func TestBackup_FilePermissions(t *testing.T) {
 	}
 }
 
+func TestRestore_OversizedFile(t *testing.T) {
+	ctx := context.Background()
+	dstStore := createTestStore(t)
+	defer dstStore.Close()
+
+	// Create a file that exceeds MaxRestoreFileSize
+	oversizedPath := filepath.Join(t.TempDir(), "oversized-backup.json")
+	f, err := os.Create(oversizedPath)
+	if err != nil {
+		t.Fatalf("Failed to create oversized file: %v", err)
+	}
+
+	// Write a valid JSON start but pad to exceed the limit
+	// We write just over the limit to trigger the bounded read error
+	f.WriteString(`{"version":1,"created_at":"2026-01-01T00:00:00Z","nodes":[`)
+	// Write enough data to exceed MaxRestoreFileSize
+	chunk := make([]byte, 1024*1024) // 1MB chunk
+	for i := range chunk {
+		chunk[i] = ' '
+	}
+	for i := 0; i < 55; i++ { // 55MB > 50MB limit
+		f.Write(chunk)
+	}
+	f.WriteString(`],"edges":[]}`)
+	f.Close()
+
+	_, err = Restore(ctx, dstStore, oversizedPath, RestoreMerge)
+	if err == nil {
+		t.Error("expected error for oversized backup file")
+	}
+}
+
 func TestGenerateBackupPath(t *testing.T) {
 	dir := "/tmp/backups"
 	path := GenerateBackupPath(dir)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,9 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/pathutil"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
+
+// MaxRestoreFileSize is the maximum size of a backup file that can be restored (50MB).
+const MaxRestoreFileSize = 50 * 1024 * 1024
 
 // BackupFormat is the JSON structure for a full backup file.
 type BackupFormat struct {
@@ -138,9 +142,21 @@ func Restore(ctx context.Context, graphStore store.GraphStore, inputPath string,
 	}
 	defer f.Close()
 
+	// Limit file read to MaxRestoreFileSize to prevent memory exhaustion.
+	// We read MaxRestoreFileSize+1 so that if the decoder consumes all bytes,
+	// the file exceeded the limit.
+	limitedReader := io.LimitReader(f, MaxRestoreFileSize+1)
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read backup file: %w", err)
+	}
+	if int64(len(data)) > MaxRestoreFileSize {
+		return nil, fmt.Errorf("backup file exceeds maximum size of %d bytes", MaxRestoreFileSize)
+	}
+
 	var backup BackupFormat
-	if err := json.NewDecoder(f).Decode(&backup); err != nil {
-		return nil, fmt.Errorf("failed to decode backup: %w", err)
+	if err := json.Unmarshal(data, &backup); err != nil {
+		return nil, fmt.Errorf("failed to decode backup (file may be corrupted): %w", err)
 	}
 
 	if backup.Version != 1 {

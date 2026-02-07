@@ -531,6 +531,30 @@ func TestHandleFloopActive_NoEdgesBackwardCompat(t *testing.T) {
 	}
 }
 
+func TestHandleFloopDeduplicate_RateLimited(t *testing.T) {
+	server, _ := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+	args := FloopDeduplicateInput{}
+
+	// floop_deduplicate has burst=1, so first call succeeds
+	_, _, err := server.handleFloopDeduplicate(ctx, req, args)
+	if err != nil {
+		t.Fatalf("First deduplicate should succeed: %v", err)
+	}
+
+	// Second call should be rate-limited
+	_, _, err = server.handleFloopDeduplicate(ctx, req, args)
+	if err == nil {
+		t.Error("Second deduplicate should be rate-limited")
+	}
+	if err != nil && !strings.Contains(err.Error(), "rate limit exceeded") {
+		t.Errorf("Expected rate limit error, got: %v", err)
+	}
+}
+
 func TestBehaviorContentToMap(t *testing.T) {
 	content := models.BehaviorContent{
 		Canonical: "Use X instead of Y",
