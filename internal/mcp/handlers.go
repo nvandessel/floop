@@ -12,13 +12,14 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/activation"
-	"github.com/nvandessel/feedback-loop/internal/backup"
 	"github.com/nvandessel/feedback-loop/internal/assembly"
+	"github.com/nvandessel/feedback-loop/internal/backup"
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/sanitize"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
@@ -394,6 +395,12 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 	if args.Right == "" {
 		return nil, FloopLearnOutput{}, fmt.Errorf("'right' parameter is required")
 	}
+
+	// Sanitize inputs at the handler level as defense-in-depth.
+	// The extraction layer also sanitizes, but this protects against
+	// any code path that bypasses the learning loop.
+	args.Wrong = sanitize.SanitizeBehaviorContent(args.Wrong)
+	args.Right = sanitize.SanitizeBehaviorContent(args.Right)
 
 	// Build context
 	ctxBuilder := activation.NewContextBuilder()

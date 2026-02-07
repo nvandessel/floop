@@ -8,6 +8,7 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/sanitize"
 )
 
 // BehaviorExtractor transforms corrections into candidate behaviors.
@@ -211,28 +212,33 @@ func (e *behaviorExtractor) inferKind(correction models.Correction) models.Behav
 }
 
 // buildContent creates the BehaviorContent with canonical text and structured patterns.
+// All user-supplied content is sanitized to prevent stored prompt injection.
 func (e *behaviorExtractor) buildContent(correction models.Correction) models.BehaviorContent {
+	// Sanitize user-supplied inputs before building content
+	sanitizedCorrected := sanitize.SanitizeBehaviorContent(correction.CorrectedAction)
+	sanitizedAgent := sanitize.SanitizeBehaviorContent(correction.AgentAction)
+
 	content := models.BehaviorContent{
-		Canonical:  correction.CorrectedAction,
+		Canonical:  sanitizedCorrected,
 		Structured: make(map[string]interface{}),
 	}
 
 	// Add avoid/prefer patterns
-	if correction.AgentAction != "" {
-		content.Structured["avoid"] = correction.AgentAction
+	if sanitizedAgent != "" {
+		content.Structured["avoid"] = sanitizedAgent
 	}
-	content.Structured["prefer"] = correction.CorrectedAction
+	content.Structured["prefer"] = sanitizedCorrected
 
 	// Build expanded version with context
 	var expanded strings.Builder
-	if correction.AgentAction != "" {
+	if sanitizedAgent != "" {
 		expanded.WriteString("When working on this type of task, ")
 		expanded.WriteString("avoid: ")
-		expanded.WriteString(correction.AgentAction)
+		expanded.WriteString(sanitizedAgent)
 		expanded.WriteString("\n\n")
 	}
 	expanded.WriteString("Instead: ")
-	expanded.WriteString(correction.CorrectedAction)
+	expanded.WriteString(sanitizedCorrected)
 
 	content.Expanded = expanded.String()
 

@@ -15,8 +15,8 @@ import (
 
 // BackupFormat is the JSON structure for a full backup file.
 type BackupFormat struct {
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
+	Version   int          `json:"version"`
+	CreatedAt time.Time    `json:"created_at"`
 	Nodes     []BackupNode `json:"nodes"`
 	Edges     []store.Edge `json:"edges"`
 }
