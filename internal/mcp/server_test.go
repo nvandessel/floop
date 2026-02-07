@@ -112,6 +112,114 @@ func TestClose(t *testing.T) {
 	}
 }
 
+func TestNewServer_HasRateLimiters(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0755); err != nil {
+		t.Fatalf("Failed to create .floop dir: %v", err)
+	}
+
+	cfg := &Config{
+		Name:    "test-server",
+		Version: "v1.0.0",
+		Root:    tmpDir,
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer server.Close()
+
+	if server.toolLimiters == nil {
+		t.Error("toolLimiters should be initialized")
+	}
+
+	expectedTools := []string{
+		"floop_learn", "floop_active", "floop_backup",
+		"floop_restore", "floop_connect", "floop_deduplicate",
+		"floop_list", "floop_validate",
+	}
+	for _, tool := range expectedTools {
+		if _, ok := server.toolLimiters[tool]; !ok {
+			t.Errorf("missing rate limiter for %s", tool)
+		}
+	}
+}
+
+func TestNewServer_HasWorkerPool(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0755); err != nil {
+		t.Fatalf("Failed to create .floop dir: %v", err)
+	}
+
+	cfg := &Config{
+		Name:    "test-server",
+		Version: "v1.0.0",
+		Root:    tmpDir,
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer server.Close()
+
+	if server.workerPool == nil {
+		t.Error("workerPool should be initialized")
+	}
+
+	if cap(server.workerPool) != maxBackgroundWorkers {
+		t.Errorf("workerPool capacity = %d, want %d", cap(server.workerPool), maxBackgroundWorkers)
+	}
+}
+
+func TestRunBackground_BoundsGoroutines(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0755); err != nil {
+		t.Fatalf("Failed to create .floop dir: %v", err)
+	}
+
+	cfg := &Config{
+		Name:    "test-server",
+		Version: "v1.0.0",
+		Root:    tmpDir,
+	}
+
+	server, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
+	defer server.Close()
+
+	// Fill the worker pool
+	block := make(chan struct{})
+	for i := 0; i < maxBackgroundWorkers; i++ {
+		server.runBackground("blocker", func() {
+			<-block // Block until released
+		})
+	}
+
+	// Next background task should be dropped (pool full)
+	dropped := true
+	server.runBackground("overflow", func() {
+		dropped = false
+	})
+
+	// The overflow task should not execute
+	if !dropped {
+		t.Error("expected background task to be dropped when pool is full")
+	}
+
+	// Release blockers
+	close(block)
+}
+
 func TestRun_CancelledContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)

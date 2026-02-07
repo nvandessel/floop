@@ -8,12 +8,17 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
+	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/session"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
+
+// maxBackgroundWorkers is the maximum number of concurrent background goroutines.
+const maxBackgroundWorkers = 5
 
 // Server wraps the MCP SDK server and provides floop-specific functionality.
 type Server struct {
@@ -23,6 +28,16 @@ type Server struct {
 	session       *session.State
 	pageRankMu    sync.RWMutex
 	pageRankCache map[string]float64
+
+	// Rate limiting
+	toolLimiters ratelimit.ToolLimiters
+
+	// PageRank debounce
+	pageRankDebounce   *time.Timer
+	pageRankDebounceMu sync.Mutex
+
+	// Bounded worker pool for background goroutines
+	workerPool chan struct{}
 }
 
 // Config holds server configuration.
@@ -56,6 +71,8 @@ func NewServer(cfg *Config) (*Server, error) {
 		root:          cfg.Root,
 		session:       session.NewState(session.DefaultConfig()),
 		pageRankCache: make(map[string]float64),
+		toolLimiters:  ratelimit.NewToolLimiters(),
+		workerPool:    make(chan struct{}, maxBackgroundWorkers),
 	}
 
 	// Register tools
@@ -105,6 +122,36 @@ func (s *Server) getPageRankScores() map[string]float64 {
 		scores[k] = v
 	}
 	return scores
+}
+
+// debouncedRefreshPageRank schedules a PageRank refresh after a short delay.
+// Multiple rapid calls coalesce into a single recomputation.
+func (s *Server) debouncedRefreshPageRank() {
+	s.pageRankDebounceMu.Lock()
+	defer s.pageRankDebounceMu.Unlock()
+
+	if s.pageRankDebounce != nil {
+		s.pageRankDebounce.Stop()
+	}
+	s.pageRankDebounce = time.AfterFunc(2*time.Second, func() {
+		if err := s.refreshPageRank(context.Background()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: debounced PageRank refresh failed: %v\n", err)
+		}
+	})
+}
+
+// runBackground executes fn in a bounded goroutine pool.
+// If the pool is full, the task is dropped with a warning.
+func (s *Server) runBackground(name string, fn func()) {
+	select {
+	case s.workerPool <- struct{}{}:
+		go func() {
+			defer func() { <-s.workerPool }()
+			fn()
+		}()
+	default:
+		fmt.Fprintf(os.Stderr, "warning: background worker pool full, skipping %s\n", name)
+	}
 }
 
 // Run starts the MCP server over stdio transport.
