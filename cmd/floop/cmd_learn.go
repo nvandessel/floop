@@ -119,7 +119,7 @@ Example:
 
 			// Append to corrections log (after processing so Processed flag is correct)
 			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
-			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 			if err != nil {
 				return fmt.Errorf("failed to open corrections log: %w", err)
 			}

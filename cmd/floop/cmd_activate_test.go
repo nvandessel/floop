@@ -184,6 +184,13 @@ func TestSessionStateDir(t *testing.T) {
 	if !strings.Contains(dir, "floop-session-test-session-123") {
 		t.Errorf("unexpected session dir: %s", dir)
 	}
+	// Session state should be under ~/.floop/sessions/, not os.TempDir()
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		if !strings.HasPrefix(dir, filepath.Join(homeDir, ".floop", "sessions")) {
+			t.Errorf("session dir should be under ~/.floop/sessions/, got: %s", dir)
+		}
+	}
 }
 
 func TestOutputMarkdown(t *testing.T) {
@@ -297,7 +304,7 @@ func TestRunActivateNoContext(t *testing.T) {
 	// Set root to a temp dir with .floop
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 

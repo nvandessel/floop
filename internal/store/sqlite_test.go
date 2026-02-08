@@ -450,7 +450,7 @@ func TestSQLiteGraphStore_GetNodeNotFound(t *testing.T) {
 func TestSQLiteGraphStore_ImportExistingJSONL(t *testing.T) {
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	os.MkdirAll(floopDir, 0755)
+	os.MkdirAll(floopDir, 0700)
 
 	// Create a nodes.jsonl file
 	nodesFile := filepath.Join(floopDir, "nodes.jsonl")
@@ -1016,7 +1016,7 @@ func TestSQLiteGraphStore_EdgeWeights(t *testing.T) {
 func TestSQLiteGraphStore_SchemaV3Migration(t *testing.T) {
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 

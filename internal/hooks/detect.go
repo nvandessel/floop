@@ -71,7 +71,7 @@ func GlobalConfigPath(p Platform) (string, error) {
 // This is useful for projects that don't yet have Claude Code configured.
 func EnsureClaudeDir(projectRoot string) error {
 	claudeDir := filepath.Join(projectRoot, ".claude")
-	return os.MkdirAll(claudeDir, 0755)
+	return os.MkdirAll(claudeDir, 0700)
 }
 
 // PlatformNames returns the names of all registered platforms.

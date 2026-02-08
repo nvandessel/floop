@@ -54,7 +54,7 @@ deduplication:
   auto_merge: true
   similarity_threshold: 0.85
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 
@@ -92,7 +92,7 @@ llm:
   provider: anthropic
   api_key: ${TEST_API_KEY}
 `
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestLoadFromFile_InvalidYAML(t *testing.T) {
 llm:
   provider: [invalid yaml
 `
-	if err := os.WriteFile(configPath, []byte(invalidYAML), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(invalidYAML), 0600); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 

@@ -184,7 +184,7 @@ func TestRotateBackups(t *testing.T) {
 	// Create 5 backup files
 	for i := 0; i < 5; i++ {
 		path := filepath.Join(dir, "floop-backup-2026020"+string(rune('1'+i))+"-120000.json")
-		os.WriteFile(path, []byte("{}"), 0644)
+		os.WriteFile(path, []byte("{}"), 0600)
 	}
 
 	// Rotate to keep 3

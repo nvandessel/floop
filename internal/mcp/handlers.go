@@ -515,7 +515,7 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 	correction.ProcessedAt = &processedAt
 
 	correctionsPath := filepath.Join(s.root, ".floop", "corrections.jsonl")
-	if f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+	if f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600); err == nil {
 		json.NewEncoder(f).Encode(correction)
 		f.Close()
 	}

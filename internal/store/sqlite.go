@@ -35,7 +35,7 @@ func NewSQLiteGraphStore(projectRoot string) (*SQLiteGraphStore, error) {
 	floopDir := filepath.Join(projectRoot, ".floop")
 
 	// Ensure .floop directory exists
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create .floop directory: %w", err)
 	}
 

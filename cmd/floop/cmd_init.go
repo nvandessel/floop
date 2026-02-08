@@ -57,7 +57,7 @@ Examples:
 			}
 
 			// Create .floop directory
-			if err := os.MkdirAll(floopDir, 0755); err != nil {
+			if err := os.MkdirAll(floopDir, 0700); err != nil {
 				return fmt.Errorf("failed to create .floop directory: %w", err)
 			}
 
@@ -73,7 +73,7 @@ created: %s
 # Run 'floop active' to see behaviors active in current context
 `
 				content := fmt.Sprintf(manifest, time.Now().Format(time.RFC3339))
-				if err := os.WriteFile(manifestPath, []byte(content), 0644); err != nil {
+				if err := os.WriteFile(manifestPath, []byte(content), 0600); err != nil {
 					return fmt.Errorf("failed to create manifest.yaml: %w", err)
 				}
 			}
@@ -81,7 +81,7 @@ created: %s
 			// Create corrections log for dogfooding
 			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
 			if _, err := os.Stat(correctionsPath); os.IsNotExist(err) {
-				if err := os.WriteFile(correctionsPath, []byte{}, 0644); err != nil {
+				if err := os.WriteFile(correctionsPath, []byte{}, 0600); err != nil {
 					return fmt.Errorf("failed to create corrections.jsonl: %w", err)
 				}
 			}

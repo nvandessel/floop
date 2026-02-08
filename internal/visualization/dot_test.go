@@ -14,7 +14,7 @@ func setupTestStore(t *testing.T) store.GraphStore {
 	t.Helper()
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("create floop dir: %v", err)
 	}
 

@@ -18,13 +18,13 @@ import (
 func setupTestServer(t *testing.T) (*Server, string) {
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
 	// Set isolated HOME to prevent global store interference
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")
@@ -86,7 +86,7 @@ func TestHandleFloopActive_WithFile(t *testing.T) {
 
 	// Create a test Go file
 	testFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -362,7 +362,7 @@ func TestHandleFloopActive_SpreadingActivation(t *testing.T) {
 
 	// Create a test Go file so language detection works.
 	testFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -478,7 +478,7 @@ func TestHandleFloopActive_NoEdgesBackwardCompat(t *testing.T) {
 	ctx := context.Background()
 
 	testFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 

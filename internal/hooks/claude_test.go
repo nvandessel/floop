@@ -26,7 +26,7 @@ func TestClaudePlatformDetect(t *testing.T) {
 
 	// Create .claude as file (not directory)
 	filePath := filepath.Join(tmpDir, ".claude")
-	if err := os.WriteFile(filePath, []byte("not a dir"), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte("not a dir"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if p.Detect(tmpDir) {
@@ -35,7 +35,7 @@ func TestClaudePlatformDetect(t *testing.T) {
 
 	// Remove and create as directory
 	os.Remove(filePath)
-	if err := os.MkdirAll(filePath, 0755); err != nil {
+	if err := os.MkdirAll(filePath, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if !p.Detect(tmpDir) {
@@ -67,11 +67,11 @@ func TestClaudePlatformReadConfig(t *testing.T) {
 
 	// Create .claude directory and empty file
 	claudeDir := filepath.Join(tmpDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(claudeDir, "settings.json")
-	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(""), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +86,7 @@ func TestClaudePlatformReadConfig(t *testing.T) {
 
 	// Valid JSON
 	validJSON := `{"key": "value"}`
-	if err := os.WriteFile(configPath, []byte(validJSON), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(validJSON), 0600); err != nil {
 		t.Fatal(err)
 	}
 	config, err = p.ReadConfig(tmpDir)
@@ -101,7 +101,7 @@ func TestClaudePlatformReadConfig(t *testing.T) {
 	}
 
 	// Invalid JSON
-	if err := os.WriteFile(configPath, []byte("not json"), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte("not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	_, err = p.ReadConfig(tmpDir)
@@ -266,7 +266,7 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 
 	// Create config without floop hooks
 	claudeDir := filepath.Join(tmpDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -283,7 +283,7 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 		}
 	}`
 	configPath := filepath.Join(claudeDir, "settings.json")
-	if err := os.WriteFile(configPath, []byte(noFloopConfig), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(noFloopConfig), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -308,7 +308,7 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 			]
 		}
 	}`
-	if err := os.WriteFile(configPath, []byte(floopConfig), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(floopConfig), 0600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -245,7 +245,7 @@ func saveConfig(cfg *config.FloopConfig) error {
 	}
 
 	floopDir := filepath.Join(homeDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		return fmt.Errorf("failed to create .floop directory: %w", err)
 	}
 
@@ -255,7 +255,7 @@ func saveConfig(cfg *config.FloopConfig) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

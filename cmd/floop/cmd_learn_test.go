@@ -270,7 +270,7 @@ func TestReprocessCmdSanitizesCorrections(t *testing.T) {
 			}
 
 			correctionsPath := filepath.Join(tmpDir, ".floop", "corrections.jsonl")
-			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 			if err != nil {
 				t.Fatalf("failed to open corrections file: %v", err)
 			}

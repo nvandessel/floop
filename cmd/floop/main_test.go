@@ -28,7 +28,7 @@ func newTestRootCmd() *cobra.Command {
 func isolateHome(t *testing.T, tmpDir string) {
 	t.Helper()
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")

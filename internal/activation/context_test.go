@@ -263,7 +263,7 @@ func TestContextBuilder_Build_WithProjectType(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// Create go.mod file
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0600); err != nil {
 		t.Fatalf("Failed to write go.mod: %v", err)
 	}
 
