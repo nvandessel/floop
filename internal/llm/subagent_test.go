@@ -295,6 +295,15 @@ func TestSubagentClient_isAllowedPath_WithRealPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("exact directory match accepted", func(t *testing.T) {
+		// When the resolved path equals the allowed directory exactly,
+		// it should be accepted. This covers the case where the CLI binary
+		// path resolves to exactly the allowed directory path.
+		if !client.isAllowedPath(allowedDir) {
+			t.Errorf("isAllowedPath(%q) = false, want true (exact directory match)", allowedDir)
+		}
+	})
+
 	t.Run("symlink to blocked dir from allowed rejected", func(t *testing.T) {
 		// Create a symlink from allowed dir pointing to blocked dir CLI
 		symlinkPath := filepath.Join(allowedDir, "sneaky-link")
