@@ -80,7 +80,11 @@ func (m *BehaviorMerger) llmMerge(ctx context.Context, behaviors []*models.Behav
 	// Sanitize LLM-generated content to prevent stored prompt injection
 	merged.Content.Canonical = sanitize.SanitizeBehaviorContent(merged.Content.Canonical)
 	merged.Content.Expanded = sanitize.SanitizeBehaviorContent(merged.Content.Expanded)
+	merged.Content.Summary = sanitize.SanitizeBehaviorContent(merged.Content.Summary)
 	merged.Name = sanitize.SanitizeBehaviorName(merged.Name)
+	for i, tag := range merged.Content.Tags {
+		merged.Content.Tags[i] = sanitize.SanitizeBehaviorName(tag)
+	}
 
 	// Ensure the merged behavior has proper metadata
 	merged.ID = generateMergedID(behaviors)
@@ -124,7 +128,11 @@ func (m *BehaviorMerger) ruleMerge(behaviors []*models.Behavior) *models.Behavio
 	// Sanitize merged content to prevent stored prompt injection
 	merged.Content.Canonical = sanitize.SanitizeBehaviorContent(merged.Content.Canonical)
 	merged.Content.Expanded = sanitize.SanitizeBehaviorContent(merged.Content.Expanded)
+	merged.Content.Summary = sanitize.SanitizeBehaviorContent(merged.Content.Summary)
 	merged.Name = sanitize.SanitizeBehaviorName(merged.Name)
+	for i, tag := range merged.Content.Tags {
+		merged.Content.Tags[i] = sanitize.SanitizeBehaviorName(tag)
+	}
 
 	// Track merge relationships
 	for _, b := range behaviors {
