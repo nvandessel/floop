@@ -121,7 +121,7 @@ func (c *ClaudePlatform) WriteConfig(projectRoot string, config map[string]inter
 
 	// Ensure .claude directory exists
 	claudeDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		return fmt.Errorf("failed to create .claude directory: %w", err)
 	}
 
@@ -132,7 +132,7 @@ func (c *ClaudePlatform) WriteConfig(projectRoot string, config map[string]inter
 	}
 
 	// Write file
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write settings.json: %w", err)
 	}
 

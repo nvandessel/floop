@@ -356,35 +356,35 @@ func TestInferProjectType(t *testing.T) {
 		{
 			name: "go project",
 			setup: func(dir string) error {
-				return os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
+				return os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0600)
 			},
 			want: ProjectTypeGo,
 		},
 		{
 			name: "node project",
 			setup: func(dir string) error {
-				return os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0644)
+				return os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0600)
 			},
 			want: ProjectTypeNode,
 		},
 		{
 			name: "python project with requirements.txt",
 			setup: func(dir string) error {
-				return os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask"), 0644)
+				return os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask"), 0600)
 			},
 			want: ProjectTypePython,
 		},
 		{
 			name: "python project with pyproject.toml",
 			setup: func(dir string) error {
-				return os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]"), 0644)
+				return os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]"), 0600)
 			},
 			want: ProjectTypePython,
 		},
 		{
 			name: "rust project",
 			setup: func(dir string) error {
-				return os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]"), 0644)
+				return os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]"), 0600)
 			},
 			want: ProjectTypeRust,
 		},
@@ -398,8 +398,8 @@ func TestInferProjectType(t *testing.T) {
 		{
 			name: "go takes priority over others",
 			setup: func(dir string) error {
-				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0644)
-				return os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0644)
+				os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test"), 0600)
+				return os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0600)
 			},
 			want: ProjectTypeGo,
 		},

@@ -54,7 +54,7 @@ func TestRegistryDetectPlatforms(t *testing.T) {
 	}
 
 	// Create .claude directory
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +73,7 @@ func TestConfigurePlatform(t *testing.T) {
 
 	// Create .claude directory
 	claudeDir := filepath.Join(tmpDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestConfigureAllDetected(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create .claude directory
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0700); err != nil {
 		t.Fatal(err)
 	}
 

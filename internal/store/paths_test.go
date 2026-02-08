@@ -113,7 +113,7 @@ func TestEnsureGlobalFloopDir(t *testing.T) {
 				}
 				os.Setenv("HOME", tmpHome)
 				floopDir := filepath.Join(tmpHome, ".floop")
-				os.MkdirAll(floopDir, 0755)
+				os.MkdirAll(floopDir, 0700)
 				cleanup := func() {
 					os.RemoveAll(tmpHome)
 				}

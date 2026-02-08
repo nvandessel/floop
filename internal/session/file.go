@@ -40,7 +40,7 @@ func SaveState(s *State, dir string) error {
 
 	// Write atomically via temp file + rename.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return fmt.Errorf("writing session state temp file: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {

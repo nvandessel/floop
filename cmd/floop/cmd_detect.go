@@ -213,7 +213,7 @@ Examples:
 
 			// Append to corrections log
 			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
-			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(correctionsPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 			if err == nil {
 				json.NewEncoder(f).Encode(correction)
 				f.Close()

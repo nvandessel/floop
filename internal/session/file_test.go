@@ -85,7 +85,7 @@ func TestLoadState_CorruptFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, stateFile)
 
-	if err := os.WriteFile(path, []byte("not json"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("not json"), 0600); err != nil {
 		t.Fatalf("writing corrupt file: %v", err)
 	}
 

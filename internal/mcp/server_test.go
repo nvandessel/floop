@@ -12,7 +12,7 @@ import (
 func isolateHome(t *testing.T, tmpDir string) {
 	t.Helper()
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")
@@ -29,7 +29,7 @@ func TestNewServer(t *testing.T) {
 
 	// Initialize .floop directory
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestClose(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -117,7 +117,7 @@ func TestNewServer_HasRateLimiters(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -153,7 +153,7 @@ func TestNewServer_HasWorkerPool(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func TestRunBackground_BoundsGoroutines(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -225,7 +225,7 @@ func TestRun_CancelledContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestClose_GracefulShutdownStopsDebounce(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
@@ -295,7 +295,7 @@ func TestRunBackground_SkipsAfterClose(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 

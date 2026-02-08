@@ -25,7 +25,7 @@ func TestE2E_FullPipeline(t *testing.T) {
 
 	// Create a Go file so language detection works.
 	goFile := filepath.Join(tmpDir, "main.go")
-	if err := os.WriteFile(goFile, []byte("package main\n"), 0644); err != nil {
+	if err := os.WriteFile(goFile, []byte("package main\n"), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 

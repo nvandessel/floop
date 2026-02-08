@@ -19,13 +19,13 @@ func TestIntegration_MCPProtocolFlow(t *testing.T) {
 	// Create isolated test environment
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
 	// Set isolated HOME
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")
@@ -90,12 +90,12 @@ func TestIntegration_LearnAndRetrieve(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")
@@ -180,7 +180,7 @@ func TestIntegration_LearnAndRetrieve(t *testing.T) {
 	t.Run("Step4_GetActiveBehaviors", func(t *testing.T) {
 		// Create a Go file in the test directory
 		goFile := filepath.Join(tmpDir, "main.go")
-		if err := os.WriteFile(goFile, []byte("package main\n"), 0644); err != nil {
+		if err := os.WriteFile(goFile, []byte("package main\n"), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
@@ -213,12 +213,12 @@ func TestIntegration_ConcurrentAccess(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")
@@ -313,12 +313,12 @@ func TestIntegration_StdioTransport(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	floopDir := filepath.Join(tmpDir, ".floop")
-	if err := os.MkdirAll(floopDir, 0755); err != nil {
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
 		t.Fatalf("Failed to create .floop dir: %v", err)
 	}
 
 	tmpHome := filepath.Join(tmpDir, "home")
-	if err := os.MkdirAll(tmpHome, 0755); err != nil {
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
 	oldHome := os.Getenv("HOME")

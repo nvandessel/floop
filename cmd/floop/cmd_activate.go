@@ -90,7 +90,7 @@ func runActivate(cmd *cobra.Command, args []string) error {
 
 	// Load or create session state
 	sessionDir := sessionStateDir(sessionID)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+	if err := os.MkdirAll(sessionDir, 0700); err != nil {
 		return fmt.Errorf("creating session state dir: %w", err)
 	}
 	sessState, err := session.LoadState(sessionDir)
@@ -156,8 +156,15 @@ func runActivate(cmd *cobra.Command, args []string) error {
 }
 
 // sessionStateDir returns the directory for persisting session state.
+// Session state is stored under ~/.floop/sessions/ with owner-only permissions
+// to avoid predictable temp paths in world-readable directories.
 func sessionStateDir(sessionID string) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("floop-session-%s", sessionID))
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// Fall back to os.TempDir if home is unavailable
+		return filepath.Join(os.TempDir(), fmt.Sprintf("floop-session-%s", sessionID))
+	}
+	return filepath.Join(homeDir, ".floop", "sessions", fmt.Sprintf("floop-session-%s", sessionID))
 }
 
 // activationToTier maps an activation level to an injection tier.
