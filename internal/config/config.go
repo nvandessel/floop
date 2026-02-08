@@ -53,6 +53,26 @@ type LLMConfig struct {
 	FallbackToRules bool `json:"fallback_to_rules" yaml:"fallback_to_rules"`
 }
 
+// RedactedAPIKey returns the API key with most characters masked.
+// Shows first 4 and last 4 characters, e.g., "sk-a...xyz9".
+// Returns "" for empty keys and "(set)" for keys shorter than 12 chars.
+func (c LLMConfig) RedactedAPIKey() string {
+	if c.APIKey == "" {
+		return ""
+	}
+	if len(c.APIKey) < 12 {
+		return "(set)"
+	}
+	return c.APIKey[:4] + "..." + c.APIKey[len(c.APIKey)-4:]
+}
+
+// String implements fmt.Stringer to prevent accidental API key logging.
+// It returns a representation with the API key redacted.
+func (c LLMConfig) String() string {
+	return fmt.Sprintf("LLMConfig{Provider:%s, Enabled:%t, APIKey:%s, Model:%s}",
+		c.Provider, c.Enabled, c.RedactedAPIKey(), c.ComparisonModel)
+}
+
 // DeduplicationConfig configures behavior deduplication.
 type DeduplicationConfig struct {
 	// AutoMerge enables automatic merging of detected duplicates.

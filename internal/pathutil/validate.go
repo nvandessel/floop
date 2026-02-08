@@ -8,6 +8,22 @@ import (
 	"strings"
 )
 
+// RedactPath reduces a full path to .../<parent>/<basename> for safe error messages.
+// For example, "/home/user/.floop/config.yaml" becomes ".../.floop/config.yaml".
+func RedactPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(path)
+	dir := filepath.Dir(cleaned)
+	base := filepath.Base(cleaned)
+	parent := filepath.Base(dir)
+	if parent == "." || parent == string(filepath.Separator) {
+		return base
+	}
+	return ".../" + parent + "/" + base
+}
+
 // ValidatePath checks that a file path is within one of the allowed directories.
 // It resolves symlinks, cleans the path, and rejects traversal attempts.
 func ValidatePath(path string, allowedDirs []string) error {
@@ -61,7 +77,7 @@ func ValidatePath(path string, allowedDirs []string) error {
 		}
 	}
 
-	return fmt.Errorf("path validation failed: %q is outside allowed directories", absPath)
+	return fmt.Errorf("path validation failed: %q is outside allowed directories", RedactPath(absPath))
 }
 
 // resolveExistingParent walks up the directory tree to find the deepest existing
@@ -78,7 +94,7 @@ func resolveExistingParent(dir string) (string, error) {
 	parent := filepath.Dir(dir)
 	if parent == dir {
 		// We've hit the root and it doesn't exist -- give up
-		return "", fmt.Errorf("cannot resolve path: %s", dir)
+		return "", fmt.Errorf("cannot resolve path: %s", RedactPath(dir))
 	}
 
 	resolvedParent, err := resolveExistingParent(parent)

@@ -165,6 +165,30 @@ func TestValidatePath_SymlinkInsideAllowedDir(t *testing.T) {
 	}
 }
 
+func TestRedactPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty", "", ""},
+		{"simple", "/home/user/.floop/config.yaml", ".../.floop/config.yaml"},
+		{"deep", "/a/b/c/d/e.txt", ".../d/e.txt"},
+		{"root file", "/file.txt", "file.txt"},
+		{"relative", "dir/file.txt", ".../dir/file.txt"},
+		{"just filename", "file.txt", "file.txt"},
+		{"trailing slash cleaned", "/home/user/.floop/", ".../user/.floop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RedactPath(tt.input)
+			if got != tt.want {
+				t.Errorf("RedactPath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDefaultAllowedBackupDirs(t *testing.T) {
 	dirs, err := DefaultAllowedBackupDirs()
 	if err != nil {
