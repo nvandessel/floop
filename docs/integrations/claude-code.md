@@ -339,8 +339,6 @@ Inject only for specific file types by using file patterns in behaviors rather t
 ## Next Steps
 
 - [MCP Server Integration](./mcp-server.md) - Full bidirectional integration
-- [CLI Reference](../CLI.md) - All floop commands
-- [Behavior Types](../SPEC.md#behavior-types) - Understanding behavior kinds
 
 ---
 

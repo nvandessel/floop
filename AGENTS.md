@@ -29,9 +29,8 @@ Do NOT wait for permission. Capture learnings proactively. The hooks will also a
 
 ## Essential Reading
 
-1. `docs/SPEC.md` - Full technical specification
-2. `docs/GO_GUIDELINES.md` - Go coding standards (read before writing code)
-3. `docs/PLAN.md` - Current implementation plan and task breakdown
+1. `docs/GO_GUIDELINES.md` - Go coding standards (read before writing code)
+2. `docs/PLAN.md` - Implementation history and task breakdown
 
 ## Quick Reference
 
@@ -100,9 +99,8 @@ feedback-loop/
 │   ├── activation/         # ContextBuilder, predicate evaluation, conflict resolution
 │   └── assembly/           # Behavior compilation for prompts
 ├── docs/
-│   ├── SPEC.md             # Full specification
 │   ├── GO_GUIDELINES.md    # Coding standards
-│   └── PLAN.md             # Implementation plan
+│   └── PLAN.md             # Implementation history
 ├── .floop/                 # Corrections and learned behaviors (data NOT version controlled)
 └── .beads/                 # Issue tracking (version controlled)
 ```

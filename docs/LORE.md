@@ -20,7 +20,11 @@ On January 25, 2026, the first commit landed. The project moved fast — core mo
 
 Ten days in, the system worked. Behaviors were being captured, stored, and injected into agent prompts. But the injection was static — every session got the full set of behaviors, front-loaded into the context window. It worked, but it was brute force. With 38 behaviors it was fine. With 200? 500? The token budget would explode.
 
-Then, on February 5, the [SYNAPSE paper](https://arxiv.org/abs/2601.02744) surfaced. SYNAPSE demonstrated that spreading activation — a decades-old theory from cognitive science about how the brain retrieves memories — could be applied to LLM agent memory. Their results showed 95% token reduction while maintaining higher accuracy than full-context methods. The key insight: you don't need to load everything, you just need to activate the right things.
+The first hint of a better approach came from researching AI code review tools. [CodeRabbit](https://coderabbit.ai/) and [Greptile](https://greptile.com/) both had this concept of a "blast radius" — when reviewing a diff, they didn't just look at the changed lines, they pulled in surrounding code and related context to understand the full impact. That made something click: what if triggered behaviors had a similar blast radius? When one behavior fires, what if it also pulled in related behaviors that might be relevant, even if they weren't a direct match for the current context?
+
+Then, right around the same time, the [SYNAPSE paper](https://arxiv.org/abs/2601.02744) dropped (published January 6, 2026). SYNAPSE demonstrated that spreading activation — a decades-old theory from cognitive science about how the brain retrieves memories — could be applied to LLM agent memory. Their results showed 95% token reduction while maintaining higher accuracy than full-context methods. The key insight: you don't need to load everything, you just need to activate the right things — and activation propagates outward through associations, like a blast radius through a graph.
+
+The blast radius concept from the code review tools and the spreading activation model from cognitive science snapped together — the same idea from two different angles.
 
 The mapping to floop was immediate:
 
@@ -30,9 +34,9 @@ The mapping to floop was immediate:
 - **Learned-from edges** were abstraction links (correction → behavior derivation)
 - **Activation** was context-relevant retrieval — energy propagating from seed nodes through the graph, decaying with distance, until only the most relevant behaviors were lit up
 
-This wasn't just an optimization. It was a model change. The behavior graph wasn't just storage anymore — it was a brain-like associative network where context triggered cascading activation, and the most relevant behaviors naturally floated to the top.
+This was a model change. The behavior graph wasn't just storage anymore — it was a brain-like associative network where context triggered cascading activation, and the most relevant behaviors naturally floated to the top.
 
-Within three days, the spreading activation engine was implemented: seed selection, energy propagation, lateral inhibition (where strongly activated nodes suppress weaker competitors, just like neurons do), and a hybrid scoring function combining context relevance, activation level, and PageRank centrality.
+Within three days, the spreading activation engine was implemented: seed selection, energy propagation, lateral inhibition (where strongly activated nodes suppress weaker competitors, just like neurons do), and a hybrid scoring function combining context relevance, activation level, and PageRank centrality. The blast radius was built into the graph itself — when a behavior activates, energy propagates outward through its connections, lighting up related behaviors that provide useful context even if they weren't direct matches.
 
 ## The Name
 
@@ -45,6 +49,7 @@ This repository dogfoods itself. The `.floop/nodes.jsonl` and `.floop/edges.json
 ## Acknowledgments
 
 - **Steve Yegge** and [Beads](https://github.com/steveyegge/beads) — the graph-structured thinking that started it all
+- **CodeRabbit** and **Greptile** — the "blast radius" concept from AI code review that sparked the idea of associative context
 - **SYNAPSE** ([arxiv 2601.02744](https://arxiv.org/abs/2601.02744)) — the paper that showed spreading activation works for LLM memory
 - **Collins & Loftus (1975)** — the original spreading activation theory for semantic memory
 - **John Anderson's ACT-R** — the cognitive architecture that formalized activation-based retrieval

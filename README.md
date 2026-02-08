@@ -6,13 +6,13 @@
 
 **Persistent memory for AI coding agents.**
 
-floop captures corrections you make to AI agents, extracts reusable behaviors, and activates them in the right context — so your agents learn from mistakes and stay consistent across sessions. It uses spreading activation (inspired by how the brain retrieves memories) to surface only the behaviors relevant to what you're working on.
+floop captures corrections you make to AI agents, extracts reusable behaviors, and activates them in the right context — so your agents learn from mistakes and stay consistent across sessions. It uses spreading activation (inspired by how the brain retrieves memories) to build an associative "blast radius" around your current work — not just direct matches, but related behaviors that provide useful context and bolster the AI's understanding.
 
 ## Features
 
 - **Learns from corrections** — Tell the agent what it did wrong and what to do instead; floop turns that into a durable behavior
 - **Context-aware activation** — Behaviors fire based on file type, task, and semantic relevance — not a static prompt dump
-- **Spreading activation** — Graph-based memory retrieval inspired by cognitive science (Collins & Loftus, ACT-R)
+- **Spreading activation** — Graph-based memory retrieval inspired by cognitive science (Collins & Loftus, ACT-R) — triggered behaviors propagate energy to related nodes, pulling in associative context
 - **Token-optimized** — Budget-aware assembly keeps injected context within limits
 - **MCP server** — Works with any AI tool that supports the Model Context Protocol
 - **CLI-first** — Every operation available as a command with `--json` output for agent consumption
@@ -57,12 +57,11 @@ See [docs/integrations/](docs/integrations/) for setup guides for Cursor, Windsu
 
 ## How It Works
 
-When you correct your AI agent, floop captures the correction and extracts a **behavior** — a reusable rule with context conditions. Behaviors are stored as nodes in a graph, connected by typed edges (similar-to, learned-from, requires, conflicts). When you start a session, floop builds a context snapshot (file types, task, project) and uses **spreading activation** to propagate energy through the graph from seed nodes, retrieving only the behaviors most relevant to your current work. This mirrors how the brain activates related memories through associative networks.
+When you correct your AI agent, floop captures the correction and extracts a **behavior** — a reusable rule with context conditions. Behaviors are stored as nodes in a graph, connected by typed edges (similar-to, learned-from, requires, conflicts). When you start a session, floop builds a context snapshot (file types, task, project) and uses **spreading activation** to propagate energy through the graph from seed nodes. This doesn't just retrieve direct matches — energy cascades outward through associations, pulling in related behaviors that provide useful context. The result is a focused but rich set of behaviors tuned to your current work, like the brain activating related memories through associative networks.
 
 ## Documentation
 
 - [Integration guides](docs/integrations/) — Setup for Claude Code, Cursor, Windsurf, and others
-- [Technical specification](docs/SPEC.md) — Full system design
 - [Research & theory](docs/SCIENCE.md) — The cognitive science behind spreading activation
 - [Origin story](docs/LORE.md) — How floop came to be
 - [Contributing](CONTRIBUTING.md) — How to contribute
@@ -70,7 +69,7 @@ When you correct your AI agent, floop captures the correction and extracts a **b
 
 ## Project Status
 
-Alpha — actively developed. API may change between minor versions.
+This is a hobby project I'm building in my free time. It's in early alpha — things work, but the API may change between minor versions and there's plenty left to build. Contributions and feedback are welcome, but please set expectations accordingly.
 
 ## License
 
