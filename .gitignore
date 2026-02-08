@@ -10,6 +10,14 @@ coverage.html
 
 # Audit logs (runtime data, not version controlled)
 .floop/audit.jsonl
+.floop/floop.db
+
+# Beads runtime artifacts
+.beads/export-state/
+.beads/*.db-shm
+.beads/*.db-wal
+.beads/daemon.*
 
 # Git worktrees for parallel agent work
 .worktrees/
+

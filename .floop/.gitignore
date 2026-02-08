@@ -2,8 +2,3 @@
 *.db
 *.db-shm
 *.db-wal
-
-# JSONL data files (contain learned behaviors and corrections - sensitive)
-corrections.jsonl
-nodes.jsonl
-edges.jsonl
