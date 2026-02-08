@@ -101,7 +101,7 @@ feedback-loop/
 │   ├── SPEC.md             # Full specification
 │   ├── GO_GUIDELINES.md    # Coding standards
 │   └── PLAN.md             # Implementation plan
-├── .floop/                 # Corrections and learned behaviors (version controlled)
+├── .floop/                 # Corrections and learned behaviors (data NOT version controlled)
 └── .beads/                 # Issue tracking (version controlled)
 ```
 
