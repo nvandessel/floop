@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -192,6 +193,58 @@ func TestValidate_ValidProviders(t *testing.T) {
 				t.Errorf("expected provider '%s' to be valid, got error: %v", provider, err)
 			}
 		})
+	}
+}
+
+func TestRedactedAPIKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{"empty", "", ""},
+		{"short", "abc", "(set)"},
+		{"exactly 11 chars", "abcdefghijk", "(set)"},
+		{"exactly 12 chars", "abcdefghijkl", "abcd...ijkl"},
+		{"normal", "sk-ant-api03-abcdefghijklmnop", "sk-a...mnop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := LLMConfig{APIKey: tt.key}
+			got := cfg.RedactedAPIKey()
+			if got != tt.want {
+				t.Errorf("RedactedAPIKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLLMConfigString(t *testing.T) {
+	cfg := LLMConfig{
+		Provider:        "anthropic",
+		APIKey:          "sk-ant-api03-secretkey1234567890",
+		ComparisonModel: "claude-3-haiku",
+		Enabled:         true,
+	}
+
+	s := cfg.String()
+
+	// Must not contain the full API key
+	if strings.Contains(s, cfg.APIKey) {
+		t.Errorf("String() must not contain full API key, got: %s", s)
+	}
+
+	// Must contain the redacted version
+	if !strings.Contains(s, cfg.RedactedAPIKey()) {
+		t.Errorf("String() should contain redacted key %q, got: %s", cfg.RedactedAPIKey(), s)
+	}
+
+	// Must contain provider and model info
+	if !strings.Contains(s, "anthropic") {
+		t.Errorf("String() should contain provider, got: %s", s)
+	}
+	if !strings.Contains(s, "claude-3-haiku") {
+		t.Errorf("String() should contain model, got: %s", s)
 	}
 }
 
