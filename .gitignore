@@ -8,5 +8,8 @@
 coverage.out
 coverage.html
 
+# Audit logs (runtime data, not version controlled)
+.floop/audit.jsonl
+
 # Git worktrees for parallel agent work
 .worktrees/

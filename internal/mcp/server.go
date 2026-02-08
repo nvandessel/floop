@@ -29,6 +29,9 @@ type Server struct {
 	pageRankMu    sync.RWMutex
 	pageRankCache map[string]float64
 
+	// Audit logging
+	auditLogger *AuditLogger
+
 	// Rate limiting
 	toolLimiters ratelimit.ToolLimiters
 
@@ -74,6 +77,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		store:         graphStore,
 		root:          cfg.Root,
 		session:       session.NewState(session.DefaultConfig()),
+		auditLogger:   NewAuditLogger(cfg.Root),
 		pageRankCache: make(map[string]float64),
 		toolLimiters:  ratelimit.NewToolLimiters(),
 		workerPool:    make(chan struct{}, maxBackgroundWorkers),
@@ -197,6 +201,10 @@ func (s *Server) Close() error {
 			s.pageRankDebounce.Stop()
 		}
 		s.pageRankDebounceMu.Unlock()
+
+		if s.auditLogger != nil {
+			s.auditLogger.Close()
+		}
 
 		closeErr = s.store.Close()
 	})

@@ -276,7 +276,14 @@ func (s *Server) handleBehaviorExpandResource(ctx context.Context, req *sdk.Read
 }
 
 // handleFloopActive implements the floop_active tool.
-func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest, args FloopActiveInput) (*sdk.CallToolResult, FloopActiveOutput, error) {
+func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest, args FloopActiveInput) (_ *sdk.CallToolResult, _ FloopActiveOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_active", start, retErr, sanitizeToolParams("floop_active", map[string]interface{}{
+			"file": args.File, "task": args.Task,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_active"); err != nil {
 		return nil, FloopActiveOutput{}, err
 	}
@@ -405,7 +412,14 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 }
 
 // handleFloopLearn implements the floop_learn tool.
-func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest, args FloopLearnInput) (*sdk.CallToolResult, FloopLearnOutput, error) {
+func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest, args FloopLearnInput) (_ *sdk.CallToolResult, _ FloopLearnOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_learn", start, retErr, sanitizeToolParams("floop_learn", map[string]interface{}{
+			"wrong": args.Wrong, "right": args.Right, "file": args.File, "task": args.Task, "auto_merge": args.AutoMerge,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_learn"); err != nil {
 		return nil, FloopLearnOutput{}, err
 	}
@@ -546,7 +560,14 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 }
 
 // handleFloopList implements the floop_list tool.
-func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, args FloopListInput) (*sdk.CallToolResult, FloopListOutput, error) {
+func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, args FloopListInput) (_ *sdk.CallToolResult, _ FloopListOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_list", start, retErr, sanitizeToolParams("floop_list", map[string]interface{}{
+			"corrections": args.Corrections, "tag": args.Tag,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_list"); err != nil {
 		return nil, FloopListOutput{}, err
 	}
@@ -750,7 +771,14 @@ func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationRes
 }
 
 // handleFloopDeduplicate implements the floop_deduplicate tool.
-func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRequest, args FloopDeduplicateInput) (*sdk.CallToolResult, FloopDeduplicateOutput, error) {
+func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRequest, args FloopDeduplicateInput) (_ *sdk.CallToolResult, _ FloopDeduplicateOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_deduplicate", start, retErr, sanitizeToolParams("floop_deduplicate", map[string]interface{}{
+			"dry_run": args.DryRun, "threshold": args.Threshold, "scope": args.Scope,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_deduplicate"); err != nil {
 		return nil, FloopDeduplicateOutput{}, err
 	}
@@ -827,7 +855,14 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 }
 
 // handleFloopBackup implements the floop_backup tool.
-func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest, args FloopBackupInput) (*sdk.CallToolResult, FloopBackupOutput, error) {
+func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest, args FloopBackupInput) (_ *sdk.CallToolResult, _ FloopBackupOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_backup", start, retErr, sanitizeToolParams("floop_backup", map[string]interface{}{
+			"output_path": args.OutputPath,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_backup"); err != nil {
 		return nil, FloopBackupOutput{}, err
 	}
@@ -871,7 +906,14 @@ func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest
 }
 
 // handleFloopRestore implements the floop_restore tool.
-func (s *Server) handleFloopRestore(ctx context.Context, req *sdk.CallToolRequest, args FloopRestoreInput) (*sdk.CallToolResult, FloopRestoreOutput, error) {
+func (s *Server) handleFloopRestore(ctx context.Context, req *sdk.CallToolRequest, args FloopRestoreInput) (_ *sdk.CallToolResult, _ FloopRestoreOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_restore", start, retErr, sanitizeToolParams("floop_restore", map[string]interface{}{
+			"input_path": args.InputPath, "mode": args.Mode,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_restore"); err != nil {
 		return nil, FloopRestoreOutput{}, err
 	}
@@ -921,7 +963,15 @@ var validEdgeKinds = map[string]bool{
 }
 
 // handleFloopConnect implements the floop_connect tool.
-func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolRequest, args FloopConnectInput) (*sdk.CallToolResult, FloopConnectOutput, error) {
+func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolRequest, args FloopConnectInput) (_ *sdk.CallToolResult, _ FloopConnectOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_connect", start, retErr, sanitizeToolParams("floop_connect", map[string]interface{}{
+			"source": args.Source, "target": args.Target, "kind": args.Kind,
+			"weight": args.Weight, "bidirectional": args.Bidirectional,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_connect"); err != nil {
 		return nil, FloopConnectOutput{}, err
 	}
@@ -1037,7 +1087,12 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 }
 
 // handleFloopValidate implements the floop_validate tool.
-func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolRequest, args FloopValidateInput) (*sdk.CallToolResult, FloopValidateOutput, error) {
+func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolRequest, args FloopValidateInput) (_ *sdk.CallToolResult, _ FloopValidateOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_validate", start, retErr, nil)
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_validate"); err != nil {
 		return nil, FloopValidateOutput{}, err
 	}
@@ -1109,7 +1164,14 @@ func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolReque
 }
 
 // handleFloopGraph implements the floop_graph tool.
-func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest, args FloopGraphInput) (*sdk.CallToolResult, FloopGraphOutput, error) {
+func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest, args FloopGraphInput) (_ *sdk.CallToolResult, _ FloopGraphOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_graph", start, retErr, sanitizeToolParams("floop_graph", map[string]interface{}{
+			"format": args.Format,
+		}))
+	}()
+
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_graph"); err != nil {
 		return nil, FloopGraphOutput{}, err
 	}
