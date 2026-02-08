@@ -72,12 +72,19 @@ func NewServer(cfg *Config) (*Server, error) {
 		},
 	})
 
+	// Determine home directory for global audit log
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cannot determine home directory for global audit log: %v\n", err)
+		homeDir = "" // NewAuditLogger handles empty dir gracefully
+	}
+
 	s := &Server{
 		server:        mcpServer,
 		store:         graphStore,
 		root:          cfg.Root,
 		session:       session.NewState(session.DefaultConfig()),
-		auditLogger:   NewAuditLogger(cfg.Root),
+		auditLogger:   NewAuditLogger(cfg.Root, homeDir),
 		pageRankCache: make(map[string]float64),
 		toolLimiters:  ratelimit.NewToolLimiters(),
 		workerPool:    make(chan struct{}, maxBackgroundWorkers),

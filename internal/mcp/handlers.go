@@ -281,7 +281,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	defer func() {
 		s.auditTool("floop_active", start, retErr, sanitizeToolParams("floop_active", map[string]interface{}{
 			"file": args.File, "task": args.Task,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_active"); err != nil {
@@ -417,7 +417,7 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 	defer func() {
 		s.auditTool("floop_learn", start, retErr, sanitizeToolParams("floop_learn", map[string]interface{}{
 			"wrong": args.Wrong, "right": args.Right, "file": args.File, "task": args.Task, "auto_merge": args.AutoMerge,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_learn"); err != nil {
@@ -565,7 +565,7 @@ func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, 
 	defer func() {
 		s.auditTool("floop_list", start, retErr, sanitizeToolParams("floop_list", map[string]interface{}{
 			"corrections": args.Corrections, "tag": args.Tag,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_list"); err != nil {
@@ -774,9 +774,13 @@ func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationRes
 func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRequest, args FloopDeduplicateInput) (_ *sdk.CallToolResult, _ FloopDeduplicateOutput, retErr error) {
 	start := time.Now()
 	defer func() {
+		auditScope := "local"
+		if args.Scope == "global" {
+			auditScope = "global"
+		}
 		s.auditTool("floop_deduplicate", start, retErr, sanitizeToolParams("floop_deduplicate", map[string]interface{}{
 			"dry_run": args.DryRun, "threshold": args.Threshold, "scope": args.Scope,
-		}))
+		}), auditScope)
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_deduplicate"); err != nil {
@@ -860,7 +864,7 @@ func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest
 	defer func() {
 		s.auditTool("floop_backup", start, retErr, sanitizeToolParams("floop_backup", map[string]interface{}{
 			"output_path": args.OutputPath,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_backup"); err != nil {
@@ -911,7 +915,7 @@ func (s *Server) handleFloopRestore(ctx context.Context, req *sdk.CallToolReques
 	defer func() {
 		s.auditTool("floop_restore", start, retErr, sanitizeToolParams("floop_restore", map[string]interface{}{
 			"input_path": args.InputPath, "mode": args.Mode,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_restore"); err != nil {
@@ -969,7 +973,7 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 		s.auditTool("floop_connect", start, retErr, sanitizeToolParams("floop_connect", map[string]interface{}{
 			"source": args.Source, "target": args.Target, "kind": args.Kind,
 			"weight": args.Weight, "bidirectional": args.Bidirectional,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_connect"); err != nil {
@@ -1090,7 +1094,7 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolRequest, args FloopValidateInput) (_ *sdk.CallToolResult, _ FloopValidateOutput, retErr error) {
 	start := time.Now()
 	defer func() {
-		s.auditTool("floop_validate", start, retErr, nil)
+		s.auditTool("floop_validate", start, retErr, nil, "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_validate"); err != nil {
@@ -1169,7 +1173,7 @@ func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest,
 	defer func() {
 		s.auditTool("floop_graph", start, retErr, sanitizeToolParams("floop_graph", map[string]interface{}{
 			"format": args.Format,
-		}))
+		}), "local")
 	}()
 
 	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_graph"); err != nil {

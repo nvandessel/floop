@@ -26,8 +26,9 @@ func TestAuditLogger_NilSafety(t *testing.T) {
 }
 
 func TestAuditLogger_WritesJSONL(t *testing.T) {
-	dir := t.TempDir()
-	logger := NewAuditLogger(dir)
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -39,13 +40,14 @@ func TestAuditLogger_WritesJSONL(t *testing.T) {
 		Tool:       "floop_learn",
 		DurationMs: 42,
 		Status:     "success",
+		Scope:      "local",
 		Params:     map[string]string{"scope": "local"},
 	})
 
-	// Read and verify
-	data, err := os.ReadFile(filepath.Join(dir, ".floop", "audit.jsonl"))
+	// Read and verify from local log
+	data, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
 	if err != nil {
-		t.Fatalf("reading audit log: %v", err)
+		t.Fatalf("reading local audit log: %v", err)
 	}
 
 	var entry AuditEntry
@@ -61,14 +63,104 @@ func TestAuditLogger_WritesJSONL(t *testing.T) {
 	if entry.Status != "success" {
 		t.Errorf("status = %q, want success", entry.Status)
 	}
+	if entry.Scope != "local" {
+		t.Errorf("scope = %q, want local", entry.Scope)
+	}
 	if entry.Params["scope"] != "local" {
 		t.Errorf("params[scope] = %q, want local", entry.Params["scope"])
+	}
+
+	// Verify nothing was written to the global log
+	globalPath := filepath.Join(globalDir, ".floop", "audit.jsonl")
+	if _, err := os.Stat(globalPath); err == nil {
+		globalData, _ := os.ReadFile(globalPath)
+		if len(globalData) > 0 {
+			t.Error("expected no data in global audit log for local-scoped entry")
+		}
+	}
+}
+
+func TestAuditLogger_GlobalScope(t *testing.T) {
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
+	if logger == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	defer logger.Close()
+
+	logger.Log(AuditEntry{
+		Timestamp:  time.Now(),
+		Tool:       "floop_list",
+		DurationMs: 10,
+		Status:     "success",
+		Scope:      "global",
+	})
+
+	// Should be written to global log
+	globalData, err := os.ReadFile(filepath.Join(globalDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading global audit log: %v", err)
+	}
+
+	var entry AuditEntry
+	if err := json.Unmarshal(globalData[:len(globalData)-1], &entry); err != nil {
+		t.Fatalf("parsing global audit entry: %v", err)
+	}
+	if entry.Tool != "floop_list" {
+		t.Errorf("tool = %q, want floop_list", entry.Tool)
+	}
+	if entry.Scope != "global" {
+		t.Errorf("scope = %q, want global", entry.Scope)
+	}
+
+	// Should NOT be in local log
+	localPath := filepath.Join(localDir, ".floop", "audit.jsonl")
+	if _, err := os.Stat(localPath); err == nil {
+		localData, _ := os.ReadFile(localPath)
+		if len(localData) > 0 {
+			t.Error("expected no data in local audit log for global-scoped entry")
+		}
+	}
+}
+
+func TestAuditLogger_DefaultScopeIsLocal(t *testing.T) {
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
+	if logger == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	defer logger.Close()
+
+	// Log with empty scope -- should default to local
+	logger.Log(AuditEntry{
+		Timestamp:  time.Now(),
+		Tool:       "floop_active",
+		DurationMs: 5,
+		Status:     "success",
+		Scope:      "",
+	})
+
+	// Should be written to local log
+	localData, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading local audit log: %v", err)
+	}
+
+	var entry AuditEntry
+	if err := json.Unmarshal(localData[:len(localData)-1], &entry); err != nil {
+		t.Fatalf("parsing local audit entry: %v", err)
+	}
+	if entry.Tool != "floop_active" {
+		t.Errorf("tool = %q, want floop_active", entry.Tool)
 	}
 }
 
 func TestAuditLogger_MultipleEntries(t *testing.T) {
-	dir := t.TempDir()
-	logger := NewAuditLogger(dir)
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -80,10 +172,11 @@ func TestAuditLogger_MultipleEntries(t *testing.T) {
 			Tool:       "floop_list",
 			DurationMs: int64(i * 10),
 			Status:     "success",
+			Scope:      "local",
 		})
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, ".floop", "audit.jsonl"))
+	data, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
 	if err != nil {
 		t.Fatalf("reading audit log: %v", err)
 	}
@@ -100,9 +193,61 @@ func TestAuditLogger_MultipleEntries(t *testing.T) {
 	}
 }
 
+func TestAuditLogger_MixedScopes(t *testing.T) {
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
+	if logger == nil {
+		t.Fatal("expected non-nil logger")
+	}
+	defer logger.Close()
+
+	// Write entries to both scopes
+	logger.Log(AuditEntry{
+		Timestamp: time.Now(), Tool: "floop_learn", Status: "success", Scope: "local",
+	})
+	logger.Log(AuditEntry{
+		Timestamp: time.Now(), Tool: "floop_list", Status: "success", Scope: "global",
+	})
+	logger.Log(AuditEntry{
+		Timestamp: time.Now(), Tool: "floop_active", Status: "success", Scope: "local",
+	})
+
+	// Verify local has 2 entries
+	localData, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading local audit log: %v", err)
+	}
+	localLines := 0
+	for _, b := range localData {
+		if b == '\n' {
+			localLines++
+		}
+	}
+	if localLines != 2 {
+		t.Errorf("local line count = %d, want 2", localLines)
+	}
+
+	// Verify global has 1 entry
+	globalData, err := os.ReadFile(filepath.Join(globalDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading global audit log: %v", err)
+	}
+	globalLines := 0
+	for _, b := range globalData {
+		if b == '\n' {
+			globalLines++
+		}
+	}
+	if globalLines != 1 {
+		t.Errorf("global line count = %d, want 1", globalLines)
+	}
+}
+
 func TestAuditLogger_ErrorEntry(t *testing.T) {
-	dir := t.TempDir()
-	logger := NewAuditLogger(dir)
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -113,10 +258,11 @@ func TestAuditLogger_ErrorEntry(t *testing.T) {
 		Tool:       "floop_restore",
 		DurationMs: 5,
 		Status:     "error",
+		Scope:      "local",
 		Error:      "file not found",
 	})
 
-	data, err := os.ReadFile(filepath.Join(dir, ".floop", "audit.jsonl"))
+	data, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
 	if err != nil {
 		t.Fatalf("reading audit log: %v", err)
 	}
@@ -134,28 +280,42 @@ func TestAuditLogger_ErrorEntry(t *testing.T) {
 }
 
 func TestAuditLogger_FilePermissions(t *testing.T) {
-	dir := t.TempDir()
-	logger := NewAuditLogger(dir)
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
 	defer logger.Close()
 
-	logger.Log(AuditEntry{Tool: "test"})
+	logger.Log(AuditEntry{Tool: "test", Scope: "local"})
+	logger.Log(AuditEntry{Tool: "test", Scope: "global"})
 
-	info, err := os.Stat(filepath.Join(dir, ".floop", "audit.jsonl"))
+	// Check local file permissions
+	info, err := os.Stat(filepath.Join(localDir, ".floop", "audit.jsonl"))
 	if err != nil {
-		t.Fatalf("stat: %v", err)
+		t.Fatalf("stat local: %v", err)
 	}
 	perm := info.Mode().Perm()
 	if perm != 0600 {
-		t.Errorf("permissions = %o, want 0600", perm)
+		t.Errorf("local permissions = %o, want 0600", perm)
+	}
+
+	// Check global file permissions
+	info, err = os.Stat(filepath.Join(globalDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("stat global: %v", err)
+	}
+	perm = info.Mode().Perm()
+	if perm != 0600 {
+		t.Errorf("global permissions = %o, want 0600", perm)
 	}
 }
 
 func TestAuditLogger_ConcurrentWrites(t *testing.T) {
-	dir := t.TempDir()
-	logger := NewAuditLogger(dir)
+	localDir := t.TempDir()
+	globalDir := t.TempDir()
+	logger := NewAuditLogger(localDir, globalDir)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -170,12 +330,17 @@ func TestAuditLogger_ConcurrentWrites(t *testing.T) {
 	for g := 0; g < goroutines; g++ {
 		go func(id int) {
 			defer wg.Done()
+			scope := "local"
+			if id%2 == 0 {
+				scope = "global"
+			}
 			for i := 0; i < entriesPerGoroutine; i++ {
 				logger.Log(AuditEntry{
 					Timestamp:  time.Now(),
 					Tool:       "floop_active",
 					DurationMs: int64(id*100 + i),
 					Status:     "success",
+					Scope:      scope,
 				})
 			}
 		}(g)
@@ -183,21 +348,34 @@ func TestAuditLogger_ConcurrentWrites(t *testing.T) {
 
 	wg.Wait()
 
-	data, err := os.ReadFile(filepath.Join(dir, ".floop", "audit.jsonl"))
+	// Count lines in local log (odd goroutine IDs: 1,3,5,7,9 = 5 goroutines)
+	localData, err := os.ReadFile(filepath.Join(localDir, ".floop", "audit.jsonl"))
 	if err != nil {
-		t.Fatalf("reading audit log: %v", err)
+		t.Fatalf("reading local audit log: %v", err)
 	}
-
-	// Count newlines
-	lines := 0
-	for _, b := range data {
+	localLines := 0
+	for _, b := range localData {
 		if b == '\n' {
-			lines++
+			localLines++
 		}
 	}
+
+	// Count lines in global log (even goroutine IDs: 0,2,4,6,8 = 5 goroutines)
+	globalData, err := os.ReadFile(filepath.Join(globalDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading global audit log: %v", err)
+	}
+	globalLines := 0
+	for _, b := range globalData {
+		if b == '\n' {
+			globalLines++
+		}
+	}
+
+	total := localLines + globalLines
 	want := goroutines * entriesPerGoroutine
-	if lines != want {
-		t.Errorf("line count = %d, want %d", lines, want)
+	if total != want {
+		t.Errorf("total line count = %d (local=%d, global=%d), want %d", total, localLines, globalLines, want)
 	}
 }
 
@@ -209,11 +387,44 @@ func TestAuditLogger_NonFatalOnBadPath(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	// NewAuditLogger should return nil (non-fatal), not panic
-	logger := NewAuditLogger(blockPath)
+	// NewAuditLogger should NOT return nil -- the other logger should still work
+	goodDir := t.TempDir()
+	logger := NewAuditLogger(blockPath, goodDir)
+	if logger == nil {
+		t.Fatal("expected non-nil logger when at least one path is valid")
+	}
+	defer logger.Close()
+
+	// Logging to the failed scope should be a no-op (not panic)
+	logger.Log(AuditEntry{Tool: "test", Scope: "local"})
+
+	// Logging to the working scope should succeed
+	logger.Log(AuditEntry{Tool: "test", Scope: "global"})
+	data, err := os.ReadFile(filepath.Join(goodDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading good audit log: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("expected data in working audit log")
+	}
+}
+
+func TestAuditLogger_BothPathsBad(t *testing.T) {
+	dir := t.TempDir()
+	block1 := filepath.Join(dir, "block1")
+	block2 := filepath.Join(dir, "block2")
+	if err := os.WriteFile(block1, []byte("file"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(block2, []byte("file"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// When both paths are bad, should return nil
+	logger := NewAuditLogger(block1, block2)
 	if logger != nil {
 		logger.Close()
-		t.Error("expected nil logger for invalid path")
+		t.Error("expected nil logger when both paths are bad")
 	}
 }
 
@@ -320,7 +531,7 @@ func TestAuditTool_Integration(t *testing.T) {
 	// Use the auditTool helper
 	start := time.Now()
 	time.Sleep(1 * time.Millisecond) // ensure non-zero duration
-	server.auditTool("floop_test", start, nil, map[string]string{"scope": "local"})
+	server.auditTool("floop_test", start, nil, map[string]string{"scope": "local"}, "local")
 
 	// Read the audit log
 	data, err := os.ReadFile(filepath.Join(tmpDir, ".floop", "audit.jsonl"))
@@ -341,5 +552,48 @@ func TestAuditTool_Integration(t *testing.T) {
 	}
 	if entry.DurationMs < 1 {
 		t.Errorf("duration_ms = %d, want >= 1", entry.DurationMs)
+	}
+	if entry.Scope != "local" {
+		t.Errorf("scope = %q, want local", entry.Scope)
+	}
+}
+
+func TestAuditTool_GlobalScope(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	if server.auditLogger == nil {
+		t.Fatal("expected auditLogger to be initialized")
+	}
+
+	start := time.Now()
+	server.auditTool("floop_list", start, nil, map[string]string{"scope": "global"}, "global")
+
+	// The global audit log is under the test's HOME directory
+	homeDir := os.Getenv("HOME")
+	globalData, err := os.ReadFile(filepath.Join(homeDir, ".floop", "audit.jsonl"))
+	if err != nil {
+		t.Fatalf("reading global audit log: %v", err)
+	}
+
+	var entry AuditEntry
+	if err := json.Unmarshal(globalData[:len(globalData)-1], &entry); err != nil {
+		t.Fatalf("parsing global audit entry: %v", err)
+	}
+
+	if entry.Tool != "floop_list" {
+		t.Errorf("tool = %q, want floop_list", entry.Tool)
+	}
+	if entry.Scope != "global" {
+		t.Errorf("scope = %q, want global", entry.Scope)
+	}
+
+	// Local log should not have this entry
+	localPath := filepath.Join(tmpDir, ".floop", "audit.jsonl")
+	if _, err := os.Stat(localPath); err == nil {
+		localData, _ := os.ReadFile(localPath)
+		if len(localData) > 0 {
+			t.Error("expected no data in local audit log for global-scoped auditTool call")
+		}
 	}
 }
