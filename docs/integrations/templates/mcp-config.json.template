@@ -1,0 +1,8 @@
+{
+  "_comment": "Generic floop MCP server configuration. Copy to your tool's config file.",
+  "floop": {
+    "command": "floop",
+    "args": ["mcp-server"],
+    "cwd": "${workspaceFolder}"
+  }
+}
