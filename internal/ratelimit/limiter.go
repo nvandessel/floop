@@ -78,14 +78,14 @@ type ToolLimiters map[string]*Limiter
 // These limits are generous enough for normal usage but prevent abuse.
 func NewToolLimiters() ToolLimiters {
 	return ToolLimiters{
-		"floop_learn":       NewLimiter(10.0/60.0, 3),  // 10/minute, burst 3
-		"floop_active":      NewLimiter(60.0/60.0, 10), // 60/minute, burst 10
-		"floop_backup":      NewLimiter(5.0/60.0, 2),   // 5/minute, burst 2
-		"floop_restore":     NewLimiter(5.0/60.0, 2),   // 5/minute, burst 2
-		"floop_connect":     NewLimiter(30.0/60.0, 5),  // 30/minute, burst 5
-		"floop_deduplicate": NewLimiter(5.0/60.0, 1),   // 5/minute, burst 1
-		"floop_list":        NewLimiter(60.0/60.0, 10), // 60/minute, burst 10
-		"floop_validate":    NewLimiter(10.0/60.0, 5),  // 10/minute, burst 5
+		"floop_learn":       NewLimiter(10.0/60.0, 3), // 10/minute, burst 3
+		"floop_active":      NewLimiter(1.0, 10),      // 60/minute, burst 10
+		"floop_backup":      NewLimiter(5.0/60.0, 2),  // 5/minute, burst 2
+		"floop_restore":     NewLimiter(5.0/60.0, 2),  // 5/minute, burst 2
+		"floop_connect":     NewLimiter(30.0/60.0, 5), // 30/minute, burst 5
+		"floop_deduplicate": NewLimiter(5.0/60.0, 1),  // 5/minute, burst 1
+		"floop_list":        NewLimiter(1.0, 10),      // 60/minute, burst 10
+		"floop_validate":    NewLimiter(10.0/60.0, 5), // 10/minute, burst 5
 	}
 }
 

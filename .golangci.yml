@@ -1,0 +1,67 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - misspell
+    - goconst
+  disable:
+    - lll
+    - gocyclo
+    - funlen
+    - godot
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*github.com/spf13/cobra.Command).MarkFlagRequired
+        - os.Remove
+        - (*encoding/json.Encoder).Encode
+    gosec:
+      excludes:
+        - G104  # Unhandled errors — too noisy
+        - G204  # Subprocess with variable — we validate CLI paths
+        - G301  # Directory permissions — tracked in w03.6
+        - G302  # File permissions — tracked in w03.6
+        - G304  # File path from variable — we have pathutil validation
+        - G306  # WriteFile permissions — tracked in w03.6
+    goconst:
+      min-occurrences: 5
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - goconst
+      # Ignore errcheck on defer Close() — standard Go pattern
+      - text: "Error return value of .*.Close.*is not checked"
+        linters:
+          - errcheck
+      - text: "Error return value of .*.Rollback.*is not checked"
+        linters:
+          - errcheck
+      # Suppress staticcheck quick-fix suggestions (QF/S) — style-only, no bugs.
+      # These can be addressed incrementally outside the CI setup.
+      - text: "^QF"
+        linters:
+          - staticcheck
+      - text: "^S1"
+        linters:
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

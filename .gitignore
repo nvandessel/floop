@@ -4,5 +4,9 @@
 # Built binaries
 /floop
 
+# Test coverage
+coverage.out
+coverage.html
+
 # Git worktrees for parallel agent work
 .worktrees/

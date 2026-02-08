@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -208,7 +209,7 @@ func TestSubagentClient_CompareBehaviors_NotAvailable(t *testing.T) {
 		available:     false,
 	}
 
-	_, err := client.CompareBehaviors(nil, nil, nil)
+	_, err := client.CompareBehaviors(context.TODO(), nil, nil)
 	if err == nil {
 		t.Error("expected error when client not available")
 	}
@@ -224,7 +225,7 @@ func TestSubagentClient_MergeBehaviors_NotAvailable(t *testing.T) {
 		available:     false,
 	}
 
-	_, err := client.MergeBehaviors(nil, nil)
+	_, err := client.MergeBehaviors(context.TODO(), nil)
 	if err == nil {
 		t.Error("expected error when client not available")
 	}
@@ -240,7 +241,7 @@ func TestSubagentClient_MergeBehaviors_EmptyInput(t *testing.T) {
 		available:     true,
 	}
 
-	_, err := client.MergeBehaviors(nil, []*models.Behavior{})
+	_, err := client.MergeBehaviors(context.TODO(), []*models.Behavior{})
 	if err == nil {
 		t.Error("expected error for empty behaviors")
 	}

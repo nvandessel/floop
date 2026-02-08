@@ -227,35 +227,6 @@ func splitLines(s string) []string {
 	return lines
 }
 
-// loadBehaviors loads behaviors from the persistent graph store.
-func loadBehaviors(floopDir string) ([]models.Behavior, error) {
-	// Get the project root from the floop directory
-	projectRoot := filepath.Dir(floopDir)
-
-	// Open the graph store
-	graphStore, err := store.NewFileGraphStore(projectRoot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open graph store: %w", err)
-	}
-	defer graphStore.Close()
-
-	// Query all behavior nodes
-	ctx := context.Background()
-	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to query behaviors: %w", err)
-	}
-
-	// Convert nodes to behaviors
-	behaviors := make([]models.Behavior, 0, len(nodes))
-	for _, node := range nodes {
-		b := learning.NodeToBehavior(node)
-		behaviors = append(behaviors, b)
-	}
-
-	return behaviors, nil
-}
-
 // loadBehaviorsWithScope loads behaviors from the specified scope (local, global, or both).
 func loadBehaviorsWithScope(projectRoot string, scope constants.Scope) ([]models.Behavior, error) {
 	ctx := context.Background()

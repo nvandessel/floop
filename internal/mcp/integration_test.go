@@ -1,9 +1,7 @@
 package mcp
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,27 +9,6 @@ import (
 	"testing"
 	"time"
 )
-
-// jsonrpcRequest represents a JSON-RPC 2.0 request
-type jsonrpcRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      int         `json:"id"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-}
-
-// jsonrpcResponse represents a JSON-RPC 2.0 response
-type jsonrpcResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int             `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *jsonrpcError   `json:"error,omitempty"`
-}
-
-type jsonrpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
 
 // TestIntegration_MCPProtocolFlow tests the full MCP protocol lifecycle
 func TestIntegration_MCPProtocolFlow(t *testing.T) {
@@ -383,27 +360,4 @@ func TestIntegration_StdioTransport(t *testing.T) {
 	clientToServerWriter.Close()
 	serverToClientReader.Close()
 	serverToClientWriter.Close()
-}
-
-// parseJSONRPCLine parses a newline-delimited JSON-RPC message
-func parseJSONRPCLine(line string) (*jsonrpcResponse, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil, nil
-	}
-
-	var resp jsonrpcResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// readJSONRPCResponse reads a JSON-RPC response from the reader
-func readJSONRPCResponse(reader *bufio.Reader) (*jsonrpcResponse, error) {
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	return parseJSONRPCLine(line)
 }

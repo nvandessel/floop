@@ -388,7 +388,7 @@ This undoes 'floop forget' or 'floop deprecate'.`,
 				edges, err := graphStore.GetEdges(ctx, id, store.DirectionOutbound, "deprecated-to")
 				if err == nil {
 					for _, e := range edges {
-						graphStore.RemoveEdge(ctx, e.Source, e.Target, e.Kind)
+						_ = graphStore.RemoveEdge(ctx, e.Source, e.Target, e.Kind)
 					}
 				}
 			}
@@ -585,10 +585,10 @@ This action cannot be undone with restore.`,
 				for _, e := range inboundEdges {
 					if e.Kind != "merged-into" { // Don't redirect the edge we just added
 						// Remove old edge
-						graphStore.RemoveEdge(ctx, e.Source, e.Target, e.Kind)
+						_ = graphStore.RemoveEdge(ctx, e.Source, e.Target, e.Kind)
 						// Add redirected edge
 						e.Target = targetID
-						graphStore.AddEdge(ctx, e)
+						_ = graphStore.AddEdge(ctx, e)
 					}
 				}
 			}

@@ -117,18 +117,6 @@ func (s *Server) refreshPageRank(ctx context.Context) error {
 	return nil
 }
 
-// getPageRankScores returns a copy of the current PageRank cache.
-func (s *Server) getPageRankScores() map[string]float64 {
-	s.pageRankMu.RLock()
-	defer s.pageRankMu.RUnlock()
-
-	scores := make(map[string]float64, len(s.pageRankCache))
-	for k, v := range s.pageRankCache {
-		scores[k] = v
-	}
-	return scores
-}
-
 // debouncedRefreshPageRank schedules a PageRank refresh after a short delay.
 // Multiple rapid calls coalesce into a single recomputation.
 func (s *Server) debouncedRefreshPageRank() {

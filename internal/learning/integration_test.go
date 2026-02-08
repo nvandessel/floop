@@ -38,16 +38,6 @@ func (m *mockDeduplicator) withMergeResult(merged *models.Behavior) *mockDedupli
 	return m
 }
 
-func (m *mockDeduplicator) withFindError(err error) *mockDeduplicator {
-	m.findErr = err
-	return m
-}
-
-func (m *mockDeduplicator) withMergeError(err error) *mockDeduplicator {
-	m.mergeErr = err
-	return m
-}
-
 func (m *mockDeduplicator) FindDuplicates(ctx context.Context, behavior *models.Behavior) ([]dedup.DuplicateMatch, error) {
 	m.findCallCount++
 	if m.findErr != nil {
