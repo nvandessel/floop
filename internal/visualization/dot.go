@@ -27,10 +27,10 @@ var nodeColors = map[string]string{
 
 // edgeStyles maps edge kinds to DOT styles.
 var edgeStyles = map[string]string{
-	"requires":    "solid",
-	"overrides":   "bold",
-	"conflicts":   "dashed",
-	"similar-to":  "dotted",
+	"requires":     "solid",
+	"overrides":    "bold",
+	"conflicts":    "dashed",
+	"similar-to":   "dotted",
 	"learned-from": "tapered",
 }
 

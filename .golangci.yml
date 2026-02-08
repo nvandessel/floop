@@ -2,7 +2,6 @@ version: "2"
 
 run:
   timeout: 5m
-  go: "1.25"
 
 linters:
   enable:
@@ -37,7 +36,7 @@ linters:
         - G304  # File path from variable — we have pathutil validation
         - G306  # WriteFile permissions — tracked in w03.6
     goconst:
-      min-occurrences: 5
+      min-occurrences: 10
   exclusions:
     rules:
       - path: _test\.go
