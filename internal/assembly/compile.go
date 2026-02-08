@@ -209,7 +209,17 @@ func (c *Compiler) formatBehaviorMarkdown(b models.Behavior, content string) str
 }
 
 func (c *Compiler) formatBehaviorXML(b models.Behavior, content string) string {
-	return fmt.Sprintf("<behavior kind=\"%s\">%s</behavior>", b.Kind, content)
+	return fmt.Sprintf("<behavior kind=\"%s\">%s</behavior>", b.Kind, escapeXML(content))
+}
+
+// escapeXML escapes XML special characters in content strings.
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;") // Must be first!
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }
 
 func (c *Compiler) formatBehaviorPlain(b models.Behavior, content string) string {
@@ -365,7 +375,12 @@ func (c *Compiler) buildQuickReferenceSection(summarized []models.InjectedBehavi
 		if len(shortID) > 8 {
 			shortID = shortID[:8]
 		}
-		lines = append(lines, fmt.Sprintf("- [%s] %s", shortID, ib.Content))
+		content := ib.Content
+		if c.format == FormatXML {
+			content = escapeXML(content)
+			shortID = escapeXML(shortID)
+		}
+		lines = append(lines, fmt.Sprintf("- [%s] %s", shortID, content))
 	}
 
 	return strings.Join(lines, "\n")
@@ -384,7 +399,11 @@ func (c *Compiler) buildNameOnlySection(nameOnly []models.InjectedBehavior) stri
 			continue
 		}
 		// Content is pre-formatted by the tier mapper as `name` [kind] #tags
-		lines = append(lines, fmt.Sprintf("- %s", ib.Content))
+		content := ib.Content
+		if c.format == FormatXML {
+			content = escapeXML(content)
+		}
+		lines = append(lines, fmt.Sprintf("- %s", content))
 	}
 
 	return strings.Join(lines, "\n")
@@ -523,17 +542,17 @@ func (c *Compiler) formatCluster(cluster BehaviorCluster, totalCount int) string
 
 	switch c.format {
 	case FormatXML:
-		lines = append(lines, fmt.Sprintf("<cluster label=%q count=\"%d\">", cluster.ClusterLabel, totalCount))
+		lines = append(lines, fmt.Sprintf("<cluster label=\"%s\" count=\"%d\">", escapeXML(cluster.ClusterLabel), totalCount))
 		if cluster.Representative.Behavior != nil {
-			lines = append(lines, fmt.Sprintf("  <behavior kind=%q>%s</behavior>",
+			lines = append(lines, fmt.Sprintf("  <behavior kind=\"%s\">%s</behavior>",
 				cluster.Representative.Behavior.Kind,
-				cluster.Representative.Content))
+				escapeXML(cluster.Representative.Content)))
 		}
 		if len(cluster.Members) > 0 {
 			var names []string
 			for _, m := range cluster.Members {
 				if m.Behavior != nil {
-					names = append(names, m.Behavior.Name)
+					names = append(names, escapeXML(m.Behavior.Name))
 				}
 			}
 			lines = append(lines, fmt.Sprintf("  <also>%s</also>", strings.Join(names, ", ")))

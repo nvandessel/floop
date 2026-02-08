@@ -236,6 +236,260 @@ func TestEstimateTokens(t *testing.T) {
 	}
 }
 
+func TestFormatBehaviorXML_EscapesContent(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		wantContain string
+		wantAbsent  string
+	}{
+		{
+			name:        "escapes angle brackets",
+			content:     "<script>alert('xss')</script>",
+			wantContain: "&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;",
+			wantAbsent:  "<script>",
+		},
+		{
+			name:        "escapes double quotes in content",
+			content:     `"quoted"`,
+			wantContain: "&quot;quoted&quot;",
+		},
+		{
+			name:        "escapes ampersand",
+			content:     "A & B",
+			wantContain: "A &amp; B",
+			wantAbsent:  "A & B",
+		},
+		{
+			name:        "escapes single quote",
+			content:     "it's fine",
+			wantContain: "it&apos;s fine",
+		},
+		{
+			name:        "escapes all special chars combined",
+			content:     `<b>"Tom & Jerry's"</b>`,
+			wantContain: "&lt;b&gt;&quot;Tom &amp; Jerry&apos;s&quot;&lt;/b&gt;",
+		},
+		{
+			name:        "no special chars unchanged",
+			content:     "Use Go 1.25 for all projects",
+			wantContain: "Use Go 1.25 for all projects",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			compiler := NewCompiler().WithFormat(FormatXML)
+			b := models.Behavior{
+				ID:   "b1",
+				Kind: models.BehaviorKindDirective,
+				Content: models.BehaviorContent{
+					Canonical: tt.content,
+				},
+			}
+
+			result := compiler.Compile([]models.Behavior{b})
+
+			if !strings.Contains(result.Text, tt.wantContain) {
+				t.Errorf("expected output to contain %q, got %q", tt.wantContain, result.Text)
+			}
+			if tt.wantAbsent != "" && strings.Contains(result.Text, tt.wantAbsent) {
+				t.Errorf("expected output NOT to contain %q, got %q", tt.wantAbsent, result.Text)
+			}
+
+			// The kind attribute should NOT be escaped (it's a controlled enum)
+			if !strings.Contains(result.Text, `kind="directive"`) {
+				t.Errorf("expected kind attribute to remain unescaped, got %q", result.Text)
+			}
+		})
+	}
+}
+
+func TestFormatCluster_EscapesXMLContent(t *testing.T) {
+	compiler := NewCompiler().WithFormat(FormatXML)
+
+	rep := models.Behavior{
+		ID:   "rep1",
+		Name: "use-pathlib",
+		Kind: models.BehaviorKindDirective,
+		Content: models.BehaviorContent{
+			Canonical: "Use pathlib.Path <not os.path> for \"all\" file ops",
+		},
+	}
+	member := models.Behavior{
+		ID:   "mem1",
+		Name: "prefer-context<mgr> & cleanup",
+		Kind: models.BehaviorKindDirective,
+	}
+
+	cluster := BehaviorCluster{
+		Representative: models.InjectedBehavior{
+			Behavior: &rep,
+			Tier:     models.TierFull,
+			Content:  rep.Content.Canonical,
+		},
+		Members: []models.InjectedBehavior{
+			{Behavior: &member, Tier: models.TierNameOnly, Content: member.Name},
+		},
+		ClusterLabel: "Python <File> Handling",
+		SharedTags:   []string{"python"},
+	}
+
+	result := compiler.CompileCoalesced(nil, []BehaviorCluster{cluster})
+
+	// Representative content must be escaped
+	if strings.Contains(result, "<not os.path>") {
+		t.Error("expected representative content to be XML-escaped, found raw angle brackets")
+	}
+	if !strings.Contains(result, "&lt;not os.path&gt;") {
+		t.Errorf("expected escaped representative content, got %q", result)
+	}
+	if !strings.Contains(result, "&quot;all&quot;") {
+		t.Errorf("expected escaped double quotes in content, got %q", result)
+	}
+
+	// Member names must be escaped in <also> tag
+	if strings.Contains(result, "<mgr>") {
+		t.Error("expected member name to be XML-escaped in <also> tag, found raw angle brackets")
+	}
+	if !strings.Contains(result, "&lt;mgr&gt;") {
+		t.Errorf("expected escaped member name, got %q", result)
+	}
+	if !strings.Contains(result, "&amp;") {
+		t.Errorf("expected escaped ampersand in member name, got %q", result)
+	}
+
+	// Cluster label must be escaped in attribute context
+	if !strings.Contains(result, "Python &lt;File&gt; Handling") || strings.Contains(result, "Python <File> Handling") {
+		// The label is inside an attribute, so it could be escaped differently,
+		// but at minimum angle brackets must not appear raw
+		if strings.Contains(result, `label="Python <File> Handling"`) {
+			t.Error("expected cluster label to be XML-escaped in attribute, found raw angle brackets")
+		}
+	}
+}
+
+func TestEscapeXML(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "ampersand",
+			input: "A & B",
+			want:  "A &amp; B",
+		},
+		{
+			name:  "less than",
+			input: "a < b",
+			want:  "a &lt; b",
+		},
+		{
+			name:  "greater than",
+			input: "a > b",
+			want:  "a &gt; b",
+		},
+		{
+			name:  "double quote",
+			input: `say "hello"`,
+			want:  "say &quot;hello&quot;",
+		},
+		{
+			name:  "single quote",
+			input: "it's",
+			want:  "it&apos;s",
+		},
+		{
+			name:  "combined entities",
+			input: `<b>"Tom & Jerry's"</b>`,
+			want:  "&lt;b&gt;&quot;Tom &amp; Jerry&apos;s&quot;&lt;/b&gt;",
+		},
+		{
+			name:  "already escaped entity is double-escaped",
+			input: "&lt;",
+			want:  "&amp;lt;",
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "no special chars",
+			input: "hello world 123",
+			want:  "hello world 123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := escapeXML(tt.input)
+			if got != tt.want {
+				t.Errorf("escapeXML(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompileTiered_XML_EscapesSummarizedAndNameOnly(t *testing.T) {
+	compiler := NewCompiler().WithFormat(FormatXML)
+
+	fullB := models.Behavior{
+		ID:   "full-1",
+		Kind: models.BehaviorKindDirective,
+		Content: models.BehaviorContent{
+			Canonical: "Use Go modules",
+		},
+	}
+	summB := models.Behavior{
+		ID:   "summ-behavior-1",
+		Kind: models.BehaviorKindPreference,
+		Content: models.BehaviorContent{
+			Canonical: "Prefer interfaces <T> over concrete types",
+			Summary:   "Prefer interfaces <T>",
+		},
+	}
+	nameB := models.Behavior{
+		ID:   "name-behavior-1",
+		Kind: models.BehaviorKindPreference,
+		Content: models.BehaviorContent{
+			Canonical: "Use context & cancellation",
+		},
+	}
+
+	plan := &models.InjectionPlan{
+		FullBehaviors: []models.InjectedBehavior{
+			{Behavior: &fullB, Tier: models.TierFull, Content: fullB.Content.Canonical},
+		},
+		SummarizedBehaviors: []models.InjectedBehavior{
+			{Behavior: &summB, Tier: models.TierSummary, Content: "Prefer interfaces <T>"},
+		},
+		NameOnlyBehaviors: []models.InjectedBehavior{
+			{Behavior: &nameB, Tier: models.TierNameOnly, Content: "Use context & cancellation [preference]"},
+		},
+		TokenBudget: 500,
+	}
+
+	result := compiler.CompileTiered(plan)
+
+	// Summarized content inside <quick-reference> must be escaped
+	if strings.Contains(result.Text, "interfaces <T>") {
+		t.Errorf("expected summarized content to be XML-escaped inside <quick-reference>, got raw angle brackets in: %s", result.Text)
+	}
+	if !strings.Contains(result.Text, "interfaces &lt;T&gt;") {
+		t.Errorf("expected escaped angle brackets in summarized content, got: %s", result.Text)
+	}
+
+	// Name-only content inside <also-available> must be escaped
+	if strings.Contains(result.Text, "context & cancellation") {
+		t.Errorf("expected name-only content to be XML-escaped inside <also-available>, got raw ampersand in: %s", result.Text)
+	}
+	if !strings.Contains(result.Text, "context &amp; cancellation") {
+		t.Errorf("expected escaped ampersand in name-only content, got: %s", result.Text)
+	}
+}
+
 func TestCompiler_CompileTiered_Nil(t *testing.T) {
 	compiler := NewCompiler()
 	result := compiler.CompileTiered(nil)
