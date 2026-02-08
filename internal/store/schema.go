@@ -184,8 +184,11 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 		return nil
 	}
 
-	// Validate database integrity before migrations
-	if err := ValidateIntegrity(ctx, db); err != nil {
+	// Check structural integrity (corruption detection) before any writes.
+	// Only runs PRAGMA integrity_check, NOT foreign_key_check — FK violations
+	// are data-level issues that shouldn't block schema migration or startup.
+	// Use ValidateIntegrity() or floop_validate for full validation including FK.
+	if err := validateStructuralIntegrity(ctx, db); err != nil {
 		return fmt.Errorf("database integrity check failed: %w", err)
 	}
 
@@ -393,6 +396,28 @@ func migrateV2ToV3(ctx context.Context, db *sql.DB) error {
 	}
 
 	return tx.Commit()
+}
+
+// validateStructuralIntegrity checks for SQLite database corruption.
+// It only runs PRAGMA integrity_check — not foreign_key_check.
+// Use ValidateIntegrity for full validation including FK checks.
+func validateStructuralIntegrity(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA integrity_check`)
+	if err != nil {
+		return fmt.Errorf("failed to run integrity_check: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return fmt.Errorf("failed to scan integrity_check result: %w", err)
+		}
+		if result != "ok" {
+			return fmt.Errorf("integrity_check failed: %s", result)
+		}
+	}
+	return nil
 }
 
 // ValidateIntegrity runs SQLite integrity checks on the database.

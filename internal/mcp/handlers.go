@@ -313,9 +313,11 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 
 	// Spread activation through graph edges
 	seeds := matchesToSeeds(matches)
+	var spreadResults []spreading.Result
 	if len(seeds) > 0 {
 		engine := spreading.NewEngine(s.store, spreading.DefaultConfig())
-		spreadResults, err := engine.Activate(ctx, seeds)
+		var err error
+		spreadResults, err = engine.Activate(ctx, seeds)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: spreading activation failed: %v\n", err)
 		} else {
@@ -328,7 +330,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	result := resolver.Resolve(matches)
 
 	// Build spread metadata index for populating summaries
-	spreadIndex := buildSpreadIndex(seeds, matches)
+	spreadIndex := buildSpreadIndex(seeds, matches, spreadResults)
 
 	// Convert to summary format
 	summaries := make([]BehaviorSummary, len(result.Active))
@@ -682,29 +684,38 @@ type spreadMeta struct {
 }
 
 // buildSpreadIndex creates a lookup from behavior ID to spreading metadata.
-// It uses the seeds (for distance=0 entries) and the matches list to correlate
-// with the activation results from the engine.
-func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationResult) map[string]spreadMeta {
-	index := make(map[string]spreadMeta, len(seeds))
+// It uses spreadResults from the engine for post-sigmoid activation values,
+// falling back to raw seed values only for behaviors not in the engine output.
+func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationResult, spreadResults []spreading.Result) map[string]spreadMeta {
+	index := make(map[string]spreadMeta, len(spreadResults))
 
-	// Seed behaviors are distance 0.
-	for _, s := range seeds {
-		index[s.BehaviorID] = spreadMeta{
-			activation: s.Activation,
-			distance:   0,
-			seedSource: s.Source,
+	// Primary source: engine results with post-propagation activation values.
+	for _, sr := range spreadResults {
+		index[sr.BehaviorID] = spreadMeta{
+			activation: sr.Activation,
+			distance:   sr.Distance,
+			seedSource: sr.SeedSource,
 		}
 	}
 
-	// Spread-only behaviors (added via mergeSpreadResults) have Specificity 0
-	// and won't be in the seed list. Mark them as distance > 0.
+	// Fallback: seeds not present in engine results (shouldn't happen, but defensive).
+	for _, s := range seeds {
+		if _, ok := index[s.BehaviorID]; !ok {
+			index[s.BehaviorID] = spreadMeta{
+				activation: s.Activation,
+				distance:   0,
+				seedSource: s.Source,
+			}
+		}
+	}
+
+	// Fallback: matched behaviors with no spreading data at all.
 	for _, m := range matches {
 		if _, ok := index[m.Behavior.ID]; !ok {
-			// Not a seed — this was discovered via spreading.
 			index[m.Behavior.ID] = spreadMeta{
 				activation: spreading.SpecificityToActivation(m.Specificity),
-				distance:   1, // At least 1 hop away
-				seedSource: "spread",
+				distance:   0,
+				seedSource: "direct",
 			}
 		}
 	}

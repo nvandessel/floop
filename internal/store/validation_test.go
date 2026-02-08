@@ -291,6 +291,109 @@ func TestValidateBehaviorGraph_MixedIssues(t *testing.T) {
 	}
 }
 
+func TestValidateBehaviorGraph_DanglingEdgeTarget(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add a behavior and an edge pointing to a non-existent target
+	behavior := createTestBehavior("behavior-a", "Behavior A")
+	if _, err := store.AddNode(ctx, behavior); err != nil {
+		t.Fatalf("failed to add behavior: %v", err)
+	}
+
+	edge := Edge{
+		Source: "behavior-a",
+		Target: "nonexistent-target",
+		Kind:   "similar-to",
+		Weight: 0.8,
+	}
+	if err := store.AddEdge(ctx, edge); err != nil {
+		t.Fatalf("failed to add edge: %v", err)
+	}
+
+	errors, err := store.ValidateBehaviorGraph(ctx)
+	if err != nil {
+		t.Fatalf("validation failed: %v", err)
+	}
+
+	// Should report a dangling edge-target
+	edgeErrors := filterByField(errors, "edge-target")
+	if len(edgeErrors) != 1 {
+		t.Fatalf("expected 1 edge-target error, got %d: %v", len(edgeErrors), errors)
+	}
+	if edgeErrors[0].RefID != "nonexistent-target" {
+		t.Errorf("expected RefID 'nonexistent-target', got %q", edgeErrors[0].RefID)
+	}
+	if edgeErrors[0].Issue != "dangling" {
+		t.Errorf("expected Issue 'dangling', got %q", edgeErrors[0].Issue)
+	}
+}
+
+func TestValidateBehaviorGraph_DanglingEdgeSource(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add a behavior, then insert an edge with a non-existent source directly
+	behavior := createTestBehavior("behavior-a", "Behavior A")
+	if _, err := store.AddNode(ctx, behavior); err != nil {
+		t.Fatalf("failed to add behavior: %v", err)
+	}
+
+	// Insert edge directly into DB to bypass any source validation
+	_, err := store.db.ExecContext(ctx,
+		`INSERT INTO edges (source, target, kind, weight) VALUES (?, ?, ?, ?)`,
+		"nonexistent-source", "behavior-a", "requires", 1.0)
+	if err != nil {
+		t.Fatalf("failed to insert edge: %v", err)
+	}
+
+	errors, err := store.ValidateBehaviorGraph(ctx)
+	if err != nil {
+		t.Fatalf("validation failed: %v", err)
+	}
+
+	edgeErrors := filterByField(errors, "edge-source")
+	if len(edgeErrors) != 1 {
+		t.Fatalf("expected 1 edge-source error, got %d: %v", len(edgeErrors), errors)
+	}
+	if edgeErrors[0].RefID != "nonexistent-source" {
+		t.Errorf("expected RefID 'nonexistent-source', got %q", edgeErrors[0].RefID)
+	}
+}
+
+func TestValidateBehaviorGraph_ValidEdges(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	behaviorA := createTestBehavior("behavior-a", "Behavior A")
+	behaviorB := createTestBehavior("behavior-b", "Behavior B")
+	if _, err := store.AddNode(ctx, behaviorA); err != nil {
+		t.Fatalf("failed to add A: %v", err)
+	}
+	if _, err := store.AddNode(ctx, behaviorB); err != nil {
+		t.Fatalf("failed to add B: %v", err)
+	}
+
+	edge := Edge{Source: "behavior-a", Target: "behavior-b", Kind: "similar-to", Weight: 0.8}
+	if err := store.AddEdge(ctx, edge); err != nil {
+		t.Fatalf("failed to add edge: %v", err)
+	}
+
+	errors, err := store.ValidateBehaviorGraph(ctx)
+	if err != nil {
+		t.Fatalf("validation failed: %v", err)
+	}
+	if len(errors) != 0 {
+		t.Errorf("expected no errors for valid edges, got %d: %v", len(errors), errors)
+	}
+}
+
 func TestValidateBehaviorGraph_EmptyStore(t *testing.T) {
 	store, cleanup := setupTestSQLiteStore(t)
 	defer cleanup()
@@ -460,6 +563,16 @@ func createTestBehavior(id, name string) Node {
 			"scope":      "local",
 		},
 	}
+}
+
+func filterByField(errors []ValidationError, field string) []ValidationError {
+	var result []ValidationError
+	for _, e := range errors {
+		if e.Field == field {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 func filterByIssue(errors []ValidationError, issue string) []ValidationError {

@@ -153,6 +153,73 @@ func TestInitSchema_PreSchemaVersionDB(t *testing.T) {
 	}
 }
 
+func TestInitSchema_MigratesDespiteIntegrityFailure(t *testing.T) {
+	// Scenario: DB at schema v1 WITH schema_version table but has FK violations.
+	// ValidateIntegrity would fail, which previously blocked migrations entirely.
+	// Migrations should still run — integrity issues don't prevent schema changes.
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create a v1 DB: has schema_version at 1, but missing v2 columns
+	// Use the pre-schema DDL (no metadata_extra) + schema_version table
+	if _, err := db.ExecContext(ctx, preSchemaVersionDDL); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_version (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (1, '2024-01-01')`); err != nil {
+		t.Fatalf("insert version: %v", err)
+	}
+
+	// Create an orphaned behavior_stats row → FK violation
+	if _, err := db.ExecContext(ctx, `INSERT INTO behavior_stats (behavior_id) VALUES ('nonexistent-id')`); err != nil {
+		t.Fatalf("insert orphan: %v", err)
+	}
+
+	// Verify FK violation exists
+	if err := ValidateIntegrity(ctx, db); err == nil {
+		t.Fatal("expected ValidateIntegrity to fail due to FK violation")
+	}
+
+	// Verify metadata_extra doesn't exist yet
+	cols := getColumns(t, db, "behaviors")
+	if cols["metadata_extra"] {
+		t.Fatal("metadata_extra should not exist before migration")
+	}
+
+	// InitSchema should still succeed and apply migrations
+	if err := InitSchema(ctx, db); err != nil {
+		t.Fatalf("InitSchema should migrate despite integrity issues, got: %v", err)
+	}
+
+	// Verify migration ran
+	cols = getColumns(t, db, "behaviors")
+	if !cols["metadata_extra"] {
+		t.Error("metadata_extra column was not added")
+	}
+	if !cols["behavior_type"] {
+		t.Error("behavior_type column was not added")
+	}
+
+	// Verify schema version updated
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("get version: %v", err)
+	}
+	if version != SchemaVersion {
+		t.Errorf("schema version = %d, want %d", version, SchemaVersion)
+	}
+}
+
 // getColumns returns a map of column names for the given table.
 func getColumns(t *testing.T, db *sql.DB, table string) map[string]bool {
 	t.Helper()

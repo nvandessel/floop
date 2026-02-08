@@ -112,6 +112,13 @@ func (s *SQLiteGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]Validat
 		requiresGraph[b.id] = validRequires
 	}
 
+	// Check edges table for dangling source/target references
+	edgeErrors, err := s.validateEdges(ctx, allIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate edges: %w", err)
+	}
+	errors = append(errors, edgeErrors...)
+
 	// Detect cycles in requires graph
 	cycles := detectCycles(requiresGraph)
 	for _, cycle := range cycles {
@@ -128,6 +135,40 @@ func (s *SQLiteGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]Validat
 	}
 
 	return errors, nil
+}
+
+// validateEdges checks all edges in the edges table for dangling references.
+func (s *SQLiteGraphStore) validateEdges(ctx context.Context, allIDs map[string]bool) ([]ValidationError, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT source, target, kind FROM edges`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query edges: %w", err)
+	}
+	defer rows.Close()
+
+	var errors []ValidationError
+	for rows.Next() {
+		var source, target, kind string
+		if err := rows.Scan(&source, &target, &kind); err != nil {
+			return nil, fmt.Errorf("failed to scan edge: %w", err)
+		}
+		if !allIDs[source] {
+			errors = append(errors, ValidationError{
+				BehaviorID: source,
+				Field:      "edge-source",
+				RefID:      source,
+				Issue:      "dangling",
+			})
+		}
+		if !allIDs[target] {
+			errors = append(errors, ValidationError{
+				BehaviorID: source,
+				Field:      "edge-target",
+				RefID:      target,
+				Issue:      "dangling",
+			})
+		}
+	}
+	return errors, rows.Err()
 }
 
 // behaviorRelationships holds the relationship arrays for a behavior.

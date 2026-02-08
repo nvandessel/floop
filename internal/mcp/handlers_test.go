@@ -9,7 +9,9 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -762,6 +764,62 @@ func TestHandleBehaviorsResource_FramingIsAdvisory(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if !strings.Contains(text, tc.phrase) {
 				t.Errorf("Resource output missing required phrase %q:\n%s", tc.phrase, text)
+			}
+		})
+	}
+}
+
+func TestBuildSpreadIndex_UsesSpreadResults(t *testing.T) {
+	seeds := []spreading.Seed{
+		{BehaviorID: "seed-1", Activation: 0.4, Source: "context:task=dev"},
+		{BehaviorID: "seed-2", Activation: 0.6, Source: "context:language=go"},
+	}
+
+	spreadResults := []spreading.Result{
+		{BehaviorID: "seed-1", Activation: 0.75, Distance: 0, SeedSource: "context:task=dev"},
+		{BehaviorID: "seed-2", Activation: 0.85, Distance: 0, SeedSource: "context:language=go"},
+		{BehaviorID: "spread-1", Activation: 0.52, Distance: 1, SeedSource: "seed-1"},
+		{BehaviorID: "spread-2", Activation: 0.38, Distance: 2, SeedSource: "seed-2"},
+	}
+
+	matches := []activation.ActivationResult{
+		{Behavior: models.Behavior{ID: "seed-1"}, Specificity: 1},
+		{Behavior: models.Behavior{ID: "seed-2"}, Specificity: 2},
+		{Behavior: models.Behavior{ID: "spread-1"}, Specificity: 0},
+		{Behavior: models.Behavior{ID: "spread-2"}, Specificity: 0},
+	}
+
+	index := buildSpreadIndex(seeds, matches, spreadResults)
+
+	tests := []struct {
+		name       string
+		id         string
+		wantAct    float64
+		wantDist   int
+		wantSource string
+	}{
+		// Seeds should use post-engine activation (0.75, 0.85), NOT input (0.4, 0.6)
+		{"seed-1 uses engine activation", "seed-1", 0.75, 0, "context:task=dev"},
+		{"seed-2 uses engine activation", "seed-2", 0.85, 0, "context:language=go"},
+		// Spread-only should use engine values, NOT hardcoded 0.3
+		{"spread-1 uses engine activation", "spread-1", 0.52, 1, "seed-1"},
+		{"spread-2 uses engine activation", "spread-2", 0.38, 2, "seed-2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta, ok := index[tt.id]
+			if !ok {
+				t.Fatalf("behavior %q not in spread index", tt.id)
+			}
+			if meta.activation != tt.wantAct {
+				t.Errorf("activation = %f, want %f", meta.activation, tt.wantAct)
+			}
+			if meta.distance != tt.wantDist {
+				t.Errorf("distance = %d, want %d", meta.distance, tt.wantDist)
+			}
+			if meta.seedSource != tt.wantSource {
+				t.Errorf("seedSource = %q, want %q", meta.seedSource, tt.wantSource)
 			}
 		})
 	}
