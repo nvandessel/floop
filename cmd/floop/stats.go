@@ -9,7 +9,9 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
+	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
+	"github.com/nvandessel/feedback-loop/internal/tiering"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +34,7 @@ Examples:
 			topN, _ := cmd.Flags().GetInt("top")
 			sortBy, _ := cmd.Flags().GetString("sort")
 			scope, _ := cmd.Flags().GetString("scope")
+			budget, _ := cmd.Flags().GetInt("budget")
 
 			// Parse scope
 			storeScope := constants.Scope(scope)
@@ -79,20 +82,27 @@ Examples:
 				TimesOverridden int     `json:"times_overridden"`
 				FollowRate      float64 `json:"follow_rate"`
 				HasSummary      bool    `json:"has_summary"`
+				TokenCost       int     `json:"token_cost"`
+				SummaryCost     int     `json:"summary_cost"`
 			}
 
 			stats := make([]BehaviorStats, 0, len(nodes))
+			behaviors := make([]models.Behavior, 0, len(nodes))
 			var totalActivations, totalFollowed, totalConfirmed, totalOverridden int
 			kindCounts := make(map[string]int)
 
 			for _, node := range nodes {
 				behavior := learning.NodeToBehavior(node)
+				behaviors = append(behaviors, behavior)
 
 				followRate := 0.0
 				if behavior.Stats.TimesActivated > 0 {
 					positiveSignals := behavior.Stats.TimesFollowed + behavior.Stats.TimesConfirmed
 					followRate = float64(positiveSignals) / float64(behavior.Stats.TimesActivated)
 				}
+
+				tokenCost := estimateTokens(behavior.Content.Canonical)
+				summaryCost := estimateTokens(behavior.Content.Summary)
 
 				stats = append(stats, BehaviorStats{
 					ID:              behavior.ID,
@@ -106,6 +116,8 @@ Examples:
 					TimesOverridden: behavior.Stats.TimesOverridden,
 					FollowRate:      followRate,
 					HasSummary:      behavior.Content.Summary != "",
+					TokenCost:       tokenCost,
+					SummaryCost:     summaryCost,
 				})
 
 				totalActivations += behavior.Stats.TimesActivated
@@ -169,11 +181,52 @@ Examples:
 			}
 			summary["with_summary"] = withSummary
 
+			// Run token budget simulation
+			plan := tiering.QuickAssign(behaviors, budget)
+
+			// Compute token costs per tier from the plan
+			fullTokens := 0
+			for _, fb := range plan.FullBehaviors {
+				fullTokens += fb.TokenCost
+			}
+			summaryTokens := 0
+			for _, sb := range plan.SummarizedBehaviors {
+				summaryTokens += sb.TokenCost
+			}
+
+			utilization := 0.0
+			if budget > 0 {
+				utilization = float64(plan.TotalTokens) / float64(budget)
+			}
+
+			// Build token budget info for JSON
+			tokenBudgetBehaviors := make([]map[string]interface{}, 0, len(stats))
+			for _, s := range stats {
+				tokenBudgetBehaviors = append(tokenBudgetBehaviors, map[string]interface{}{
+					"id":           s.ID,
+					"token_cost":   s.TokenCost,
+					"summary_cost": s.SummaryCost,
+				})
+			}
+
+			tokenBudgetInfo := map[string]interface{}{
+				"budget":            budget,
+				"used":              plan.TotalTokens,
+				"utilization":       utilization,
+				"full_count":        len(plan.FullBehaviors),
+				"full_tokens":       fullTokens,
+				"summarized_count":  len(plan.SummarizedBehaviors),
+				"summarized_tokens": summaryTokens,
+				"omitted_count":     len(plan.OmittedBehaviors),
+				"behaviors":         tokenBudgetBehaviors,
+			}
+
 			// Output
 			if jsonOut {
 				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-					"behaviors": stats,
-					"summary":   summary,
+					"behaviors":    stats,
+					"summary":      summary,
+					"token_budget": tokenBudgetInfo,
 				})
 			} else {
 				fmt.Printf("Behavior Statistics\n")
@@ -193,6 +246,43 @@ Examples:
 					fmt.Printf("  %s: %d\n", kind, count)
 				}
 				fmt.Printf("\n")
+
+				// Token budget section
+				fmt.Printf("Token Budget:\n")
+				fmt.Printf("  Budget:       %d tokens\n", budget)
+				fmt.Printf("  Used:         %d tokens (%d%%)\n", plan.TotalTokens, int(utilization*100))
+				fmt.Printf("  Full:         %d behaviors (%d tokens)\n", len(plan.FullBehaviors), fullTokens)
+				fmt.Printf("  Summarized:   %d behaviors (%d tokens)\n", len(plan.SummarizedBehaviors), summaryTokens)
+				fmt.Printf("  Omitted:      %d behaviors\n", len(plan.OmittedBehaviors))
+				fmt.Printf("\n")
+
+				// Top 5 by token cost
+				if len(stats) > 0 {
+					// Sort a copy by TokenCost descending
+					topByTokens := make([]BehaviorStats, len(stats))
+					copy(topByTokens, stats)
+					sort.Slice(topByTokens, func(i, j int) bool {
+						return topByTokens[i].TokenCost > topByTokens[j].TokenCost
+					})
+					topCount := 5
+					if topCount > len(topByTokens) {
+						topCount = len(topByTokens)
+					}
+
+					fmt.Printf("Top %d by token cost:\n", topCount)
+					for _, s := range topByTokens[:topCount] {
+						shortID := s.ID
+						if len(shortID) > 8 {
+							shortID = shortID[:8]
+						}
+						preview := truncatePreview(s.Name, 40)
+						if preview == "" {
+							preview = truncatePreview(s.Kind, 40)
+						}
+						fmt.Printf("  %-8s  %4d tokens  %q\n", shortID, s.TokenCost, preview)
+					}
+					fmt.Printf("\n")
+				}
 
 				if len(stats) > 0 {
 					fmt.Printf("Behaviors (sorted by %s):\n\n", sortBy)
@@ -229,6 +319,7 @@ Examples:
 	cmd.Flags().Int("top", 0, "Show only top N behaviors")
 	cmd.Flags().String("sort", "score", "Sort by: score, activations, followed, rate, confidence, priority")
 	cmd.Flags().String("scope", "local", "Scope: local, global, or both")
+	cmd.Flags().Int("budget", 2000, "Token budget for injection simulation")
 
 	return cmd
 }
@@ -239,4 +330,20 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
+}
+
+// estimateTokens estimates token count for text using the (len+3)/4 heuristic
+func estimateTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	return (len(text) + 3) / 4
+}
+
+// truncatePreview truncates a string to maxLen characters, appending "..." if truncated
+func truncatePreview(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
