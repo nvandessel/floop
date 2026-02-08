@@ -49,15 +49,19 @@ func newConfigListCmd() *cobra.Command {
 			}
 
 			if jsonOut {
-				json.NewEncoder(os.Stdout).Encode(cfg)
+				// Redact API key before JSON serialization to prevent leakage
+				redacted := *cfg
+				redacted.LLM.APIKey = cfg.LLM.RedactedAPIKey()
+				json.NewEncoder(os.Stdout).Encode(redacted)
 			} else {
 				fmt.Println("Configuration (~/.floop/config.yaml):")
 				fmt.Println()
 				fmt.Println("LLM Settings:")
 				fmt.Printf("  llm.provider:          %s\n", valueOrDefault(cfg.LLM.Provider, "(not set)"))
 				fmt.Printf("  llm.enabled:           %v\n", cfg.LLM.Enabled)
-				if cfg.LLM.APIKey != "" {
-					fmt.Printf("  llm.api_key:           %s\n", maskAPIKey(cfg.LLM.APIKey))
+				redacted := cfg.LLM.RedactedAPIKey()
+				if redacted != "" {
+					fmt.Printf("  llm.api_key:           %s\n", redacted)
 				} else {
 					fmt.Printf("  llm.api_key:           (not set)\n")
 				}
@@ -171,7 +175,7 @@ func getConfigValue(cfg *config.FloopConfig, key string) (interface{}, bool) {
 	case "llm.provider":
 		return cfg.LLM.Provider, true
 	case "llm.api_key":
-		return cfg.LLM.APIKey, true
+		return cfg.LLM.RedactedAPIKey(), true
 	case "llm.base_url":
 		return cfg.LLM.BaseURL, true
 	case "llm.comparison_model":
@@ -268,12 +272,4 @@ func valueOrDefault(value, defaultValue string) string {
 		return defaultValue
 	}
 	return value
-}
-
-// maskAPIKey masks an API key for display (shows first and last 4 chars).
-func maskAPIKey(key string) string {
-	if len(key) <= 8 {
-		return "****"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
 }
