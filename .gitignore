@@ -21,8 +21,3 @@ coverage.html
 # Git worktrees for parallel agent work
 .worktrees/
 
-# Beads runtime artifacts
-.beads/export-state/
-.beads/*.db-shm
-.beads/*.db-wal
-.beads/daemon.*
