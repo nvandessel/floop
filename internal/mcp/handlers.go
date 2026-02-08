@@ -23,6 +23,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/sanitize"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
+	"github.com/nvandessel/feedback-loop/internal/visualization"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
 	"github.com/nvandessel/feedback-loop/internal/tiering"
@@ -77,6 +78,12 @@ func (s *Server) registerTools() error {
 		Name:        "floop_validate",
 		Description: "Validate the behavior graph for consistency issues (dangling references, cycles, self-references)",
 	}, s.handleFloopValidate)
+
+	// Register floop_graph tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_graph",
+		Description: "Render the behavior graph in DOT (Graphviz) or JSON format for visualization",
+	}, s.handleFloopGraph)
 
 	return nil
 }
@@ -1099,4 +1106,51 @@ func (s *Server) handleFloopValidate(ctx context.Context, req *sdk.CallToolReque
 		Errors:     outputErrors,
 		Message:    message,
 	}, nil
+}
+
+// handleFloopGraph implements the floop_graph tool.
+func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest, args FloopGraphInput) (*sdk.CallToolResult, FloopGraphOutput, error) {
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_graph"); err != nil {
+		return nil, FloopGraphOutput{}, err
+	}
+
+	format := args.Format
+	if format == "" {
+		format = "json"
+	}
+
+	switch visualization.Format(format) {
+	case visualization.FormatDOT:
+		dot, err := visualization.RenderDOT(ctx, s.store)
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("render DOT: %w", err)
+		}
+		// Count nodes for output metadata
+		nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("query nodes: %w", err)
+		}
+		return nil, FloopGraphOutput{
+			Format:    "dot",
+			Graph:     dot,
+			NodeCount: len(nodes),
+		}, nil
+
+	case visualization.FormatJSON:
+		result, err := visualization.RenderJSON(ctx, s.store)
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("render JSON: %w", err)
+		}
+		nodeCount, _ := result["node_count"].(int)
+		edgeCount, _ := result["edge_count"].(int)
+		return nil, FloopGraphOutput{
+			Format:    "json",
+			Graph:     result,
+			NodeCount: nodeCount,
+			EdgeCount: edgeCount,
+		}, nil
+
+	default:
+		return nil, FloopGraphOutput{}, fmt.Errorf("unsupported format %q (use 'dot' or 'json')", format)
+	}
 }

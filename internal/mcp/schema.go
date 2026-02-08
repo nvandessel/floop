@@ -161,6 +161,19 @@ type FloopConnectOutput struct {
 	Message       string  `json:"message" jsonschema:"Human-readable result message"`
 }
 
+// FloopGraphInput defines the input for floop_graph tool.
+type FloopGraphInput struct {
+	Format string `json:"format,omitempty" jsonschema:"Output format: dot or json (default: json)"`
+}
+
+// FloopGraphOutput defines the output for floop_graph tool.
+type FloopGraphOutput struct {
+	Format    string      `json:"format" jsonschema:"Output format used"`
+	Graph     interface{} `json:"graph" jsonschema:"Graph data (DOT string or JSON object)"`
+	NodeCount int         `json:"node_count" jsonschema:"Number of nodes in graph"`
+	EdgeCount int         `json:"edge_count" jsonschema:"Number of edges in graph"`
+}
+
 // FloopValidateInput defines the input for floop_validate tool.
 type FloopValidateInput struct {
 	// No required inputs - validates current store
