@@ -825,6 +825,35 @@ func TestBuildSpreadIndex_UsesSpreadResults(t *testing.T) {
 	}
 }
 
+func TestBehaviorContentToMap_IncludesTags(t *testing.T) {
+	content := models.BehaviorContent{
+		Canonical: "test behavior",
+		Tags:      []string{"git", "workflow"},
+	}
+
+	m := behaviorContentToMap(content)
+
+	tags, ok := m["tags"].([]string)
+	if !ok {
+		t.Fatal("expected tags in content map")
+	}
+	if len(tags) != 2 || tags[0] != "git" || tags[1] != "workflow" {
+		t.Errorf("tags = %v, want [git workflow]", tags)
+	}
+}
+
+func TestBehaviorContentToMap_OmitsEmptyTags(t *testing.T) {
+	content := models.BehaviorContent{
+		Canonical: "test behavior",
+	}
+
+	m := behaviorContentToMap(content)
+
+	if _, ok := m["tags"]; ok {
+		t.Error("expected tags to be omitted when empty")
+	}
+}
+
 func TestHandleBehaviorsResource_EmptyStoreFraming(t *testing.T) {
 	server, _ := setupTestServer(t)
 	defer server.Close()

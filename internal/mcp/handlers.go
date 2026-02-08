@@ -346,6 +346,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 			Content:    behaviorContentToMap(b.Content),
 			Confidence: b.Confidence,
 			When:       when,
+			Tags:       b.Content.Tags,
 		}
 		if meta, ok := spreadIndex[b.ID]; ok {
 			summary.Activation = meta.activation
@@ -590,9 +591,23 @@ func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, 
 		return nil, FloopListOutput{}, fmt.Errorf("failed to query behaviors: %w", err)
 	}
 
-	behaviors := make([]BehaviorListItem, len(nodes))
-	for i, node := range nodes {
+	behaviors := make([]BehaviorListItem, 0, len(nodes))
+	for _, node := range nodes {
 		behavior := learning.NodeToBehavior(node)
+
+		// Filter by tag if specified
+		if args.Tag != "" {
+			found := false
+			for _, t := range behavior.Content.Tags {
+				if t == args.Tag {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 
 		// Determine source
 		source := "unknown"
@@ -600,14 +615,15 @@ func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, 
 			source = string(behavior.Provenance.SourceType)
 		}
 
-		behaviors[i] = BehaviorListItem{
+		behaviors = append(behaviors, BehaviorListItem{
 			ID:         behavior.ID,
 			Name:       behavior.Name,
 			Kind:       string(behavior.Kind),
 			Confidence: behavior.Confidence,
+			Tags:       behavior.Content.Tags,
 			Source:     source,
 			CreatedAt:  behavior.Provenance.CreatedAt,
-		}
+		})
 	}
 
 	return nil, FloopListOutput{
@@ -625,6 +641,9 @@ func behaviorContentToMap(content models.BehaviorContent) map[string]interface{}
 	}
 	if content.Structured != nil && len(content.Structured) > 0 {
 		m["structured"] = content.Structured
+	}
+	if len(content.Tags) > 0 {
+		m["tags"] = content.Tags
 	}
 	return m
 }

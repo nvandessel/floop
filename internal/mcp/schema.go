@@ -26,6 +26,7 @@ type BehaviorSummary struct {
 	Content    map[string]interface{} `json:"content"`
 	Confidence float64                `json:"confidence"`
 	When       map[string]interface{} `json:"when,omitempty"`
+	Tags       []string               `json:"tags,omitempty"`
 	Activation float64                `json:"activation,omitempty"`
 	Distance   int                    `json:"distance,omitempty"`
 	SeedSource string                 `json:"seed_source,omitempty"`
@@ -55,7 +56,8 @@ type FloopLearnOutput struct {
 
 // FloopListInput defines the input for floop_list tool.
 type FloopListInput struct {
-	Corrections bool `json:"corrections,omitempty" jsonschema:"List corrections instead of behaviors (default: false)"`
+	Corrections bool   `json:"corrections,omitempty" jsonschema:"List corrections instead of behaviors (default: false)"`
+	Tag         string `json:"tag,omitempty" jsonschema:"Filter behaviors by tag (exact match)"`
 }
 
 // FloopListOutput defines the output for floop_list tool.
@@ -71,6 +73,7 @@ type BehaviorListItem struct {
 	Name       string    `json:"name"`
 	Kind       string    `json:"kind"`
 	Confidence float64   `json:"confidence"`
+	Tags       []string  `json:"tags,omitempty"`
 	Source     string    `json:"source"`
 	CreatedAt  time.Time `json:"created_at"`
 }

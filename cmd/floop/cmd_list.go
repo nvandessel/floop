@@ -25,6 +25,7 @@ func newListCmd() *cobra.Command {
 			showCorrections, _ := cmd.Flags().GetBool("corrections")
 			globalFlag, _ := cmd.Flags().GetBool("global")
 			allFlag, _ := cmd.Flags().GetBool("all")
+			tagFilter, _ := cmd.Flags().GetString("tag")
 
 			// Validate flag combinations
 			if globalFlag && allFlag {
@@ -82,6 +83,20 @@ func newListCmd() *cobra.Command {
 				return fmt.Errorf("failed to load behaviors: %w", err)
 			}
 
+			// Filter by tag if specified
+			if tagFilter != "" {
+				var filtered []models.Behavior
+				for _, b := range behaviors {
+					for _, t := range b.Content.Tags {
+						if t == tagFilter {
+							filtered = append(filtered, b)
+							break
+						}
+					}
+				}
+				behaviors = filtered
+			}
+
 			if jsonOut {
 				result := map[string]interface{}{
 					"behaviors": behaviors,
@@ -115,6 +130,9 @@ func newListCmd() *cobra.Command {
 				for i, b := range behaviors {
 					fmt.Fprintf(cmd.OutOrStdout(), "%d. [%s] %s\n", i+1, b.Kind, b.Name)
 					fmt.Fprintf(cmd.OutOrStdout(), "   %s\n", b.Content.Canonical)
+					if len(b.Content.Tags) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "   Tags: %v\n", b.Content.Tags)
+					}
 					if len(b.When) > 0 {
 						fmt.Fprintf(cmd.OutOrStdout(), "   When: %v\n", b.When)
 					}
@@ -130,6 +148,7 @@ func newListCmd() *cobra.Command {
 	cmd.Flags().Bool("corrections", false, "Show captured corrections instead of behaviors")
 	cmd.Flags().Bool("global", false, "Show behaviors from global user store (~/.floop/) only")
 	cmd.Flags().Bool("all", false, "Show behaviors from both local and global stores")
+	cmd.Flags().String("tag", "", "Filter behaviors by tag (exact match)")
 
 	return cmd
 }
