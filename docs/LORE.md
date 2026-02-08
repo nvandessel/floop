@@ -1,42 +1,41 @@
 # The floop Origin Story
 
-## The Problem
+## The Itch
 
-January 2026. AI coding agents were everywhere — Claude Code, Cursor, Copilot — but they all had the same maddening flaw: they didn't remember. You'd correct an agent's behavior, and it would stick for the rest of the session. Next session? Gone. Same mistake, same correction, forever.
+January 2026. I'd been spending a lot of time with AI coding agents — Claude Code, mostly — and the thing that kept bugging me was that they didn't remember. You'd correct an agent, it'd get it right for the rest of the session, and then next session it's back to square one. Same mistake, same correction, over and over.
 
-The workarounds were crude. You could dump rules into an `AGENTS.md` file, but that was manual, static, and grew into an unreadable wall of text. Memory tools like Mem0 stored facts, but facts aren't behaviors — knowing "the user prefers tabs" is different from knowing "when writing Go tests, use table-driven tests with `t.Run()`." And none of them could distinguish which rules mattered *right now* versus rules for a completely different part of the codebase.
+There are ways to deal with this. You can put rules in an `AGENTS.md` file, or split them across multiple markdown files, but it's manual — you have to remember to add things, keep them up to date, and they just grow into these unwieldy walls of text. Memory tools like Mem0 exist for storing facts and preferences, which is great, but facts aren't really behaviors. Knowing "the user prefers tabs" is different from knowing "when writing Go tests, use table-driven tests with `t.Run()`."
 
-The question was: what if agents could actually learn from corrections and apply those lessons in the right context?
+I hadn't tried every tool out there. This wasn't a gap analysis — it was more of a feeling. There was a disconnect between the corrections I was giving and the agent's ability to internalize them. It just had me thinking: what if corrections could become durable, context-aware behaviors that the agent actually carries forward?
 
-## The Spark
+That idea excited me enough to start building.
 
-The idea crystallized around [Steve Yegge's Beads](https://github.com/steveyegge/beads) — a graph-structured issue tracking system. Beads used nodes and edges to represent relationships between code concepts, and seeing that graph structure clicked something into place. What if corrections and behaviors were nodes in a graph too? Not a flat list of rules, but a connected network where relationships between behaviors carried meaning?
+## The Graph
 
-The initial plan was even to use Beads as a backend. That pivot came quickly — SQLite and JSONL were simpler and more portable — but the graph metaphor stuck. Behaviors as nodes. Relationships (similar-to, learned-from, requires, conflicts) as edges. The shape of the data was a graph whether or not the storage engine was.
+The thinking started taking shape around [Steve Yegge's Beads](https://github.com/steveyegge/beads) — a graph-structured issue tracking system. Seeing behaviors and corrections as nodes in a graph, connected by typed relationships (similar-to, learned-from, requires, conflicts) — that felt right. Not a flat list of rules, but a network where the connections carry meaning.
 
-On January 25, 2026, the first commit landed. The project moved fast — core models, a graph store, a CLI skeleton, and a learning pipeline (capture correction, extract behavior, place in graph) all came together within the first week. The dogfooding loop started immediately: floop was being built with floop. Every correction made to the agents building it became a behavior in the system they were building.
+The first commit landed on January 25, 2026. Core models, a graph store, a CLI skeleton, and a learning pipeline came together within the first week. I started dogfooding immediately — floop was being built with floop, and every correction I gave the agents building it became a behavior in the system they were building.
 
-## The Aha Moment
+## The Blast Radius
 
-Ten days in, the system worked. Behaviors were being captured, stored, and injected into agent prompts. But the injection was static — every session got the full set of behaviors, front-loaded into the context window. It worked, but it was brute force. With 38 behaviors it was fine. With 200? 500? The token budget would explode.
+About ten days in, the basic system worked. Behaviors were being captured, stored, and injected into agent prompts. But the injection was static — every session got the full set of behaviors dumped into the context window. With 38 behaviors it was fine, but it wouldn't scale.
 
-The first hint of a better approach came from researching AI code review tools. [CodeRabbit](https://coderabbit.ai/) and [Greptile](https://greptile.com/) both had this concept of a "blast radius" — when reviewing a diff, they didn't just look at the changed lines, they pulled in surrounding code and related context to understand the full impact. That made something click: what if triggered behaviors had a similar blast radius? When one behavior fires, what if it also pulled in related behaviors that might be relevant, even if they weren't a direct match for the current context?
+Around the same time, I'd been looking at AI code review tools. [CodeRabbit](https://coderabbit.ai/) and [Greptile](https://greptile.com/) both have this concept of a "blast radius" — when reviewing a diff, they don't just look at the changed lines, they pull in surrounding code and related context to understand the full impact. That got me thinking: what if triggered behaviors had a similar blast radius? When one behavior fires, what if it also pulls in related behaviors that might be relevant, even if they're not a direct match?
 
-Then, right around the same time, the [SYNAPSE paper](https://arxiv.org/abs/2601.02744) dropped (published January 6, 2026). SYNAPSE demonstrated that spreading activation — a decades-old theory from cognitive science about how the brain retrieves memories — could be applied to LLM agent memory. Their results showed 95% token reduction while maintaining higher accuracy than full-context methods. The key insight: you don't need to load everything, you just need to activate the right things — and activation propagates outward through associations, like a blast radius through a graph.
+Then the [SYNAPSE paper](https://arxiv.org/abs/2601.02744) came out (published January 6, 2026). It showed that spreading activation — a decades-old theory from cognitive science about how the brain retrieves memories — could be applied to LLM agent memory, with 95% token reduction while maintaining accuracy. The key insight: you don't need to load everything, you just need to activate the right things, and activation propagates outward through associations.
 
-The blast radius concept from the code review tools and the spreading activation model from cognitive science snapped together — the same idea from two different angles.
+The blast radius idea from the code review tools and the spreading activation model from cognitive science were basically the same concept from different angles. The mapping to floop fell out naturally:
 
-The mapping to floop was immediate:
+- **Corrections** as episodic nodes (specific interaction memories)
+- **Behaviors** as semantic nodes (abstract knowledge extracted from episodes)
+- **Edges** as association links (similar-to, learned-from, requires, conflicts)
+- **Activation** as context-relevant retrieval — energy propagating from seed nodes through the graph, decaying with distance
 
-- **Corrections** were episodic nodes (specific interaction memories)
-- **Behaviors** were semantic nodes (abstract knowledge extracted from episodes)
-- **Similar-to edges** were association links (already in the graph)
-- **Learned-from edges** were abstraction links (correction → behavior derivation)
-- **Activation** was context-relevant retrieval — energy propagating from seed nodes through the graph, decaying with distance, until only the most relevant behaviors were lit up
+The behavior graph wasn't just storage anymore. It was an associative network where context triggers cascading activation, and related behaviors get pulled in alongside direct matches — a blast radius of relevant context.
 
-This was a model change. The behavior graph wasn't just storage anymore — it was a brain-like associative network where context triggered cascading activation, and the most relevant behaviors naturally floated to the top.
+## Why This Excites Me
 
-Within three days, the spreading activation engine was implemented: seed selection, energy propagation, lateral inhibition (where strongly activated nodes suppress weaker competitors, just like neurons do), and a hybrid scoring function combining context relevance, activation level, and PageRank centrality. The blast radius was built into the graph itself — when a behavior activates, energy propagates outward through its connections, lighting up related behaviors that provide useful context even if they weren't direct matches.
+What I find exciting about AI agents isn't that they write code — it's that they can adopt and enforce the same design principles I care about (SOLID, dependency inversion, clean interfaces) at a pace I never could on my own. The ideas in my head, produced consistently. But that only works if the agent has the right context. A few more guardrails, the right behaviors loaded at the right time, something closer to how we actually think — with associations and related context, not just keyword matches — that's what levels up agents from "helpful autocomplete" to genuine collaborators. That's what I'm exploring here.
 
 ## The Name
 
