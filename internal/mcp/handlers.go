@@ -1095,8 +1095,11 @@ func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest,
 		if err != nil {
 			return nil, FloopGraphOutput{}, fmt.Errorf("render DOT: %w", err)
 		}
-		// Count nodes/edges from DOT string (approximate from store)
-		nodes, _ := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+		// Count nodes for output metadata
+		nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("query nodes: %w", err)
+		}
 		return nil, FloopGraphOutput{
 			Format:    "dot",
 			Graph:     dot,
