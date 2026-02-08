@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +28,10 @@ type SubagentClient struct {
 	// timeout is the maximum duration to wait for a subagent response
 	timeout time.Duration
 
+	// allowedCLIDirs restricts CLI search to these directories when set.
+	// If empty, any directory is allowed (permissive default).
+	allowedCLIDirs []string
+
 	// available caches the result of CLI detection
 	available     bool
 	availableOnce bool
@@ -41,6 +47,11 @@ type SubagentConfig struct {
 
 	// Timeout is the maximum duration for requests (default: 30s)
 	Timeout time.Duration
+
+	// AllowedCLIDirs restricts CLI search to these directories.
+	// When set, only CLI executables found within these directories are accepted.
+	// When empty, any directory is allowed (permissive default).
+	AllowedCLIDirs []string
 }
 
 // DefaultSubagentConfig returns a SubagentConfig with sensible defaults.
@@ -62,9 +73,10 @@ func NewSubagentClient(cfg SubagentConfig) *SubagentClient {
 	}
 
 	return &SubagentClient{
-		cliPath: cfg.CLIPath,
-		model:   cfg.Model,
-		timeout: cfg.Timeout,
+		cliPath:        cfg.CLIPath,
+		model:          cfg.Model,
+		timeout:        cfg.Timeout,
+		allowedCLIDirs: cfg.AllowedCLIDirs,
 	}
 }
 
@@ -161,23 +173,18 @@ func (c *SubagentClient) inCLISession() bool {
 		return true
 	}
 
-	// Check if we were spawned by a known CLI (parent process check)
-	// This is a heuristic - the parent process name might indicate CLI execution
-	if ppid := os.Getppid(); ppid > 1 {
-		// We could check /proc/<ppid>/comm on Linux but keep it simple for now
-		// Just having a non-init parent suggests we might be in a CLI session
-		return true
-	}
-
 	return false
 }
 
-// findCLI locates the CLI executable.
+// findCLI locates and validates the CLI executable.
+// It checks that the CLI is in an allowed directory (if configured)
+// and validates it by running --version.
 func (c *SubagentClient) findCLI() string {
 	// If explicitly configured, use that
 	if c.cliPath != "" {
-		if _, err := exec.LookPath(c.cliPath); err == nil {
-			return c.cliPath
+		path, err := exec.LookPath(c.cliPath)
+		if err == nil && c.isAllowedPath(path) && c.validateCLI(context.Background(), path) {
+			return path
 		}
 	}
 
@@ -191,28 +198,79 @@ func (c *SubagentClient) findCLI() string {
 
 	for _, name := range cliNames {
 		if path, err := exec.LookPath(name); err == nil {
-			return path
+			if c.isAllowedPath(path) && c.validateCLI(context.Background(), path) {
+				return path
+			}
 		}
 	}
 
 	return ""
 }
 
+// isAllowedPath checks if the CLI path is within allowed directories.
+// Returns true if no AllowedCLIDirs are configured (permissive default).
+func (c *SubagentClient) isAllowedPath(cliPath string) bool {
+	if len(c.allowedCLIDirs) == 0 {
+		return true
+	}
+
+	absPath, err := filepath.Abs(cliPath)
+	if err != nil {
+		return false
+	}
+
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return false
+	}
+
+	for _, dir := range c.allowedCLIDirs {
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(resolved, absDir+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// validateCLI checks that the CLI at the given path is a legitimate tool
+// by running it with --version and verifying it exits successfully.
+func (c *SubagentClient) validateCLI(ctx context.Context, cliPath string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, cliPath, "--version")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+
+	return cmd.Run() == nil
+}
+
 // runSubagent executes a prompt using the CLI and returns the response.
+// The prompt is passed via stdin rather than command-line arguments to avoid
+// exposing it in process listings (e.g., ps aux).
 func (c *SubagentClient) runSubagent(ctx context.Context, prompt string) (string, error) {
 	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	// Build the command
-	// Using --print for non-interactive output and -p for the prompt
+	// Using --print for non-interactive output
+	// Using "-p -" to read prompt from stdin instead of command args
 	args := []string{
 		"--print",
-		"-p", prompt,
 		"--model", c.model,
+		"-p", "-",
 	}
 
 	cmd := exec.CommandContext(ctx, c.cliPath, args...)
+
+	// Pass prompt via stdin to avoid exposure in process listings
+	cmd.Stdin = strings.NewReader(prompt)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
