@@ -9,6 +9,7 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/sanitize"
 )
 
 // BehaviorMerger handles merging multiple behaviors into one.
@@ -76,6 +77,15 @@ func (m *BehaviorMerger) llmMerge(ctx context.Context, behaviors []*models.Behav
 
 	merged := result.Merged
 
+	// Sanitize LLM-generated content to prevent stored prompt injection
+	merged.Content.Canonical = sanitize.SanitizeBehaviorContent(merged.Content.Canonical)
+	merged.Content.Expanded = sanitize.SanitizeBehaviorContent(merged.Content.Expanded)
+	merged.Content.Summary = sanitize.SanitizeBehaviorContent(merged.Content.Summary)
+	merged.Name = sanitize.SanitizeBehaviorName(merged.Name)
+	for i, tag := range merged.Content.Tags {
+		merged.Content.Tags[i] = sanitize.SanitizeBehaviorName(tag)
+	}
+
 	// Ensure the merged behavior has proper metadata
 	merged.ID = generateMergedID(behaviors)
 	merged.Provenance = createMergeProvenance(behaviors)
@@ -113,6 +123,15 @@ func (m *BehaviorMerger) ruleMerge(behaviors []*models.Behavior) *models.Behavio
 		Provenance: createMergeProvenance(behaviors),
 		Confidence: averageConfidence(behaviors),
 		Priority:   maxPriority(behaviors),
+	}
+
+	// Sanitize merged content to prevent stored prompt injection
+	merged.Content.Canonical = sanitize.SanitizeBehaviorContent(merged.Content.Canonical)
+	merged.Content.Expanded = sanitize.SanitizeBehaviorContent(merged.Content.Expanded)
+	merged.Content.Summary = sanitize.SanitizeBehaviorContent(merged.Content.Summary)
+	merged.Name = sanitize.SanitizeBehaviorName(merged.Name)
+	for i, tag := range merged.Content.Tags {
+		merged.Content.Tags[i] = sanitize.SanitizeBehaviorName(tag)
 	}
 
 	// Track merge relationships
