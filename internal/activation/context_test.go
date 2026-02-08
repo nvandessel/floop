@@ -279,9 +279,11 @@ func TestContextBuilder_Build_WithProjectType(t *testing.T) {
 func TestContextBuilder_Build_EnvironmentAutoDetect(t *testing.T) {
 	// Save original env vars
 	origCI := os.Getenv("CI")
+	origGitHub := os.Getenv("GITHUB_ACTIONS")
 	origFloopEnv := os.Getenv("FLOOP_ENV")
 	defer func() {
 		os.Setenv("CI", origCI)
+		os.Setenv("GITHUB_ACTIONS", origGitHub)
 		if origFloopEnv == "" {
 			os.Unsetenv("FLOOP_ENV")
 		} else {
@@ -292,6 +294,7 @@ func TestContextBuilder_Build_EnvironmentAutoDetect(t *testing.T) {
 	// Test 1: No env override, no CI - should be development
 	os.Unsetenv("FLOOP_ENV")
 	os.Unsetenv("CI")
+	os.Unsetenv("GITHUB_ACTIONS")
 	ctx := NewContextBuilder().Build()
 	if ctx.Environment != "development" {
 		t.Errorf("Environment = %q, want %q", ctx.Environment, "development")
