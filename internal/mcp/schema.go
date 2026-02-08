@@ -11,11 +11,19 @@ type FloopActiveInput struct {
 	Task string `json:"task,omitempty" jsonschema:"Current task type (e.g. 'development', 'testing', 'refactoring')"`
 }
 
+// TokenStats provides token budget awareness for active behaviors.
+type TokenStats struct {
+	TotalCanonicalTokens int `json:"total_canonical_tokens"`
+	BudgetDefault        int `json:"budget_default"`
+	BehaviorCount        int `json:"behavior_count"`
+}
+
 // FloopActiveOutput defines the output for floop_active tool.
 type FloopActiveOutput struct {
-	Context map[string]interface{} `json:"context" jsonschema:"Context used for activation"`
-	Active  []BehaviorSummary      `json:"active" jsonschema:"List of active behaviors"`
-	Count   int                    `json:"count" jsonschema:"Number of active behaviors"`
+	Context    map[string]interface{} `json:"context" jsonschema:"Context used for activation"`
+	Active     []BehaviorSummary      `json:"active" jsonschema:"List of active behaviors"`
+	Count      int                    `json:"count" jsonschema:"Number of active behaviors"`
+	TokenStats *TokenStats            `json:"token_stats,omitempty"`
 }
 
 // BehaviorSummary provides a simplified view of a behavior.

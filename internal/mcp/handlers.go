@@ -370,6 +370,12 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		summaries[i] = summary
 	}
 
+	// Compute total canonical tokens across active behaviors.
+	totalTokens := 0
+	for _, b := range result.Active {
+		totalTokens += (len(b.Content.Canonical) + 3) / 4
+	}
+
 	// Build context map for output
 	ctxMap := map[string]interface{}{
 		"file":     actCtx.FilePath,
@@ -408,6 +414,11 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		Context: ctxMap,
 		Active:  summaries,
 		Count:   len(summaries),
+		TokenStats: &TokenStats{
+			TotalCanonicalTokens: totalTokens,
+			BudgetDefault:        defaultTokenBudget,
+			BehaviorCount:        len(summaries),
+		},
 	}, nil
 }
 

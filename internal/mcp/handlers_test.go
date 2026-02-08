@@ -842,6 +842,133 @@ func TestBehaviorContentToMap_IncludesTags(t *testing.T) {
 	}
 }
 
+func TestHandleFloopActive_TokenStats(t *testing.T) {
+	tests := []struct {
+		name              string
+		behaviors         []store.Node
+		wantTokens        int
+		wantBudget        int
+		wantBehaviorCount int
+	}{
+		{
+			name:              "empty store has zero token stats",
+			behaviors:         nil,
+			wantTokens:        0,
+			wantBudget:        2000,
+			wantBehaviorCount: 0,
+		},
+		{
+			name: "single behavior with known canonical content",
+			behaviors: []store.Node{
+				{
+					ID:   "token-test-1",
+					Kind: "behavior",
+					Content: map[string]interface{}{
+						"name": "Use gofmt",
+						"kind": "directive",
+						"content": map[string]interface{}{
+							"canonical": "Use gofmt always", // 16 chars -> (16+3)/4 = 4 tokens
+						},
+						"when": map[string]interface{}{},
+					},
+					Metadata: map[string]interface{}{
+						"confidence": 0.9,
+						"priority":   1,
+					},
+				},
+			},
+			wantTokens:        4,
+			wantBudget:        2000,
+			wantBehaviorCount: 1,
+		},
+		{
+			name: "multiple behaviors sum tokens",
+			behaviors: []store.Node{
+				{
+					ID:   "token-test-2a",
+					Kind: "behavior",
+					Content: map[string]interface{}{
+						"name": "Behavior A",
+						"kind": "directive",
+						"content": map[string]interface{}{
+							"canonical": "Use gofmt always", // 16 chars -> (16+3)/4 = 4 tokens
+						},
+						"when": map[string]interface{}{},
+					},
+					Metadata: map[string]interface{}{
+						"confidence": 0.9,
+						"priority":   1,
+					},
+				},
+				{
+					ID:   "token-test-2b",
+					Kind: "behavior",
+					Content: map[string]interface{}{
+						"name": "Behavior B",
+						"kind": "directive",
+						"content": map[string]interface{}{
+							"canonical": "Run go vet", // 10 chars -> (10+3)/4 = 3 tokens
+						},
+						"when": map[string]interface{}{},
+					},
+					Metadata: map[string]interface{}{
+						"confidence": 0.85,
+						"priority":   1,
+					},
+				},
+			},
+			wantTokens:        7, // 4 + 3
+			wantBudget:        2000,
+			wantBehaviorCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, _ := setupTestServer(t)
+			defer server.Close()
+
+			ctx := context.Background()
+
+			// Add behaviors to store
+			for _, node := range tt.behaviors {
+				if _, err := server.store.AddNode(ctx, node); err != nil {
+					t.Fatalf("Failed to add node %s: %v", node.ID, err)
+				}
+			}
+			if len(tt.behaviors) > 0 {
+				if err := server.store.Sync(ctx); err != nil {
+					t.Fatalf("Failed to sync store: %v", err)
+				}
+			}
+
+			req := &sdk.CallToolRequest{}
+			args := FloopActiveInput{}
+
+			_, output, err := server.handleFloopActive(ctx, req, args)
+			if err != nil {
+				t.Fatalf("handleFloopActive failed: %v", err)
+			}
+
+			if output.TokenStats == nil {
+				t.Fatal("TokenStats is nil, want non-nil")
+			}
+
+			if output.TokenStats.TotalCanonicalTokens != tt.wantTokens {
+				t.Errorf("TotalCanonicalTokens = %d, want %d", output.TokenStats.TotalCanonicalTokens, tt.wantTokens)
+			}
+
+			if output.TokenStats.BudgetDefault != tt.wantBudget {
+				t.Errorf("BudgetDefault = %d, want %d", output.TokenStats.BudgetDefault, tt.wantBudget)
+			}
+
+			if output.TokenStats.BehaviorCount != tt.wantBehaviorCount {
+				t.Errorf("BehaviorCount = %d, want %d", output.TokenStats.BehaviorCount, tt.wantBehaviorCount)
+			}
+		})
+	}
+}
+
 func TestBehaviorContentToMap_OmitsEmptyTags(t *testing.T) {
 	content := models.BehaviorContent{
 		Canonical: "test behavior",
