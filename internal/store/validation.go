@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 )
 
 // ValidationError describes a graph validation issue.
@@ -216,6 +217,7 @@ func parseStringArray(jsonStr *string) []string {
 	}
 	var arr []string
 	if err := json.Unmarshal([]byte(*jsonStr), &arr); err != nil {
+		log.Printf("warning: corrupt JSON in string array field: %v", err)
 		return nil
 	}
 	return arr

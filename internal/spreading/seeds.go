@@ -47,7 +47,7 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	}
 
 	if len(nodes) == 0 {
-		return nil, nil
+		return []Seed{}, nil
 	}
 
 	// Step 2: Convert nodes to Behavior models.
@@ -59,7 +59,7 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	// Step 3: Evaluate which behaviors match the context.
 	matches := s.evaluator.Evaluate(actCtx, behaviors)
 	if len(matches) == 0 {
-		return nil, nil
+		return []Seed{}, nil
 	}
 
 	// Step 4: Convert ActivationResult to Seed.

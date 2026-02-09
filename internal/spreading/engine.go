@@ -89,7 +89,7 @@ func NewEngine(s store.GraphStore, config Config) *Engine {
 // sorted by activation descending.
 func (e *Engine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
 	if len(seeds) == 0 {
-		return nil, nil
+		return []Result{}, nil
 	}
 
 	// Step 1: Initialize maps from seeds.

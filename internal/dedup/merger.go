@@ -75,6 +75,10 @@ func (m *BehaviorMerger) llmMerge(ctx context.Context, behaviors []*models.Behav
 		return nil, fmt.Errorf("llm merge failed: %w", err)
 	}
 
+	if result.Merged == nil {
+		return nil, fmt.Errorf("llm merge returned nil result")
+	}
+
 	merged := result.Merged
 
 	// Sanitize LLM-generated content to prevent stored prompt injection

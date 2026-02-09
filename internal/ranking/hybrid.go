@@ -67,7 +67,10 @@ func (h *HybridScorer) Score(
 		return HybridScore{}
 	}
 
-	contextScore := h.contextScorer.Score(behavior, ctx).Score
+	var contextScore float64
+	if h.contextScorer != nil {
+		contextScore = h.contextScorer.Score(behavior, ctx).Score
+	}
 	pageRank := h.pageRankScores[behavior.ID] // 0 if not found
 
 	finalScore := h.config.ContextWeight*contextScore +

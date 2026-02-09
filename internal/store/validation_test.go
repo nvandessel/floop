@@ -541,6 +541,37 @@ func TestFindDanglingRefs(t *testing.T) {
 	}
 }
 
+func TestParseStringArray_CorruptJSON(t *testing.T) {
+	corrupt := "{not-valid-json"
+	result := parseStringArray(&corrupt)
+	if result != nil {
+		t.Errorf("expected nil for corrupt JSON, got %v", result)
+	}
+}
+
+func TestParseStringArray_ValidJSON(t *testing.T) {
+	valid := `["a","b","c"]`
+	result := parseStringArray(&valid)
+	if len(result) != 3 {
+		t.Errorf("expected 3 elements, got %d", len(result))
+	}
+}
+
+func TestParseStringArray_NilInput(t *testing.T) {
+	result := parseStringArray(nil)
+	if result != nil {
+		t.Errorf("expected nil for nil input, got %v", result)
+	}
+}
+
+func TestParseStringArray_EmptyString(t *testing.T) {
+	empty := ""
+	result := parseStringArray(&empty)
+	if result != nil {
+		t.Errorf("expected nil for empty string, got %v", result)
+	}
+}
+
 // Helper functions for tests
 
 func createTestBehavior(id, name string) Node {

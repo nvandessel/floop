@@ -61,6 +61,9 @@ func TestSeedSelector_EmptyStore(t *testing.T) {
 	if len(seeds) != 0 {
 		t.Errorf("expected empty seeds for empty store, got %d", len(seeds))
 	}
+	if seeds == nil {
+		t.Error("expected non-nil empty slice for empty store, got nil")
+	}
 }
 
 func TestSeedSelector_NoMatchingBehaviors(t *testing.T) {
@@ -84,6 +87,9 @@ func TestSeedSelector_NoMatchingBehaviors(t *testing.T) {
 	}
 	if len(seeds) != 0 {
 		t.Errorf("expected no seeds for non-matching context, got %d", len(seeds))
+	}
+	if seeds == nil {
+		t.Error("expected non-nil empty slice for no-match case, got nil")
 	}
 }
 

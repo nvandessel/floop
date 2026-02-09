@@ -61,6 +61,25 @@ func TestEngine_NoSeeds(t *testing.T) {
 	if len(results) != 0 {
 		t.Errorf("expected empty results, got %d", len(results))
 	}
+	if results == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+}
+
+func TestEngine_EmptySeeds(t *testing.T) {
+	s := store.NewInMemoryGraphStore()
+	eng := NewEngine(s, DefaultConfig())
+
+	results, err := eng.Activate(context.Background(), []Seed{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty results, got %d", len(results))
+	}
+	if results == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
 }
 
 func TestEngine_SingleSeed_NoEdges(t *testing.T) {

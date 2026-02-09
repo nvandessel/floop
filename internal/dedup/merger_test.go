@@ -472,6 +472,34 @@ func (m *mockLLMClient) Available() bool {
 	return m.available
 }
 
+func TestLLMMerge_NilMergedResult(t *testing.T) {
+	// Test that llmMerge returns error when LLM returns nil Merged field
+	mock := &mockLLMClient{
+		available:   true,
+		mergeResult: &llm.MergeResult{Merged: nil},
+	}
+
+	merger := NewBehaviorMerger(MergerConfig{
+		LLMClient: mock,
+		UseLLM:    true,
+	})
+
+	behaviors := []*models.Behavior{
+		{ID: "b1", Name: "First", Kind: models.BehaviorKindDirective},
+		{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective},
+	}
+
+	// The LLM merge returns nil Merged. The merger should fall back to
+	// rule-based merge (since llmMerge returns an error) and NOT panic.
+	result, err := merger.Merge(context.Background(), behaviors)
+	if err != nil {
+		t.Fatalf("expected fallback to rule-based merge, got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result from rule-based fallback")
+	}
+}
+
 func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result with XML tags stripped from canonical", func(t *testing.T) {
 		mock := &mockLLMClient{

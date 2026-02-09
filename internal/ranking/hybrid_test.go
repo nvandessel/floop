@@ -290,6 +290,15 @@ func TestHybridScorer_ScoreBatch_NilActivations(t *testing.T) {
 	}
 }
 
+func TestHybridScorer_NilContextScorer(t *testing.T) {
+	scorer := NewHybridScorer(DefaultHybridScorerConfig(), nil, nil)
+	// Should not panic, should return zero context score
+	result := scorer.Score(&models.Behavior{ID: "test"}, nil, 0.5)
+	if result.ContextScore != 0 {
+		t.Errorf("expected 0 context score with nil scorer, got %f", result.ContextScore)
+	}
+}
+
 func TestDefaultHybridScorerConfig(t *testing.T) {
 	config := DefaultHybridScorerConfig()
 

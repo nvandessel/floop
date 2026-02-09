@@ -30,6 +30,7 @@ type ComparisonResult struct {
 // MergeResult contains the result of merging multiple behaviors using an LLM.
 type MergeResult struct {
 	// Merged is the new behavior combining the source behaviors.
+	// May be nil if the LLM returns an empty or invalid response.
 	Merged *models.Behavior `json:"merged" yaml:"merged"`
 
 	// SourceIDs contains the IDs of the behaviors that were merged.
