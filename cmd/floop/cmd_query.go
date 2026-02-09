@@ -195,6 +195,7 @@ This helps debug when a behavior isn't being applied as expected.`,
 					"behavior":    found,
 					"context":     ctx,
 					"explanation": explanation,
+					"scope":       "local",
 				})
 			} else {
 				fmt.Printf("Behavior: %s\n", found.Name)

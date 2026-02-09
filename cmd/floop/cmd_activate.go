@@ -278,6 +278,7 @@ func outputJSON(cmd *cobra.Command, results []session.FilteredResult, behaviorMa
 		"trigger":   triggerReason,
 		"behaviors": behaviors,
 		"count":     len(behaviors),
+		"scope":     "local",
 	}
 
 	enc := json.NewEncoder(cmd.OutOrStdout())

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
+	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/sanitize"
@@ -103,8 +104,23 @@ Example:
 			}
 			defer graphStore.Close()
 
-			// Process through learning loop
-			loop := learning.NewLearningLoop(graphStore, nil)
+			// Process through learning loop with auto-merge support
+			autoMerge, _ := cmd.Flags().GetBool("auto-merge")
+			var loopConfig *learning.LearningLoopConfig
+			if autoMerge {
+				merger := dedup.NewBehaviorMerger(dedup.MergerConfig{})
+				dedupConfig := dedup.DeduplicatorConfig{
+					SimilarityThreshold: 0.9,
+					AutoMerge:           true,
+				}
+				loopConfig = &learning.LearningLoopConfig{
+					AutoAcceptThreshold: 0.8,
+					AutoMerge:           true,
+					AutoMergeThreshold:  0.9,
+					Deduplicator:        dedup.NewStoreDeduplicator(graphStore, merger, dedupConfig),
+				}
+			}
+			loop := learning.NewLearningLoop(graphStore, loopConfig)
 			ctx := context.Background()
 
 			result, err := loop.ProcessCorrection(ctx, correction)
@@ -175,6 +191,7 @@ Example:
 	cmd.Flags().String("file", "", "Current file path")
 	cmd.Flags().String("task", "", "Current task type")
 	cmd.Flags().String("scope", "local", "Where to save: local (project), global (user), or both")
+	cmd.Flags().Bool("auto-merge", true, "Automatically merge similar behaviors (matches MCP behavior)")
 	cmd.MarkFlagRequired("wrong")
 	cmd.MarkFlagRequired("right")
 
@@ -293,8 +310,23 @@ Example:
 			}
 			defer graphStore.Close()
 
-			// Process through learning loop
-			loop := learning.NewLearningLoop(graphStore, nil)
+			// Process through learning loop with auto-merge support
+			autoMerge, _ := cmd.Flags().GetBool("auto-merge")
+			var loopConfig *learning.LearningLoopConfig
+			if autoMerge {
+				merger := dedup.NewBehaviorMerger(dedup.MergerConfig{})
+				dedupConfig := dedup.DeduplicatorConfig{
+					SimilarityThreshold: 0.9,
+					AutoMerge:           true,
+				}
+				loopConfig = &learning.LearningLoopConfig{
+					AutoAcceptThreshold: 0.8,
+					AutoMerge:           true,
+					AutoMergeThreshold:  0.9,
+					Deduplicator:        dedup.NewStoreDeduplicator(graphStore, merger, dedupConfig),
+				}
+			}
+			loop := learning.NewLearningLoop(graphStore, loopConfig)
 			ctx := context.Background()
 
 			var processed []models.Correction
@@ -381,6 +413,7 @@ Example:
 
 	cmd.Flags().Bool("dry-run", false, "Show what would be processed without making changes")
 	cmd.Flags().String("scope", "local", "Where to save behaviors: local, global, or both")
+	cmd.Flags().Bool("auto-merge", true, "Automatically merge similar behaviors (matches MCP behavior)")
 
 	return cmd
 }

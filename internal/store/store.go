@@ -44,8 +44,9 @@ type GraphStore interface {
 	DeleteNode(ctx context.Context, id string) error
 
 	// QueryNodes queries nodes by predicate.
-	// Predicate is a map of field paths to required values.
-	// e.g., {"kind": "behavior", "metadata.confidence": 0.8}
+	// Predicate is a map of field names to required values.
+	// Supports flat key matching only (e.g., "kind", "id").
+	// e.g., {"kind": "behavior"}
 	QueryNodes(ctx context.Context, predicate map[string]interface{}) ([]Node, error)
 
 	// Edge operations
