@@ -37,7 +37,7 @@ func TestSeedGlobalStore_EmptyStore(t *testing.T) {
 			t.Fatalf("GetNode(%s) error = %v", id, err)
 		}
 		if node == nil {
-			t.Errorf("node %s not found in store after seeding", id)
+			t.Fatalf("node %s not found in store after seeding", id)
 		}
 		if node.Kind != "behavior" {
 			t.Errorf("node %s kind = %q, want %q", id, node.Kind, "behavior")
