@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// HookScope determines how script paths are generated in the config.
+type HookScope int
+
+const (
+	// ScopeGlobal generates absolute paths (for ~/.claude/settings.json).
+	ScopeGlobal HookScope = iota
+	// ScopeProject generates $CLAUDE_PROJECT_DIR-relative paths (for .claude/settings.json).
+	ScopeProject
+)
+
 // ClaudePlatform implements the Platform interface for Claude Code.
 type ClaudePlatform struct{}
 
@@ -62,56 +72,85 @@ func (c *ClaudePlatform) ReadConfig(projectRoot string) (map[string]interface{},
 	return config, nil
 }
 
-// GenerateHookConfig merges floop hooks into existing config.
-func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{}) (map[string]interface{}, error) {
+// GenerateHookConfig merges floop hooks into existing config, generating entries
+// for all 3 event types (SessionStart, UserPromptSubmit, PreToolUse).
+// It removes any existing floop entries first (idempotent merge).
+func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{}, scope HookScope, hookDir string) (map[string]interface{}, error) {
 	config := existingConfig
 	if config == nil {
 		config = make(map[string]interface{})
 	}
 
-	// Build the static behavior injection hook (floop prompt)
-	promptHook := map[string]interface{}{
-		"type":    "command",
-		"command": c.InjectCommand(),
-	}
-
-	// Build the dynamic context activation hook (floop activate)
-	activateHook := map[string]interface{}{
-		"type":    "command",
-		"command": c.ActivateCommand(),
-	}
-
 	// Get or create hooks section
-	hooks, ok := config["hooks"].(map[string]interface{})
+	hooksSection, ok := config["hooks"].(map[string]interface{})
 	if !ok {
-		hooks = make(map[string]interface{})
+		hooksSection = make(map[string]interface{})
 	}
 
-	// Get or create PreToolUse array
-	preToolUse, ok := hooks["PreToolUse"].([]interface{})
-	if !ok {
-		preToolUse = make([]interface{}, 0)
+	// Remove existing floop entries for idempotent merge
+	hooksSection = removeFloopEntries(hooksSection)
+
+	// Build script path prefix based on scope
+	scriptPath := func(name string) string {
+		if scope == ScopeGlobal {
+			return filepath.Join(hookDir, name)
+		}
+		// Project scope: use $CLAUDE_PROJECT_DIR-relative path
+		return fmt.Sprintf(`"$CLAUDE_PROJECT_DIR"/.claude/hooks/%s`, name)
 	}
 
-	// Read matcher: static behavior injection via floop prompt
+	// SessionStart: inject behaviors at session start
+	sessionStartEntry := map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": scriptPath("floop-session-start.sh"),
+			},
+		},
+	}
+	sessionStart := getOrCreateEventArray(hooksSection, "SessionStart")
+	hooksSection["SessionStart"] = append(sessionStart, sessionStartEntry)
+
+	// UserPromptSubmit: first-prompt fallback + correction detection
+	userPromptEntry := map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": scriptPath("floop-first-prompt.sh"),
+			},
+			map[string]interface{}{
+				"type":    "command",
+				"command": scriptPath("floop-detect-correction.sh"),
+			},
+		},
+	}
+	userPrompt := getOrCreateEventArray(hooksSection, "UserPromptSubmit")
+	hooksSection["UserPromptSubmit"] = append(userPrompt, userPromptEntry)
+
+	// PreToolUse: dynamic context injection for Read and Bash
+	dynamicScript := scriptPath("floop-dynamic-context.sh")
 	readMatcher := map[string]interface{}{
 		"matcher": "Read",
-		"hooks":   []interface{}{promptHook},
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": dynamicScript,
+			},
+		},
 	}
-
-	// Bash matcher: dynamic context activation via floop activate
 	bashMatcher := map[string]interface{}{
 		"matcher": "Bash",
-		"hooks":   []interface{}{activateHook},
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": dynamicScript,
+			},
+		},
 	}
+	preToolUse := getOrCreateEventArray(hooksSection, "PreToolUse")
+	hooksSection["PreToolUse"] = append(preToolUse, readMatcher, bashMatcher)
 
-	// Add both matchers to PreToolUse array
-	preToolUse = append(preToolUse, readMatcher, bashMatcher)
-
-	// Update hooks
-	hooks["PreToolUse"] = preToolUse
-	config["hooks"] = hooks
-
+	config["hooks"] = hooksSection
 	return config, nil
 }
 
@@ -131,6 +170,9 @@ func (c *ClaudePlatform) WriteConfig(projectRoot string, config map[string]inter
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	// Append newline for POSIX compliance
+	data = append(data, '\n')
+
 	// Write file
 	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write settings.json: %w", err)
@@ -139,17 +181,8 @@ func (c *ClaudePlatform) WriteConfig(projectRoot string, config map[string]inter
 	return nil
 }
 
-// InjectCommand returns the command to inject behaviors.
-func (c *ClaudePlatform) InjectCommand() string {
-	return "floop prompt --format markdown"
-}
-
-// ActivateCommand returns the command for dynamic context activation.
-func (c *ClaudePlatform) ActivateCommand() string {
-	return `"$CLAUDE_PROJECT_DIR"/.claude/hooks/dynamic-context.sh`
-}
-
-// HasFloopHook checks if floop hooks are already configured.
+// HasFloopHook checks if floop hooks are already configured by scanning
+// all event types for commands containing "floop".
 func (c *ClaudePlatform) HasFloopHook(projectRoot string) (bool, error) {
 	config, err := c.ReadConfig(projectRoot)
 	if err != nil {
@@ -159,18 +192,29 @@ func (c *ClaudePlatform) HasFloopHook(projectRoot string) (bool, error) {
 		return false, nil
 	}
 
-	hooks, ok := config["hooks"].(map[string]interface{})
+	hooksSection, ok := config["hooks"].(map[string]interface{})
 	if !ok {
 		return false, nil
 	}
 
-	// Check PreToolUse for floop command
-	preToolUse, ok := hooks["PreToolUse"].([]interface{})
-	if !ok {
-		return false, nil
+	// Check all event types
+	for _, eventType := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse"} {
+		if containsFloopCommand(hooksSection, eventType) {
+			return true, nil
+		}
 	}
 
-	for _, entry := range preToolUse {
+	return false, nil
+}
+
+// containsFloopCommand checks if any hook command in the given event type contains "floop".
+func containsFloopCommand(hooksSection map[string]interface{}, eventType string) bool {
+	entries, ok := hooksSection[eventType].([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, entry := range entries {
 		entryMap, ok := entry.(map[string]interface{})
 		if !ok {
 			continue
@@ -189,10 +233,73 @@ func (c *ClaudePlatform) HasFloopHook(projectRoot string) (bool, error) {
 
 			cmd, ok := hookMap["command"].(string)
 			if ok && strings.Contains(cmd, "floop") {
-				return true, nil
+				return true
 			}
 		}
 	}
 
-	return false, nil
+	return false
+}
+
+// removeFloopEntries removes all floop-related entries from the hooks config.
+// Non-floop entries are preserved.
+func removeFloopEntries(hooksSection map[string]interface{}) map[string]interface{} {
+	for _, eventType := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse"} {
+		entries, ok := hooksSection[eventType].([]interface{})
+		if !ok {
+			continue
+		}
+
+		var kept []interface{}
+		for _, entry := range entries {
+			entryMap, ok := entry.(map[string]interface{})
+			if !ok {
+				kept = append(kept, entry)
+				continue
+			}
+
+			if !entryHasFloopCommand(entryMap) {
+				kept = append(kept, entry)
+			}
+		}
+
+		if len(kept) > 0 {
+			hooksSection[eventType] = kept
+		} else {
+			delete(hooksSection, eventType)
+		}
+	}
+
+	return hooksSection
+}
+
+// entryHasFloopCommand checks if a hook entry contains any floop commands.
+func entryHasFloopCommand(entry map[string]interface{}) bool {
+	hooksList, ok := entry["hooks"].([]interface{})
+	if !ok {
+		return false
+	}
+
+	for _, hook := range hooksList {
+		hookMap, ok := hook.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		cmd, ok := hookMap["command"].(string)
+		if ok && strings.Contains(cmd, "floop") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// getOrCreateEventArray gets or creates an event array from the hooks section.
+func getOrCreateEventArray(hooksSection map[string]interface{}, eventType string) []interface{} {
+	arr, ok := hooksSection[eventType].([]interface{})
+	if !ok {
+		return make([]interface{}, 0)
+	}
+	return arr
 }

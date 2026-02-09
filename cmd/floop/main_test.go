@@ -148,10 +148,16 @@ func TestInitCmdCreatesDirectory(t *testing.T) {
 		t.Error("manifest.yaml not created")
 	}
 
-	// Verify corrections.jsonl was created
-	correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
-	if _, err := os.Stat(correctionsPath); os.IsNotExist(err) {
-		t.Error("corrections.jsonl not created")
+	// Verify hook scripts were extracted
+	hookDir := filepath.Join(tmpDir, ".claude", "hooks")
+	if _, err := os.Stat(filepath.Join(hookDir, "floop-session-start.sh")); os.IsNotExist(err) {
+		t.Error("floop-session-start.sh not extracted")
+	}
+
+	// Verify settings.json was created
+	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		t.Error("settings.json not created")
 	}
 }
 

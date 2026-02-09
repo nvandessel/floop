@@ -102,6 +102,8 @@ context-aware behavior activation for consistent agent operation.`,
 		// Backup/restore commands
 		newBackupCmd(),
 		newRestoreFromBackupCmd(),
+		// Hook management commands
+		newUpgradeCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
