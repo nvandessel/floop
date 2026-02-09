@@ -122,7 +122,7 @@ feedback-loop/
 │   ├── GO_GUIDELINES.md    # Coding standards
 │   ├── FLOOP_USAGE.md      # Floop usage guide
 │   └── integrations/       # AI tool integration guides
-├── .floop/                 # Learned behaviors (data files NOT version controlled)
+├── .floop/                 # Learned behaviors (JSONL + manifest tracked; DB + audit.jsonl gitignored)
 └── .beads/                 # Issue tracking (version controlled)
 ```
 

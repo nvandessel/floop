@@ -33,7 +33,7 @@ feedback-loop/
 │   ├── utils/          # Shared utilities
 │   └── visualization/  # Graph visualization
 ├── docs/               # Documentation
-└── .floop/             # Runtime data (corrections, behaviors) - NOT version controlled
+└── .floop/             # Runtime data (JSONL + manifest tracked; DB + audit.jsonl gitignored)
 ```
 
 ## 2. Code Style
