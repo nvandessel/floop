@@ -1,4 +1,5 @@
 #!/bin/bash
+# version: 0.1.0
 # Fallback: inject behaviors on first prompt if SessionStart didn't fire
 # This ensures new conversations also get behavior injection
 
@@ -12,12 +13,10 @@ if ! mkdir "$MARKER" 2>/dev/null; then
     exit 0
 fi
 
-FLOOP_CMD="${CLAUDE_PROJECT_DIR}/floop"
+FLOOP_CMD="$(command -v floop 2>/dev/null)"
+[ -z "$FLOOP_CMD" ] && exit 0
 
-# Check if floop binary exists and is executable
-if [ -x "$FLOOP_CMD" ]; then
-    # Generate prompt with behaviors, budget 2000 tokens
-    "$FLOOP_CMD" prompt --format markdown --token-budget 2000 2>/dev/null
-fi
+# Generate prompt with behaviors
+"$FLOOP_CMD" prompt --format markdown --token-budget 2000 2>/dev/null
 
 exit 0

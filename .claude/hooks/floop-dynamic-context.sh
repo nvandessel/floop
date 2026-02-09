@@ -1,4 +1,5 @@
 #!/bin/bash
+# version: 0.1.0
 # Dynamic context injection hook
 # Triggered on PreToolUse for Read, Write, Edit, Bash tools
 # Detects context changes and injects relevant behaviors via spreading activation
@@ -9,8 +10,8 @@ TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // empty')
 
 [ -z "$TOOL_NAME" ] && exit 0
 
-FLOOP_CMD="${CLAUDE_PROJECT_DIR}/floop"
-[ -x "$FLOOP_CMD" ] || exit 0
+FLOOP_CMD="$(command -v floop 2>/dev/null)"
+[ -z "$FLOOP_CMD" ] && exit 0
 
 # Extract session ID for state persistence
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "default"')

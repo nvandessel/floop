@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
@@ -14,199 +18,296 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultTokenBudget = 2000
+
 func newInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize feedback loop tracking in current directory",
-		Long: `Initialize feedback loop tracking and optionally configure AI tool hooks.
+		Short: "Initialize floop with hook scripts and behavior learning",
+		Long: `Initialize floop by extracting hook scripts and configuring AI tool integration.
 
-This command creates the .floop/ directory for storing behaviors and corrections.
-By default, it also detects AI coding tools (Claude Code, etc.) and configures
-hooks to auto-inject behaviors at session start.
+This command extracts embedded hook scripts, configures Claude Code settings,
+seeds meta-behaviors, and creates the .floop/ data directory.
+
+Interactive mode (no flags):
+  Prompts for installation scope, hooks, and token budget.
+
+Non-interactive mode (any flag provided):
+  Uses flag values with sensible defaults. Suitable for scripts and agents.
 
 Examples:
-  floop init                        # Initialize with auto-detected hooks
-  floop init --hooks=false          # Initialize without configuring hooks
-  floop init --global               # Initialize global user directory
-  floop init --platform "Claude Code"  # Only configure Claude Code hooks`,
+  floop init                          # Interactive setup
+  floop init --global                 # Global install, all defaults
+  floop init --project                # Project-level install, all defaults
+  floop init --global --project       # Both scopes
+  floop init --global --hooks=all --token-budget 2000  # Explicit everything`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root, _ := cmd.Flags().GetString("root")
-			globalInit, _ := cmd.Flags().GetBool("global")
-			configureHooks, _ := cmd.Flags().GetBool("hooks")
-			platformFilter, _ := cmd.Flags().GetString("platform")
+			globalFlag, _ := cmd.Flags().GetBool("global")
+			projectFlag, _ := cmd.Flags().GetBool("project")
+			hooksFlag, _ := cmd.Flags().GetString("hooks")
+			tokenBudget, _ := cmd.Flags().GetInt("token-budget")
 			jsonOut, _ := cmd.Flags().GetBool("json")
+			root, _ := cmd.Flags().GetString("root")
 
-			var floopDir string
-			var hookRoot string
+			// Determine if we're in interactive or non-interactive mode.
+			// Any meaningful flag makes it non-interactive.
+			interactive := !globalFlag && !projectFlag &&
+				!cmd.Flags().Changed("hooks") && !cmd.Flags().Changed("token-budget") &&
+				!cmd.Flags().Changed("root")
 
-			if globalInit {
-				// Initialize global directory
-				if err := store.EnsureGlobalFloopDir(); err != nil {
-					return fmt.Errorf("failed to initialize global directory: %w", err)
+			var doGlobal, doProject bool
+
+			if interactive {
+				if jsonOut {
+					return fmt.Errorf("--json requires explicit scope flags (--global and/or --project)")
 				}
 				var err error
-				floopDir, err = store.GlobalFloopPath()
+				doGlobal, doProject, hooksFlag, tokenBudget, err = runInteractiveInit()
 				if err != nil {
-					return fmt.Errorf("failed to get global path: %w", err)
+					return err
 				}
-				// For global init, configure hooks in home directory
-				hookRoot, _ = os.UserHomeDir()
 			} else {
-				// Initialize local directory (default)
-				floopDir = filepath.Join(root, ".floop")
-				hookRoot = root
-			}
-
-			// Create .floop directory
-			if err := os.MkdirAll(floopDir, 0700); err != nil {
-				return fmt.Errorf("failed to create .floop directory: %w", err)
-			}
-
-			// Create manifest.yaml
-			manifestPath := filepath.Join(floopDir, "manifest.yaml")
-			if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-				manifest := `# Feedback Loop Manifest
-version: "1.0"
-created: %s
-
-# Behaviors learned from corrections are stored in this directory
-# Run 'floop list' to see all behaviors
-# Run 'floop active' to see behaviors active in current context
-`
-				content := fmt.Sprintf(manifest, time.Now().Format(time.RFC3339))
-				if err := os.WriteFile(manifestPath, []byte(content), 0600); err != nil {
-					return fmt.Errorf("failed to create manifest.yaml: %w", err)
+				doGlobal = globalFlag
+				doProject = projectFlag
+				// If neither scope specified explicitly, default to project
+				if !doGlobal && !doProject {
+					doProject = true
+				}
+				if hooksFlag == "" {
+					hooksFlag = "all"
 				}
 			}
 
-			// Create corrections log for dogfooding
-			correctionsPath := filepath.Join(floopDir, "corrections.jsonl")
-			if _, err := os.Stat(correctionsPath); os.IsNotExist(err) {
-				if err := os.WriteFile(correctionsPath, []byte{}, 0600); err != nil {
-					return fmt.Errorf("failed to create corrections.jsonl: %w", err)
-				}
-			}
-
-			// Prepare result for JSON output
 			result := map[string]interface{}{
 				"status": "initialized",
-				"path":   floopDir,
-			}
-			if globalInit {
-				result["scope"] = string(constants.ScopeGlobal)
 			}
 
-			// Human-readable output for floop init
-			if !jsonOut {
-				fmt.Printf("Created %s\n", floopDir)
-			}
-
-			// Seed meta-behaviors into global store
-			if globalInit {
-				homeDir, err := os.UserHomeDir()
+			if doGlobal {
+				globalResult, err := initScope(constants.ScopeGlobal, "", hooksFlag, tokenBudget, jsonOut)
 				if err != nil {
-					return fmt.Errorf("failed to get home directory: %w", err)
+					return fmt.Errorf("global init failed: %w", err)
 				}
-				globalStore, err := store.NewSQLiteGraphStore(homeDir)
-				if err != nil {
-					return fmt.Errorf("failed to open global store for seeding: %w", err)
-				}
-				defer globalStore.Close()
-
-				seedResult, err := seed.NewSeeder(globalStore).SeedGlobalStore(cmd.Context())
-				if err != nil {
-					return fmt.Errorf("failed to seed global store: %w", err)
-				}
-
-				if !jsonOut {
-					if len(seedResult.Added) > 0 {
-						fmt.Printf("Seeded %d meta-behavior(s) into global store\n", len(seedResult.Added))
-					}
-					if len(seedResult.Updated) > 0 {
-						fmt.Printf("Updated %d meta-behavior(s) in global store\n", len(seedResult.Updated))
-					}
-				}
-				result["seeds"] = map[string]interface{}{
-					"added":   len(seedResult.Added),
-					"updated": len(seedResult.Updated),
-					"skipped": len(seedResult.Skipped),
-				}
+				result["global"] = globalResult
 			}
 
-			// Configure AI tool hooks if enabled
-			var hookResults []hooks.ConfigureResult
-			if configureHooks {
-				hookResults = configureAIToolHooks(hookRoot, platformFilter, jsonOut)
-				if len(hookResults) > 0 {
-					result["hooks"] = hookResults
+			if doProject {
+				projectResult, err := initScope(constants.ScopeLocal, root, hooksFlag, tokenBudget, jsonOut)
+				if err != nil {
+					return fmt.Errorf("project init failed: %w", err)
 				}
+				result["project"] = projectResult
 			}
 
 			if jsonOut {
 				json.NewEncoder(os.Stdout).Encode(result)
-			} else if configureHooks && len(hookResults) == 0 {
-				fmt.Println("\nNo AI tools detected. Hooks not configured.")
-				fmt.Println("To manually configure hooks later, ensure .claude/ exists and run 'floop init' again.")
+			} else {
+				fmt.Println("\nReady! Your AI agents will now load learned behaviors at session start.")
 			}
 
 			return nil
 		},
 	}
 
-	cmd.Flags().Bool("global", false, "Initialize global user directory (~/.floop/) instead of local project directory")
-	cmd.Flags().Bool("hooks", true, "Configure AI tool hooks for auto-injection (default: true)")
-	cmd.Flags().String("platform", "", "Only configure hooks for specific platform (e.g., 'Claude Code')")
+	cmd.Flags().Bool("global", false, "Install hooks globally (~/.claude/)")
+	cmd.Flags().Bool("project", false, "Install hooks for this project (.claude/)")
+	cmd.Flags().String("hooks", "", "Which hooks to enable: all, injection-only (default: all)")
+	cmd.Flags().Int("token-budget", defaultTokenBudget, "Token budget for behavior injection")
 
 	return cmd
 }
 
-// configureAIToolHooks detects AI tools and configures hooks for behavior injection.
-func configureAIToolHooks(projectRoot string, platformFilter string, jsonOut bool) []hooks.ConfigureResult {
-	// Detect platforms
-	detected := hooks.DetectAll(projectRoot)
+// initScope performs initialization for a single scope (global or project).
+func initScope(scope constants.Scope, projectRoot string, hooksMode string, tokenBudget int, jsonOut bool) (map[string]interface{}, error) {
+	var configRoot string // where .claude/settings.json lives
+	var hookScope hooks.HookScope
 
-	if len(detected) == 0 {
-		return nil
+	if scope == constants.ScopeGlobal {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("getting home directory: %w", err)
+		}
+		configRoot = homeDir
+		hookScope = hooks.ScopeGlobal
+	} else {
+		configRoot = projectRoot
+		hookScope = hooks.ScopeProject
+	}
+
+	result := map[string]interface{}{
+		"scope": string(scope),
+	}
+
+	// 1. Create .floop directory
+	var floopDir string
+	if scope == constants.ScopeGlobal {
+		if err := store.EnsureGlobalFloopDir(); err != nil {
+			return nil, fmt.Errorf("creating global .floop: %w", err)
+		}
+		var err error
+		floopDir, err = store.GlobalFloopPath()
+		if err != nil {
+			return nil, fmt.Errorf("getting global .floop path: %w", err)
+		}
+	} else {
+		floopDir = filepath.Join(configRoot, ".floop")
+		if err := os.MkdirAll(floopDir, 0700); err != nil {
+			return nil, fmt.Errorf("creating .floop directory: %w", err)
+		}
+	}
+	result["floop_dir"] = floopDir
+
+	// Create manifest.yaml if it doesn't exist
+	manifestPath := filepath.Join(floopDir, "manifest.yaml")
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		manifest := fmt.Sprintf("# Feedback Loop Manifest\nversion: \"1.0\"\ncreated: %s\n",
+			time.Now().Format(time.RFC3339))
+		if err := os.WriteFile(manifestPath, []byte(manifest), 0600); err != nil {
+			return nil, fmt.Errorf("creating manifest.yaml: %w", err)
+		}
 	}
 
 	if !jsonOut {
-		fmt.Println("\nDetected AI tools:")
-		for _, d := range detected {
-			status := ""
-			if d.HasHooks {
-				status = " (hooks already configured)"
-			}
-			fmt.Printf("  - %s%s\n", d.Name, status)
-		}
-		fmt.Println("\nConfiguring hooks...")
+		fmt.Printf("Created %s\n", floopDir)
 	}
 
-	var results []hooks.ConfigureResult
-	for _, d := range detected {
-		// Filter by platform if specified
-		if platformFilter != "" && d.Name != platformFilter {
-			continue
+	// 2. Extract hook scripts
+	hookDir := filepath.Join(configRoot, ".claude", "hooks")
+	extracted, err := hooks.ExtractScripts(hookDir, version, tokenBudget)
+	if err != nil {
+		return nil, fmt.Errorf("extracting hook scripts: %w", err)
+	}
+	result["hook_scripts"] = len(extracted)
+
+	if !jsonOut {
+		fmt.Printf("Extracted %d hook script(s) to %s\n", len(extracted), hookDir)
+	}
+
+	// 3. Configure Claude Code settings.json
+	if hooksMode != "" {
+		p := hooks.NewClaudePlatform()
+
+		// Ensure .claude directory exists
+		if err := hooks.EnsureClaudeDir(configRoot); err != nil {
+			return nil, fmt.Errorf("creating .claude directory: %w", err)
 		}
 
-		result := hooks.ConfigurePlatform(d.Platform, projectRoot)
-		results = append(results, result)
+		configResult := hooks.ConfigurePlatform(p, configRoot, hookScope, hookDir)
+		if configResult.Error != nil {
+			return nil, fmt.Errorf("configuring hooks: %w", configResult.Error)
+		}
+
+		action := "Updated"
+		if configResult.Created {
+			action = "Created"
+		}
+		result["settings"] = configResult.ConfigPath
 
 		if !jsonOut {
-			if result.Error != nil {
-				fmt.Printf("  - %s: ERROR - %v\n", result.Platform, result.Error)
-			} else if result.Skipped {
-				fmt.Printf("  - %s: skipped (%s)\n", result.Platform, result.SkipReason)
-			} else if result.Created {
-				fmt.Printf("  - %s: created %s\n", result.Platform, result.ConfigPath)
-			} else {
-				fmt.Printf("  - %s: updated %s\n", result.Platform, result.ConfigPath)
-			}
+			fmt.Printf("%s %s\n", action, configResult.ConfigPath)
 		}
 	}
 
-	if !jsonOut && len(results) > 0 {
-		fmt.Println("\nBehaviors will auto-inject at session start.")
+	// 4. Seed meta-behaviors (global only)
+	if scope == constants.ScopeGlobal {
+		homeDir, _ := os.UserHomeDir()
+		globalStore, err := store.NewSQLiteGraphStore(homeDir)
+		if err != nil {
+			return nil, fmt.Errorf("opening global store for seeding: %w", err)
+		}
+		defer globalStore.Close()
+
+		seedResult, err := seed.NewSeeder(globalStore).SeedGlobalStore(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("seeding global store: %w", err)
+		}
+
+		if !jsonOut {
+			if len(seedResult.Added) > 0 {
+				fmt.Printf("Seeded %d meta-behavior(s)\n", len(seedResult.Added))
+			}
+			if len(seedResult.Updated) > 0 {
+				fmt.Printf("Updated %d meta-behavior(s)\n", len(seedResult.Updated))
+			}
+		}
+		result["seeds"] = map[string]interface{}{
+			"added":   len(seedResult.Added),
+			"updated": len(seedResult.Updated),
+			"skipped": len(seedResult.Skipped),
+		}
 	}
 
-	return results
+	return result, nil
+}
+
+// runInteractiveInit prompts the user for init configuration.
+func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudget int, err error) {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("\nWelcome to floop! Let's set up behavior learning for your AI agents.")
+
+	// Scope
+	fmt.Println("? Installation scope")
+	fmt.Println("  1) Global (all projects) — recommended")
+	fmt.Println("  2) Project (this project only)")
+	fmt.Println("  3) Both (global + this project)")
+	fmt.Print("  Choose [1]: ")
+	scopeChoice := readLine(reader)
+	switch scopeChoice {
+	case "", "1":
+		doGlobal = true
+	case "2":
+		doProject = true
+	case "3":
+		doGlobal = true
+		doProject = true
+	default:
+		return false, false, "", 0, fmt.Errorf("invalid scope choice: %s", scopeChoice)
+	}
+
+	// Hooks
+	fmt.Println("\n? Which hooks to enable?")
+	fmt.Println("  1) All hooks — recommended")
+	fmt.Println("  2) Behavior injection only (skip correction detection & dynamic context)")
+	fmt.Print("  Choose [1]: ")
+	hookChoice := readLine(reader)
+	switch hookChoice {
+	case "", "1":
+		hooksMode = "all"
+	case "2":
+		hooksMode = "injection-only"
+	default:
+		return false, false, "", 0, fmt.Errorf("invalid hooks choice: %s", hookChoice)
+	}
+
+	// Token budget
+	fmt.Println("\n? Token budget for behavior injection")
+	fmt.Println("  1) 2000 (default — fits ~40 behaviors)")
+	fmt.Println("  2) 1000 (conservative — fits ~20 behaviors)")
+	fmt.Println("  3) Custom")
+	fmt.Print("  Choose [1]: ")
+	budgetChoice := readLine(reader)
+	switch budgetChoice {
+	case "", "1":
+		tokenBudget = 2000
+	case "2":
+		tokenBudget = 1000
+	case "3":
+		fmt.Print("  Enter token budget: ")
+		customBudget := readLine(reader)
+		tokenBudget, err = strconv.Atoi(customBudget)
+		if err != nil {
+			return false, false, "", 0, fmt.Errorf("invalid token budget: %s", customBudget)
+		}
+	default:
+		return false, false, "", 0, fmt.Errorf("invalid budget choice: %s", budgetChoice)
+	}
+
+	fmt.Println()
+	return doGlobal, doProject, hooksMode, tokenBudget, nil
+}
+
+// readLine reads a line from the reader, trimming whitespace.
+func readLine(reader *bufio.Reader) string {
+	line, _ := reader.ReadString('\n')
+	return strings.TrimSpace(line)
 }

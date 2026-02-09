@@ -110,65 +110,98 @@ func TestClaudePlatformReadConfig(t *testing.T) {
 	}
 }
 
-func TestClaudePlatformGenerateHookConfig(t *testing.T) {
+func TestClaudePlatformGenerateHookConfigProject(t *testing.T) {
 	p := NewClaudePlatform()
+	hookDir := "/project/.claude/hooks"
 
-	// From nil config
-	config, err := p.GenerateHookConfig(nil)
+	config, err := p.GenerateHookConfig(nil, ScopeProject, hookDir)
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify structure
 	hooks, ok := config["hooks"].(map[string]interface{})
 	if !ok {
 		t.Fatal("expected hooks to be a map")
 	}
 
+	// Verify SessionStart
+	sessionStart, ok := hooks["SessionStart"].([]interface{})
+	if !ok {
+		t.Fatal("expected SessionStart to be an array")
+	}
+	if len(sessionStart) != 1 {
+		t.Errorf("expected 1 SessionStart entry, got %d", len(sessionStart))
+	}
+	ssEntry := sessionStart[0].(map[string]interface{})
+	ssHooks := ssEntry["hooks"].([]interface{})
+	ssCmd := ssHooks[0].(map[string]interface{})["command"].(string)
+	if !strings.Contains(ssCmd, "CLAUDE_PROJECT_DIR") {
+		t.Errorf("project scope should use CLAUDE_PROJECT_DIR, got: %s", ssCmd)
+	}
+	if !strings.Contains(ssCmd, "floop-session-start.sh") {
+		t.Errorf("expected floop-session-start.sh in command, got: %s", ssCmd)
+	}
+
+	// Verify UserPromptSubmit
+	userPrompt, ok := hooks["UserPromptSubmit"].([]interface{})
+	if !ok {
+		t.Fatal("expected UserPromptSubmit to be an array")
+	}
+	if len(userPrompt) != 1 {
+		t.Errorf("expected 1 UserPromptSubmit entry, got %d", len(userPrompt))
+	}
+	upEntry := userPrompt[0].(map[string]interface{})
+	upHooks := upEntry["hooks"].([]interface{})
+	if len(upHooks) != 2 {
+		t.Errorf("expected 2 UserPromptSubmit hooks (first-prompt + detect-correction), got %d", len(upHooks))
+	}
+
+	// Verify PreToolUse
 	preToolUse, ok := hooks["PreToolUse"].([]interface{})
 	if !ok {
 		t.Fatal("expected PreToolUse to be an array")
 	}
-
 	if len(preToolUse) != 2 {
 		t.Errorf("expected 2 PreToolUse entries (Read + Bash), got %d", len(preToolUse))
 	}
 
-	// Verify Read matcher entry
 	readEntry := preToolUse[0].(map[string]interface{})
 	if readEntry["matcher"] != "Read" {
 		t.Errorf("expected first matcher='Read', got '%v'", readEntry["matcher"])
 	}
-
-	readHooksList := readEntry["hooks"].([]interface{})
-	readHook := readHooksList[0].(map[string]interface{})
-	if readHook["type"] != "command" {
-		t.Errorf("expected type='command', got '%v'", readHook["type"])
-	}
-	if !strings.Contains(readHook["command"].(string), "floop") {
-		t.Errorf("expected Read command to contain 'floop', got '%v'", readHook["command"])
-	}
-
-	// Verify Bash matcher entry
 	bashEntry := preToolUse[1].(map[string]interface{})
 	if bashEntry["matcher"] != "Bash" {
 		t.Errorf("expected second matcher='Bash', got '%v'", bashEntry["matcher"])
 	}
+}
 
-	bashHooksList := bashEntry["hooks"].([]interface{})
-	bashHook := bashHooksList[0].(map[string]interface{})
-	if bashHook["type"] != "command" {
-		t.Errorf("expected type='command', got '%v'", bashHook["type"])
+func TestClaudePlatformGenerateHookConfigGlobal(t *testing.T) {
+	p := NewClaudePlatform()
+	hookDir := "/home/user/.claude/hooks"
+
+	config, err := p.GenerateHookConfig(nil, ScopeGlobal, hookDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(bashHook["command"].(string), "dynamic-context") {
-		t.Errorf("expected Bash command to contain 'dynamic-context', got '%v'", bashHook["command"])
+
+	hooks := config["hooks"].(map[string]interface{})
+	sessionStart := hooks["SessionStart"].([]interface{})
+	ssEntry := sessionStart[0].(map[string]interface{})
+	ssHooks := ssEntry["hooks"].([]interface{})
+	ssCmd := ssHooks[0].(map[string]interface{})["command"].(string)
+
+	// Global scope should use absolute paths
+	if strings.Contains(ssCmd, "CLAUDE_PROJECT_DIR") {
+		t.Errorf("global scope should NOT use CLAUDE_PROJECT_DIR, got: %s", ssCmd)
+	}
+	if !strings.Contains(ssCmd, "/home/user/.claude/hooks/floop-session-start.sh") {
+		t.Errorf("expected absolute path, got: %s", ssCmd)
 	}
 }
 
 func TestClaudePlatformGenerateHookConfigMerge(t *testing.T) {
 	p := NewClaudePlatform()
 
-	// Existing config with other settings
 	existing := map[string]interface{}{
 		"otherSetting": "preserved",
 		"hooks": map[string]interface{}{
@@ -176,9 +209,9 @@ func TestClaudePlatformGenerateHookConfigMerge(t *testing.T) {
 		},
 	}
 
-	config, err := p.GenerateHookConfig(existing)
+	config, err := p.GenerateHookConfig(existing, ScopeProject, "/project/.claude/hooks")
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Other setting should be preserved
@@ -186,13 +219,89 @@ func TestClaudePlatformGenerateHookConfigMerge(t *testing.T) {
 		t.Error("expected otherSetting to be preserved")
 	}
 
-	// Both hooks should exist
+	// All hook types should exist
 	hooks := config["hooks"].(map[string]interface{})
 	if hooks["OtherHook"] == nil {
 		t.Error("expected OtherHook to be preserved")
 	}
+	if hooks["SessionStart"] == nil {
+		t.Error("expected SessionStart to be added")
+	}
+	if hooks["UserPromptSubmit"] == nil {
+		t.Error("expected UserPromptSubmit to be added")
+	}
 	if hooks["PreToolUse"] == nil {
 		t.Error("expected PreToolUse to be added")
+	}
+}
+
+func TestClaudePlatformGenerateHookConfigIdempotent(t *testing.T) {
+	p := NewClaudePlatform()
+	hookDir := "/project/.claude/hooks"
+
+	// Generate config twice
+	config1, err := p.GenerateHookConfig(nil, ScopeProject, hookDir)
+	if err != nil {
+		t.Fatalf("first generate failed: %v", err)
+	}
+
+	config2, err := p.GenerateHookConfig(config1, ScopeProject, hookDir)
+	if err != nil {
+		t.Fatalf("second generate failed: %v", err)
+	}
+
+	hooks := config2["hooks"].(map[string]interface{})
+
+	// Should not duplicate entries
+	sessionStart := hooks["SessionStart"].([]interface{})
+	if len(sessionStart) != 1 {
+		t.Errorf("idempotent merge failed: expected 1 SessionStart entry, got %d", len(sessionStart))
+	}
+
+	preToolUse := hooks["PreToolUse"].([]interface{})
+	if len(preToolUse) != 2 {
+		t.Errorf("idempotent merge failed: expected 2 PreToolUse entries, got %d", len(preToolUse))
+	}
+}
+
+func TestClaudePlatformGenerateHookConfigPreservesNonFloop(t *testing.T) {
+	p := NewClaudePlatform()
+
+	existing := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"PreToolUse": []interface{}{
+				map[string]interface{}{
+					"matcher": "Read",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": "other-tool check",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	config, err := p.GenerateHookConfig(existing, ScopeProject, "/project/.claude/hooks")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hooks := config["hooks"].(map[string]interface{})
+	preToolUse := hooks["PreToolUse"].([]interface{})
+
+	// Should have the original non-floop entry + 2 floop entries
+	if len(preToolUse) != 3 {
+		t.Errorf("expected 3 PreToolUse entries (1 non-floop + 2 floop), got %d", len(preToolUse))
+	}
+
+	// First entry should be the preserved non-floop one
+	firstEntry := preToolUse[0].(map[string]interface{})
+	firstHooks := firstEntry["hooks"].([]interface{})
+	firstCmd := firstHooks[0].(map[string]interface{})["command"].(string)
+	if firstCmd != "other-tool check" {
+		t.Errorf("expected preserved non-floop command, got: %s", firstCmd)
 	}
 }
 
@@ -204,13 +313,11 @@ func TestClaudePlatformWriteConfig(t *testing.T) {
 		"key": "value",
 	}
 
-	// Should create .claude directory and write file
 	err := p.WriteConfig(tmpDir, config)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	// Verify file exists and is valid JSON
 	configPath := filepath.Join(tmpDir, ".claude", "settings.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -224,30 +331,6 @@ func TestClaudePlatformWriteConfig(t *testing.T) {
 
 	if parsed["key"] != "value" {
 		t.Errorf("expected key='value', got '%v'", parsed["key"])
-	}
-}
-
-func TestClaudePlatformInjectCommand(t *testing.T) {
-	p := NewClaudePlatform()
-	cmd := p.InjectCommand()
-
-	if !strings.Contains(cmd, "floop") {
-		t.Error("expected command to contain 'floop'")
-	}
-	if !strings.Contains(cmd, "prompt") {
-		t.Error("expected command to contain 'prompt'")
-	}
-}
-
-func TestClaudePlatformActivateCommand(t *testing.T) {
-	p := NewClaudePlatform()
-	cmd := p.ActivateCommand()
-
-	if !strings.Contains(cmd, "dynamic-context") {
-		t.Error("expected activate command to contain 'dynamic-context'")
-	}
-	if !strings.Contains(cmd, "CLAUDE_PROJECT_DIR") {
-		t.Error("expected activate command to reference CLAUDE_PROJECT_DIR")
 	}
 }
 
@@ -295,14 +378,13 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 		t.Error("expected false when floop hooks not present")
 	}
 
-	// Config with floop hooks
+	// Config with floop hooks in SessionStart
 	floopConfig := `{
 		"hooks": {
-			"PreToolUse": [
+			"SessionStart": [
 				{
-					"matcher": "Read",
 					"hooks": [
-						{"type": "command", "command": "floop prompt --format markdown"}
+						{"type": "command", "command": "/home/user/.claude/hooks/floop-session-start.sh"}
 					]
 				}
 			]
@@ -317,6 +399,31 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 	if !has {
-		t.Error("expected true when floop hooks are present")
+		t.Error("expected true when floop hooks are present in SessionStart")
+	}
+
+	// Config with floop hooks in PreToolUse
+	floopConfig2 := `{
+		"hooks": {
+			"PreToolUse": [
+				{
+					"matcher": "Read",
+					"hooks": [
+						{"type": "command", "command": "floop prompt --format markdown"}
+					]
+				}
+			]
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(floopConfig2), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	has, err = p.HasFloopHook(tmpDir)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !has {
+		t.Error("expected true when floop hooks are present in PreToolUse")
 	}
 }

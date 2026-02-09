@@ -28,15 +28,13 @@ type Platform interface {
 
 	// GenerateHookConfig generates the hook configuration to inject behaviors.
 	// existingConfig is the current config (may be nil if none exists).
+	// scope controls path generation (global = absolute, project = relative).
+	// hookDir is the directory containing the extracted hook scripts.
 	// Returns the merged configuration with floop hooks added.
-	GenerateHookConfig(existingConfig map[string]interface{}) (map[string]interface{}, error)
+	GenerateHookConfig(existingConfig map[string]interface{}, scope HookScope, hookDir string) (map[string]interface{}, error)
 
 	// WriteConfig writes the configuration to the platform's config file.
 	WriteConfig(projectRoot string, config map[string]interface{}) error
-
-	// InjectCommand returns the command that will be executed at session start
-	// to inject behaviors into the agent context.
-	InjectCommand() string
 
 	// HasFloopHook checks if floop hooks are already configured.
 	HasFloopHook(projectRoot string) (bool, error)
@@ -108,22 +106,10 @@ type ConfigureResult struct {
 }
 
 // ConfigurePlatform configures hooks for a single platform.
-func ConfigurePlatform(p Platform, projectRoot string) ConfigureResult {
+func ConfigurePlatform(p Platform, projectRoot string, scope HookScope, hookDir string) ConfigureResult {
 	result := ConfigureResult{
 		Platform:   p.Name(),
 		ConfigPath: p.ConfigPath(projectRoot),
-	}
-
-	// Check if floop hooks are already configured
-	hasHook, err := p.HasFloopHook(projectRoot)
-	if err != nil {
-		result.Error = fmt.Errorf("failed to check existing hooks: %w", err)
-		return result
-	}
-	if hasHook {
-		result.Skipped = true
-		result.SkipReason = "floop hooks already configured"
-		return result
 	}
 
 	// Read existing config
@@ -135,8 +121,8 @@ func ConfigurePlatform(p Platform, projectRoot string) ConfigureResult {
 
 	result.Created = existingConfig == nil
 
-	// Generate hook config
-	newConfig, err := p.GenerateHookConfig(existingConfig)
+	// Generate hook config (idempotent — removes old floop entries first)
+	newConfig, err := p.GenerateHookConfig(existingConfig, scope, hookDir)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to generate hook config: %w", err)
 		return result
@@ -152,12 +138,12 @@ func ConfigurePlatform(p Platform, projectRoot string) ConfigureResult {
 }
 
 // ConfigureAllDetected configures hooks for all detected platforms.
-func (r *Registry) ConfigureAllDetected(projectRoot string) []ConfigureResult {
+func (r *Registry) ConfigureAllDetected(projectRoot string, scope HookScope, hookDir string) []ConfigureResult {
 	detected := r.DetectPlatforms(projectRoot)
 	results := make([]ConfigureResult, 0, len(detected))
 
 	for _, p := range detected {
-		result := ConfigurePlatform(p, projectRoot)
+		result := ConfigurePlatform(p, projectRoot, scope, hookDir)
 		results = append(results, result)
 	}
 

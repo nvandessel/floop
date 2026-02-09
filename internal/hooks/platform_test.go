@@ -41,7 +41,6 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestRegistryDetectPlatforms(t *testing.T) {
-	// Create temp directory
 	tmpDir := t.TempDir()
 
 	reg := NewRegistry()
@@ -70,6 +69,7 @@ func TestRegistryDetectPlatforms(t *testing.T) {
 
 func TestConfigurePlatform(t *testing.T) {
 	tmpDir := t.TempDir()
+	hookDir := filepath.Join(tmpDir, ".claude", "hooks")
 
 	// Create .claude directory
 	claudeDir := filepath.Join(tmpDir, ".claude")
@@ -80,15 +80,12 @@ func TestConfigurePlatform(t *testing.T) {
 	p := NewClaudePlatform()
 
 	// First configuration - should create
-	result := ConfigurePlatform(p, tmpDir)
+	result := ConfigurePlatform(p, tmpDir, ScopeProject, hookDir)
 	if result.Error != nil {
 		t.Errorf("unexpected error: %v", result.Error)
 	}
 	if !result.Created {
 		t.Error("expected Created=true for new config")
-	}
-	if result.Skipped {
-		t.Error("expected Skipped=false")
 	}
 
 	// Verify file was created
@@ -97,21 +94,20 @@ func TestConfigurePlatform(t *testing.T) {
 		t.Error("expected settings.json to be created")
 	}
 
-	// Second configuration - should skip
-	result2 := ConfigurePlatform(p, tmpDir)
+	// Second configuration - should be idempotent (not error)
+	result2 := ConfigurePlatform(p, tmpDir, ScopeProject, hookDir)
 	if result2.Error != nil {
-		t.Errorf("unexpected error: %v", result2.Error)
+		t.Errorf("unexpected error on second configure: %v", result2.Error)
 	}
-	if !result2.Skipped {
-		t.Error("expected Skipped=true for second configure")
-	}
-	if result2.SkipReason != "floop hooks already configured" {
-		t.Errorf("unexpected skip reason: %s", result2.SkipReason)
+	// Created=false because config already exists
+	if result2.Created {
+		t.Error("expected Created=false for existing config")
 	}
 }
 
 func TestConfigureAllDetected(t *testing.T) {
 	tmpDir := t.TempDir()
+	hookDir := filepath.Join(tmpDir, ".claude", "hooks")
 
 	// Create .claude directory
 	if err := os.MkdirAll(filepath.Join(tmpDir, ".claude"), 0700); err != nil {
@@ -121,7 +117,7 @@ func TestConfigureAllDetected(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(NewClaudePlatform())
 
-	results := reg.ConfigureAllDetected(tmpDir)
+	results := reg.ConfigureAllDetected(tmpDir, ScopeProject, hookDir)
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
