@@ -346,18 +346,61 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	// Build spread metadata index for populating summaries
 	spreadIndex := buildSpreadIndex(seeds, matches, spreadResults)
 
-	// Convert to summary format
-	summaries := make([]BehaviorSummary, len(result.Active))
-	for i, b := range result.Active {
+	// Build inputs for token budget enforcement via ActivationTierMapper.
+	// Convert active behaviors into spreading.Result slice and behavior map.
+	tierResults := make([]spreading.Result, 0, len(result.Active))
+	behaviorMap := make(map[string]*models.Behavior, len(result.Active))
+	for i := range result.Active {
+		b := &result.Active[i]
+		behaviorMap[b.ID] = b
+		act := 0.0
+		dist := 0
+		seedSrc := ""
+		if meta, ok := spreadIndex[b.ID]; ok {
+			act = meta.activation
+			dist = meta.distance
+			seedSrc = meta.seedSource
+		}
+		tierResults = append(tierResults, spreading.Result{
+			BehaviorID: b.ID,
+			Activation: act,
+			Distance:   dist,
+			SeedSource: seedSrc,
+		})
+	}
+
+	// Apply token budget enforcement: tier and demote behaviors to fit budget.
+	mapper := tiering.NewActivationTierMapper(tiering.DefaultActivationTierConfig())
+	plan := mapper.MapResults(tierResults, behaviorMap, defaultTokenBudget)
+
+	// Build summaries from the injection plan (included behaviors only).
+	included := plan.IncludedBehaviors()
+	summaries := make([]BehaviorSummary, 0, len(included))
+	for _, ib := range included {
+		b := ib.Behavior
 		when := b.When
 		if when == nil {
 			when = make(map[string]interface{})
 		}
+
+		// Content varies by tier:
+		// - Full: all content fields (canonical + expanded + structured)
+		// - Summary/NameOnly: only the tier-appropriate content string
+		var content map[string]interface{}
+		if ib.Tier == models.TierFull {
+			content = behaviorContentToMap(b.Content)
+		} else {
+			content = map[string]interface{}{
+				"canonical": ib.Content,
+			}
+		}
+
 		summary := BehaviorSummary{
 			ID:         b.ID,
 			Name:       b.Name,
 			Kind:       string(b.Kind),
-			Content:    behaviorContentToMap(b.Content),
+			Tier:       ib.Tier.String(),
+			Content:    content,
 			Confidence: b.Confidence,
 			When:       when,
 			Tags:       b.Content.Tags,
@@ -367,13 +410,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 			summary.Distance = meta.distance
 			summary.SeedSource = meta.seedSource
 		}
-		summaries[i] = summary
-	}
-
-	// Compute total canonical tokens across active behaviors.
-	totalTokens := 0
-	for _, b := range result.Active {
-		totalTokens += (len(b.Content.Canonical) + 3) / 4
+		summaries = append(summaries, summary)
 	}
 
 	// Build context map for output
@@ -415,9 +452,12 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		Active:  summaries,
 		Count:   len(summaries),
 		TokenStats: &TokenStats{
-			TotalCanonicalTokens: totalTokens,
+			TotalCanonicalTokens: plan.TotalTokens,
 			BudgetDefault:        defaultTokenBudget,
-			BehaviorCount:        len(summaries),
+			BehaviorCount:        plan.BehaviorCount(),
+			FullCount:            len(plan.FullBehaviors),
+			SummaryCount:         len(plan.SummarizedBehaviors),
+			OmittedCount:         len(plan.OmittedBehaviors),
 		},
 	}, nil
 }
