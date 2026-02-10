@@ -990,6 +990,66 @@ floop mcp-server
 
 **See also:** [MCP server integration guide](integrations/mcp-server.md), [Claude Code integration guide](integrations/claude-code.md)
 
+## Built-in
+
+### completion
+
+Generate shell autocompletion scripts.
+
+```
+floop completion [shell]
+```
+
+Generates autocompletion scripts for bash, zsh, fish, or powershell. See each sub-command's help for details on how to use the generated script.
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `bash` | Generate the autocompletion script for bash |
+| `fish` | Generate the autocompletion script for fish |
+| `powershell` | Generate the autocompletion script for powershell |
+| `zsh` | Generate the autocompletion script for zsh |
+
+**Examples:**
+
+```bash
+# Generate bash completions
+floop completion bash > /etc/bash_completion.d/floop
+
+# Generate zsh completions
+floop completion zsh > "${fpath[1]}/_floop"
+```
+
+**See also:** [init](#init)
+
+---
+
+### help
+
+Display help for any command.
+
+```
+floop help [command]
+```
+
+Provides help text for any floop command, including usage, flags, and description.
+
+**Examples:**
+
+```bash
+# Show top-level help
+floop help
+
+# Show help for a specific command
+floop help learn
+
+# Show help for a subcommand
+floop help completion bash
+```
+
+**See also:** [version](#version)
+
 ---
 
 ## Command Index
@@ -999,6 +1059,7 @@ floop mcp-server
 | [activate](#activate) | Hooks | Run spreading activation for dynamic context injection |
 | [active](#active) | Query | Show behaviors active in current context |
 | [backup](#backup) | Backup | Export full graph state to a backup file |
+| [completion](#completion) | Built-in | Generate shell autocompletion scripts |
 | [config](#config) | Management | Manage floop configuration |
 | [connect](#connect) | Graph | Create an edge between two behaviors |
 | [deduplicate](#deduplicate) | Management | Find and merge duplicate behaviors |
@@ -1006,6 +1067,7 @@ floop mcp-server
 | [detect-correction](#detect-correction) | Hooks | Detect and capture corrections from user text |
 | [forget](#forget) | Curation | Soft-delete a behavior from active use |
 | [graph](#graph) | Graph | Visualize the behavior graph |
+| [help](#help) | Built-in | Display help for any command |
 | [init](#init) | Core | Initialize floop with hook scripts and behavior learning |
 | [learn](#learn) | Core | Capture a correction and extract behavior |
 | [list](#list) | Query | List behaviors or corrections |
