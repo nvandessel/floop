@@ -2,10 +2,14 @@ package dedup
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/sanitize"
 )
@@ -1089,4 +1093,132 @@ func TestSanitizeWhenValue(t *testing.T) {
 			tt.check(t, result)
 		})
 	}
+}
+
+
+func TestBehaviorMerger_Merge_LogsDecision(t *testing.T) {
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	t.Run("rule-based merge emits merge_decision event", func(t *testing.T) {
+		merger := NewBehaviorMerger(MergerConfig{
+			Logger:         logging.NewLogger("debug", os.Stderr),
+			DecisionLogger: dl,
+		})
+
+		behaviors := []*models.Behavior{
+			{ID: "b1", Name: "First", Kind: models.BehaviorKindDirective, Content: models.BehaviorContent{Canonical: "first"}},
+			{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective, Content: models.BehaviorContent{Canonical: "second"}},
+		}
+
+		_, err := merger.Merge(context.Background(), behaviors)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Read decisions.jsonl and verify event
+		data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+		if err != nil {
+			t.Fatalf("failed to read decisions.jsonl: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		found := false
+		for _, line := range lines {
+			var event map[string]any
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+			if event["event"] == "merge_decision" && event["strategy"] == "rule" {
+				found = true
+				// Verify expected fields
+				if event["llm_available"] != false {
+					t.Errorf("expected llm_available=false, got %v", event["llm_available"])
+				}
+				ids, ok := event["behavior_ids"].([]any)
+				if !ok || len(ids) != 2 {
+					t.Errorf("expected behavior_ids with 2 entries, got %v", event["behavior_ids"])
+				}
+				if _, ok := event["time"]; !ok {
+					t.Error("expected time field in decision event")
+				}
+			}
+		}
+		if !found {
+			t.Errorf("expected merge_decision event with strategy=rule, got:\n%s", string(data))
+		}
+	})
+
+	t.Run("LLM merge emits merge_decision event with strategy=llm", func(t *testing.T) {
+		llmDir := t.TempDir()
+		llmDL := logging.NewDecisionLogger(llmDir, "debug")
+		defer llmDL.Close()
+
+		mock := &mockLLMClient{
+			available: true,
+			mergeResult: &llm.MergeResult{
+				Merged: &models.Behavior{
+					Name:    "merged-behavior",
+					Kind:    models.BehaviorKindDirective,
+					Content: models.BehaviorContent{Canonical: "merged content"},
+				},
+			},
+		}
+
+		merger := NewBehaviorMerger(MergerConfig{
+			LLMClient:      mock,
+			UseLLM:         true,
+			Logger:         logging.NewLogger("debug", os.Stderr),
+			DecisionLogger: llmDL,
+		})
+
+		behaviors := []*models.Behavior{
+			{ID: "b1", Name: "First", Kind: models.BehaviorKindDirective},
+			{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective},
+		}
+
+		_, err := merger.Merge(context.Background(), behaviors)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(llmDir, "decisions.jsonl"))
+		if err != nil {
+			t.Fatalf("failed to read decisions.jsonl: %v", err)
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		found := false
+		for _, line := range lines {
+			var event map[string]any
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+			if event["event"] == "merge_decision" && event["strategy"] == "llm" {
+				found = true
+				if event["llm_available"] != true {
+					t.Errorf("expected llm_available=true, got %v", event["llm_available"])
+				}
+			}
+		}
+		if !found {
+			t.Errorf("expected merge_decision event with strategy=llm, got:\n%s", string(data))
+		}
+	})
+
+	t.Run("nil DecisionLogger does not panic", func(t *testing.T) {
+		merger := NewBehaviorMerger(MergerConfig{})
+
+		behaviors := []*models.Behavior{
+			{ID: "b1", Name: "First", Kind: models.BehaviorKindDirective, Content: models.BehaviorContent{Canonical: "first"}},
+			{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective, Content: models.BehaviorContent{Canonical: "second"}},
+		}
+
+		// Should not panic even with nil logger/decisions
+		_, err := merger.Merge(context.Background(), behaviors)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }

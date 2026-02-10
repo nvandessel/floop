@@ -2,10 +2,15 @@ package dedup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -791,4 +796,94 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 			t.Errorf("expected method 'jaccard', got %q", sim.method)
 		}
 	})
+}
+
+
+func TestStoreDeduplicator_ComputeSimilarity_LogsDecision(t *testing.T) {
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	dedup := &StoreDeduplicator{
+		config:    DeduplicatorConfig{SimilarityThreshold: 0.8},
+		logger:    logging.NewLogger("debug", os.Stderr),
+		decisions: dl,
+	}
+
+	a := &models.Behavior{
+		ID:      "a1",
+		Content: models.BehaviorContent{Canonical: "use pathlib for file paths"},
+		When:    map[string]interface{}{"language": "python"},
+	}
+	b := &models.Behavior{
+		ID:      "b1",
+		Content: models.BehaviorContent{Canonical: "use pathlib for file paths"},
+		When:    map[string]interface{}{"language": "python"},
+	}
+
+	sim := dedup.computeSimilarity(a, b)
+	if sim.score == 0 {
+		t.Error("expected non-zero similarity")
+	}
+
+	// Read decisions.jsonl
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	found := false
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event["event"] == "similarity_computed" {
+			found = true
+			if event["behavior_a"] != "a1" {
+				t.Errorf("expected behavior_a=a1, got %v", event["behavior_a"])
+			}
+			if event["behavior_b"] != "b1" {
+				t.Errorf("expected behavior_b=b1, got %v", event["behavior_b"])
+			}
+			if event["method"] != "jaccard" {
+				t.Errorf("expected method=jaccard, got %v", event["method"])
+			}
+			if _, ok := event["score"]; !ok {
+				t.Error("expected score field")
+			}
+			if _, ok := event["threshold"]; !ok {
+				t.Error("expected threshold field")
+			}
+			if _, ok := event["is_duplicate"]; !ok {
+				t.Error("expected is_duplicate field")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected similarity_computed event, got:\n%s", string(data))
+	}
+}
+
+func TestStoreDeduplicator_ComputeSimilarity_NilDecisionLogger(t *testing.T) {
+	dedup := &StoreDeduplicator{
+		config: DeduplicatorConfig{SimilarityThreshold: 0.8},
+		// No logger or decisions - should not panic
+	}
+
+	a := &models.Behavior{
+		Content: models.BehaviorContent{Canonical: "use pathlib"},
+		When:    map[string]interface{}{"language": "python"},
+	}
+	b := &models.Behavior{
+		Content: models.BehaviorContent{Canonical: "use pathlib"},
+		When:    map[string]interface{}{"language": "python"},
+	}
+
+	// Should not panic
+	sim := dedup.computeSimilarity(a, b)
+	if sim.score != 1.0 {
+		t.Errorf("expected 1.0, got %f", sim.score)
+	}
 }

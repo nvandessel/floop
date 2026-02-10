@@ -4,10 +4,12 @@ package dedup
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/sanitize"
 )
@@ -20,6 +22,12 @@ type BehaviorMerger struct {
 
 	// useLLM controls whether LLM merging is attempted
 	useLLM bool
+
+	// logger is the structured logger for operational output
+	logger *slog.Logger
+
+	// decisions logs decision events to JSONL
+	decisions *logging.DecisionLogger
 }
 
 // MergerConfig configures the BehaviorMerger.
@@ -29,6 +37,12 @@ type MergerConfig struct {
 
 	// UseLLM enables LLM-based merging when the client is available
 	UseLLM bool
+
+	// Logger is the optional structured logger for operational output.
+	Logger *slog.Logger
+
+	// DecisionLogger is the optional decision event logger.
+	DecisionLogger *logging.DecisionLogger
 }
 
 // NewBehaviorMerger creates a new BehaviorMerger with the given configuration.
@@ -36,6 +50,8 @@ func NewBehaviorMerger(cfg MergerConfig) *BehaviorMerger {
 	return &BehaviorMerger{
 		llmClient: cfg.LLMClient,
 		useLLM:    cfg.UseLLM,
+		logger:    cfg.Logger,
+		decisions: cfg.DecisionLogger,
 	}
 }
 
@@ -50,14 +66,48 @@ func (m *BehaviorMerger) Merge(ctx context.Context, behaviors []*models.Behavior
 		return behaviors[0], nil
 	}
 
+	// Collect IDs for logging
+	ids := make([]string, len(behaviors))
+	for i, b := range behaviors {
+		ids[i] = b.ID
+	}
+
 	// Try LLM-assisted merge if available
 	if m.shouldUseLLM() {
 		result, err := m.llmMerge(ctx, behaviors)
 		if err == nil {
+			if m.logger != nil {
+				m.logger.Debug("merge completed", "strategy", "llm", "behavior_count", len(behaviors))
+			}
+			m.decisions.Log(map[string]any{
+				"event":        "merge_decision",
+				"strategy":     "llm",
+				"behavior_ids": ids,
+				"llm_available": true,
+			})
 			return result, nil
 		}
 		// Fall through to rule-based on error
+		if m.logger != nil {
+			m.logger.Debug("LLM merge failed, falling back to rules", "error", err)
+		}
 	}
+
+	reason := "llm not configured"
+	if m.useLLM && m.llmClient != nil {
+		reason = "llm not available"
+	}
+
+	if m.logger != nil {
+		m.logger.Debug("merge completed", "strategy", "rule", "behavior_count", len(behaviors), "reason", reason)
+	}
+	m.decisions.Log(map[string]any{
+		"event":         "merge_decision",
+		"strategy":      "rule",
+		"behavior_ids":  ids,
+		"llm_available": false,
+		"reason":        reason,
+	})
 
 	// Rule-based merge
 	return m.ruleMerge(behaviors), nil
