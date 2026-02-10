@@ -16,6 +16,10 @@ type TokenStats struct {
 	TotalCanonicalTokens int `json:"total_canonical_tokens"`
 	BudgetDefault        int `json:"budget_default"`
 	BehaviorCount        int `json:"behavior_count"`
+	FullCount            int `json:"full_count"`
+	SummaryCount         int `json:"summary_count"`
+	NameOnlyCount        int `json:"name_only_count"`
+	OmittedCount         int `json:"omitted_count"`
 }
 
 // FloopActiveOutput defines the output for floop_active tool.
@@ -31,6 +35,7 @@ type BehaviorSummary struct {
 	ID         string                 `json:"id"`
 	Name       string                 `json:"name"`
 	Kind       string                 `json:"kind"`
+	Tier       string                 `json:"tier,omitempty"`
 	Content    map[string]interface{} `json:"content"`
 	Confidence float64                `json:"confidence"`
 	When       map[string]interface{} `json:"when,omitempty"`

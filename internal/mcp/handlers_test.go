@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -852,6 +853,10 @@ func TestBehaviorContentToMap_IncludesTags(t *testing.T) {
 }
 
 func TestHandleFloopActive_TokenStats(t *testing.T) {
+	// Token costs are tier-dependent: context:always behaviors (specificity 0)
+	// get post-sigmoid activation ~0.5 → Summary tier. At Summary, long content
+	// is truncated to 60 chars (~15 tokens). Short content (< 60 chars) keeps
+	// its original length. Seeds have ~188-char canonical → 15 tokens at Summary.
 	tests := []struct {
 		name              string
 		behaviors         []store.Node
@@ -860,10 +865,10 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 		wantBehaviorCount int
 	}{
 		{
-			// 2 seed behaviors are auto-injected (94 tokens total)
-			name:              "empty store has zero token stats",
+			// 2 seed behaviors at Summary tier: 15 tokens each = 30 total
+			name:              "empty store has seed token stats",
 			behaviors:         nil,
-			wantTokens:        94,
+			wantTokens:        30,
 			wantBudget:        2000,
 			wantBehaviorCount: 2,
 		},
@@ -877,7 +882,7 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 						"name": "Use gofmt",
 						"kind": "directive",
 						"content": map[string]interface{}{
-							"canonical": "Use gofmt always", // 16 chars -> (16+3)/4 = 4 tokens
+							"canonical": "Use gofmt always", // 16 chars < 60 → same at Summary: (16+3)/4 = 4
 						},
 						"when": map[string]interface{}{},
 					},
@@ -887,7 +892,7 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 					},
 				},
 			},
-			wantTokens:        94 + 4, // seeds + user behavior
+			wantTokens:        30 + 4, // seeds (summary) + user behavior (summary, short)
 			wantBudget:        2000,
 			wantBehaviorCount: 2 + 1,
 		},
@@ -901,7 +906,7 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 						"name": "Behavior A",
 						"kind": "directive",
 						"content": map[string]interface{}{
-							"canonical": "Use gofmt always", // 16 chars -> (16+3)/4 = 4 tokens
+							"canonical": "Use gofmt always", // 16 chars → 4 tokens at Summary
 						},
 						"when": map[string]interface{}{},
 					},
@@ -917,7 +922,7 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 						"name": "Behavior B",
 						"kind": "directive",
 						"content": map[string]interface{}{
-							"canonical": "Run go vet", // 10 chars -> (10+3)/4 = 3 tokens
+							"canonical": "Run go vet", // 10 chars → 3 tokens at Summary
 						},
 						"when": map[string]interface{}{},
 					},
@@ -927,7 +932,7 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 					},
 				},
 			},
-			wantTokens:        94 + 7, // seeds + 4 + 3
+			wantTokens:        30 + 7, // seeds + 4 + 3
 			wantBudget:        2000,
 			wantBehaviorCount: 2 + 2,
 		},
@@ -988,6 +993,188 @@ func TestBehaviorContentToMap_OmitsEmptyTags(t *testing.T) {
 
 	if _, ok := m["tags"]; ok {
 		t.Error("expected tags to be omitted when empty")
+	}
+}
+
+func TestHandleFloopActive_TokenBudgetEnforcement(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// Create a Go file so language-based activation works.
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Insert 20 behaviors matching language=go. Each has ~500-char canonical.
+	// Post-sigmoid activation for specificity-1 (language match) ≈ 0.731 → Full tier.
+	// At Full tier: ~125 tokens each. 20 * 125 = 2500 tokens > 2000 budget.
+	// Budget enforcement should demote some from Full to Summary/NameOnly/Omitted.
+	for i := 0; i < 20; i++ {
+		// Each behavior gets unique content but similar length (~525 chars).
+		longContent := fmt.Sprintf("Behavior %02d: ", i) + strings.Repeat(fmt.Sprintf("This is unique content for behavior %02d to test budget enforcement thoroughly. ", i), 6)
+		node := store.Node{
+			ID:   fmt.Sprintf("budget-test-%02d", i),
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": fmt.Sprintf("Budget Test Behavior %02d", i),
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": longContent,
+				},
+				"when": map[string]interface{}{
+					"language": "go",
+				},
+			},
+			Metadata: map[string]interface{}{
+				"confidence": 0.8,
+				"priority":   1,
+			},
+		}
+		if _, err := server.store.AddNode(ctx, node); err != nil {
+			t.Fatalf("Failed to add node %d: %v", i, err)
+		}
+	}
+	if err := server.store.Sync(ctx); err != nil {
+		t.Fatalf("Failed to sync store: %v", err)
+	}
+
+	req := &sdk.CallToolRequest{}
+	args := FloopActiveInput{
+		File: "main.go",
+	}
+
+	_, output, err := server.handleFloopActive(ctx, req, args)
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	// With token budget enforcement, total tokens should not exceed budget.
+	if output.TokenStats == nil {
+		t.Fatal("TokenStats is nil")
+	}
+	if output.TokenStats.TotalCanonicalTokens > output.TokenStats.BudgetDefault {
+		t.Errorf("TotalCanonicalTokens (%d) exceeds BudgetDefault (%d)",
+			output.TokenStats.TotalCanonicalTokens, output.TokenStats.BudgetDefault)
+	}
+
+	// Not all 22 behaviors (20 + 2 seeds) should be at Full tier.
+	// Budget enforcement should demote some.
+	if output.TokenStats.FullCount >= 22 {
+		t.Errorf("FullCount = %d, want < 22 (budget should demote some)", output.TokenStats.FullCount)
+	}
+
+	// Some behaviors should be demoted (summary, name-only, or omitted).
+	demoted := output.TokenStats.SummaryCount + output.TokenStats.NameOnlyCount + output.TokenStats.OmittedCount
+	if demoted == 0 {
+		t.Error("No behaviors were demoted, want some below full tier")
+	}
+
+	// Every returned behavior should have a Tier field set.
+	for _, b := range output.Active {
+		if b.Tier == "" {
+			t.Errorf("Behavior %q has empty Tier field", b.ID)
+		}
+	}
+
+	// BehaviorCount should include ALL behaviors (included + omitted).
+	if output.TokenStats.BehaviorCount < 20 {
+		t.Errorf("BehaviorCount = %d, want >= 20", output.TokenStats.BehaviorCount)
+	}
+}
+
+func TestHandleFloopActive_TierAssignment(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+
+	// Create a Go file for language-based activation
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// High-activation behavior: matches language=go context directly
+	highNode := store.Node{
+		ID:   "tier-high",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "High Activation Behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Use gofmt for all Go files",
+			},
+			"when": map[string]interface{}{
+				"language": "go",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.9,
+			"priority":   1,
+		},
+	}
+
+	// Low-activation behavior: no when clause (context:always, low activation)
+	lowNode := store.Node{
+		ID:   "tier-low",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Low Activation Behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "General advice that applies everywhere",
+			},
+			"when": map[string]interface{}{},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.5,
+			"priority":   1,
+		},
+	}
+
+	if _, err := server.store.AddNode(ctx, highNode); err != nil {
+		t.Fatalf("Failed to add high node: %v", err)
+	}
+	if _, err := server.store.AddNode(ctx, lowNode); err != nil {
+		t.Fatalf("Failed to add low node: %v", err)
+	}
+	if err := server.store.Sync(ctx); err != nil {
+		t.Fatalf("Failed to sync: %v", err)
+	}
+
+	req := &sdk.CallToolRequest{}
+	args := FloopActiveInput{
+		File: "main.go",
+		Task: "development",
+	}
+
+	_, output, err := server.handleFloopActive(ctx, req, args)
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	// Every behavior should have a non-empty Tier field
+	for _, b := range output.Active {
+		if b.Tier == "" {
+			t.Errorf("Behavior %q (%s) has empty Tier, want non-empty", b.ID, b.Name)
+		}
+		// Tier must be one of the valid values
+		switch b.Tier {
+		case "full", "summary", "name-only":
+			// OK
+		default:
+			t.Errorf("Behavior %q has invalid Tier %q", b.ID, b.Tier)
+		}
+	}
+
+	// The high-activation behavior (language=go match) should be "full" tier
+	for _, b := range output.Active {
+		if b.ID == "tier-high" && b.Tier != "full" {
+			t.Errorf("tier-high Tier = %q, want %q (direct context match should be full)", b.Tier, "full")
+		}
 	}
 }
 
