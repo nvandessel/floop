@@ -288,27 +288,11 @@ llm:
 }
 
 func TestEnvOverrides_LocalConfig(t *testing.T) {
-	envVars := map[string]string{
-		"FLOOP_LOCAL_MODEL_PATH":           "/env/model.gguf",
-		"FLOOP_LOCAL_EMBEDDING_MODEL_PATH": "/env/embed.gguf",
-		"FLOOP_LOCAL_GPU_LAYERS":           "16",
-		"FLOOP_LOCAL_CONTEXT_SIZE":         "4096",
-	}
-
-	// Save originals
-	originals := make(map[string]string)
-	for k := range envVars {
-		originals[k] = os.Getenv(k)
-	}
-	defer func() {
-		for k, v := range originals {
-			os.Setenv(k, v)
-		}
-	}()
-
-	for k, v := range envVars {
-		os.Setenv(k, v)
-	}
+	// t.Setenv automatically restores (or unsets) each var when the test ends
+	t.Setenv("FLOOP_LOCAL_MODEL_PATH", "/env/model.gguf")
+	t.Setenv("FLOOP_LOCAL_EMBEDDING_MODEL_PATH", "/env/embed.gguf")
+	t.Setenv("FLOOP_LOCAL_GPU_LAYERS", "16")
+	t.Setenv("FLOOP_LOCAL_CONTEXT_SIZE", "4096")
 
 	config := Default()
 	applyEnvOverrides(config)
