@@ -18,6 +18,7 @@ type TokenStats struct {
 	BehaviorCount        int `json:"behavior_count"`
 	FullCount            int `json:"full_count"`
 	SummaryCount         int `json:"summary_count"`
+	NameOnlyCount        int `json:"name_only_count"`
 	OmittedCount         int `json:"omitted_count"`
 }
 

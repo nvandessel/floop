@@ -457,6 +457,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 			BehaviorCount:        plan.BehaviorCount(),
 			FullCount:            len(plan.FullBehaviors),
 			SummaryCount:         len(plan.SummarizedBehaviors),
+			NameOnlyCount:        len(plan.NameOnlyBehaviors),
 			OmittedCount:         len(plan.OmittedBehaviors),
 		},
 	}, nil

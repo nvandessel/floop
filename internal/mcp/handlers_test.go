@@ -1067,12 +1067,7 @@ func TestHandleFloopActive_TokenBudgetEnforcement(t *testing.T) {
 	}
 
 	// Some behaviors should be demoted (summary, name-only, or omitted).
-	demoted := output.TokenStats.SummaryCount + output.TokenStats.OmittedCount
-	for _, b := range output.Active {
-		if b.Tier == "name-only" {
-			demoted++
-		}
-	}
+	demoted := output.TokenStats.SummaryCount + output.TokenStats.NameOnlyCount + output.TokenStats.OmittedCount
 	if demoted == 0 {
 		t.Error("No behaviors were demoted, want some below full tier")
 	}
