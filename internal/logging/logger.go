@@ -69,6 +69,10 @@ func NewDecisionLogger(dir string, level string) *DecisionLogger {
 		return nil
 	}
 
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil
+	}
+
 	path := filepath.Join(dir, "decisions.jsonl")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
@@ -79,19 +83,24 @@ func NewDecisionLogger(dir string, level string) *DecisionLogger {
 }
 
 // Log writes a decision event as a single JSONL line.
-// A "time" field is added automatically. Safe to call on nil receiver.
+// A "time" field is added automatically. The caller's map is not mutated.
+// Safe to call on nil receiver.
 func (dl *DecisionLogger) Log(event map[string]any) {
 	if dl == nil || dl.file == nil {
 		return
 	}
 
-	// Add timestamp
-	event["time"] = time.Now().UTC().Format(time.RFC3339Nano)
+	// Copy to avoid mutating caller's map
+	entry := make(map[string]any, len(event)+1)
+	for k, v := range event {
+		entry[k] = v
+	}
+	entry["time"] = time.Now().UTC().Format(time.RFC3339Nano)
 
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
 
-	data, err := json.Marshal(event)
+	data, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
@@ -109,4 +118,5 @@ func (dl *DecisionLogger) Close() {
 	defer dl.mu.Unlock()
 
 	dl.file.Close()
+	dl.file = nil
 }

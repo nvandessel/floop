@@ -202,6 +202,48 @@ func TestDecisionLogger_NilSafety(t *testing.T) {
 	dl.Close()
 }
 
+func TestDecisionLogger_DoesNotMutateCallerMap(t *testing.T) {
+	dir := t.TempDir()
+	dl := NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	event := map[string]any{"event": "test"}
+	dl.Log(event)
+
+	if _, hasTime := event["time"]; hasTime {
+		t.Error("Log() should not mutate caller's map, but 'time' was injected")
+	}
+}
+
+func TestDecisionLogger_LogAfterClose(t *testing.T) {
+	dir := t.TempDir()
+	dl := NewDecisionLogger(dir, "debug")
+
+	dl.Log(map[string]any{"event": "before_close"})
+	dl.Close()
+
+	// Should be a no-op, not panic or error
+	dl.Log(map[string]any{"event": "after_close"})
+}
+
+func TestNewDecisionLogger_CreatesDir(t *testing.T) {
+	base := t.TempDir()
+	nestedDir := filepath.Join(base, "sub", "dir")
+
+	dl := NewDecisionLogger(nestedDir, "debug")
+	if dl == nil {
+		t.Fatal("expected non-nil DecisionLogger when dir needs creation")
+	}
+	defer dl.Close()
+
+	dl.Log(map[string]any{"event": "dir_create_test"})
+
+	path := filepath.Join(nestedDir, "decisions.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("decisions.jsonl should exist after dir creation: %v", err)
+	}
+}
+
 func TestDecisionLogger_FilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	dl := NewDecisionLogger(dir, "debug")

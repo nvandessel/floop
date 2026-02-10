@@ -189,9 +189,9 @@ func (c *FloopConfig) Validate() error {
 		return fmt.Errorf("invalid provider: %s (valid: anthropic, openai, ollama, subagent, local, or empty)", c.LLM.Provider)
 	}
 
-	validLevels := map[string]bool{"": true, "info": true, "debug": true, "trace": true}
-	if !validLevels[c.Logging.Level] {
-		return fmt.Errorf("invalid log level: %s (valid: info, debug, trace)", c.Logging.Level)
+	validLevels := map[string]bool{"info": true, "debug": true, "trace": true}
+	if c.Logging.Level != "" && !validLevels[c.Logging.Level] {
+		return fmt.Errorf("invalid log level: %s (valid: info, debug, trace, or empty for default)", c.Logging.Level)
 	}
 
 	return nil
