@@ -14,6 +14,7 @@ floop captures corrections you make to AI agents, extracts reusable behaviors, a
 - **Context-aware activation** — Behaviors fire based on file type, task, and semantic relevance — not a static prompt dump
 - **Spreading activation** — Graph-based memory retrieval inspired by cognitive science (Collins & Loftus, ACT-R) — triggered behaviors propagate energy to related nodes, pulling in associative context
 - **Token-optimized** — Budget-aware assembly keeps injected context within limits
+- **Store management** — Stats, deduplication, backup/restore, and graph visualization keep your behavior store healthy
 - **MCP server** — Works with any AI tool that supports the Model Context Protocol
 - **CLI-first** — Every operation available as a command with `--json` output for agent consumption
 
@@ -35,6 +36,22 @@ floop list
 
 # See what's active for your current context
 floop active
+```
+
+### Beyond Quick Start
+
+```bash
+# Check your behavior store health
+floop stats
+
+# Build an activation prompt for your current context
+floop prompt --file src/main.go --task development
+
+# Connect related behaviors
+floop connect <source-id> <target-id> --kind similar-to
+
+# Deduplicate your behavior store
+floop deduplicate --dry-run
 ```
 
 ### Integrate with your AI tool
@@ -61,6 +78,7 @@ When you correct your AI agent, floop captures the correction and extracts a **b
 
 ## Documentation
 
+- [CLI reference](docs/CLI_REFERENCE.md) — Complete reference for all commands and flags
 - [Integration guides](docs/integrations/) — Setup for Claude Code, Cursor, Windsurf, and others
 - [Research & theory](docs/SCIENCE.md) — The cognitive science behind spreading activation
 - [Origin story](docs/LORE.md) — How floop came to be

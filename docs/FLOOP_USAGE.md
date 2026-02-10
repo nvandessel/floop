@@ -1,231 +1,183 @@
-# Floop Usage Guide for AI Agents
+# Floop Usage Guide
 
-> **CRITICAL**: You are working on a project that uses floop to learn from corrections. YOU MUST use floop proactively during all work sessions.
+> How to use floop for persistent AI agent memory — via MCP (recommended) or CLI.
 
-## What is Floop?
+## Overview
 
-Floop is the tool you're building - a behavior learning system for AI agents. We're dogfooding it, meaning **you should use floop to learn while building floop**.
+floop captures corrections, extracts reusable behaviors, and activates them in context. It works via two interfaces:
+- **MCP tools** (recommended) — Direct integration with AI tools like Claude Code, Cursor, etc.
+- **CLI commands** — Full control from the terminal, useful for scripting and manual management
 
-## Mandatory Workflow
+## MCP Tools (Recommended)
 
-### 1. **Before Starting Any Work Session**
+When configured as an MCP server, floop exposes these tools to your AI agent:
 
-Check what you've learned previously:
+| Tool | Purpose |
+|------|---------|
+| `floop_active` | Get behaviors relevant to current context (file, task) |
+| `floop_learn` | Capture a correction or insight |
+| `floop_list` | List all stored behaviors |
+| `floop_connect` | Create edges between behaviors |
+| `floop_deduplicate` | Find and merge duplicate behaviors |
+| `floop_graph` | Render behavior graph (DOT or JSON) |
+| `floop_validate` | Check graph consistency |
+| `floop_backup` | Export graph state to backup file |
+| `floop_restore` | Import graph state from backup |
 
-```bash
-./floop active --file "path/to/file/you're/working/on" --json
+### MCP Setup
+
+Add floop as an MCP server in your AI tool's config. Example for Claude Code (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "floop": {
+      "command": "floop",
+      "args": ["mcp-server"]
+    }
+  }
+}
 ```
 
-If behaviors are returned, read them and incorporate into your work.
+See [docs/integrations/](integrations/) for more tools.
 
-### 2. **When You Receive ANY Correction**
+### MCP Workflow
 
-**IMMEDIATELY** capture it with floop. Don't wait. Don't ask permission. Just do it.
+```
+# Agent automatically gets active behaviors via floop_active at session start
+# When corrected, agent calls:
+floop_learn(wrong="Used print for debugging", right="Use structured logging")
 
-```bash
-./floop learn \
-  --wrong "what you did or thought" \
-  --right "what the human taught you" \
-  --file "relevant/file.go"
+# Agent can check what's active for a specific file:
+floop_active(file="internal/store/file.go", task="development")
 ```
 
-### 3. **When You Learn Something New**
+## CLI Workflow
 
-Even without explicit correction, if you realize something important:
+### Starting a Session
 
 ```bash
-./floop learn \
-  --wrong "previous assumption or approach" \
-  --right "new understanding or better approach" \
-  --task "relevant task type"
+# Check active behaviors for your context
+floop active --file "src/main.go" --task "development"
+
+# Review your behavior store health
+floop stats
 ```
 
-### 4. **At End of Session**
-
-Review what you learned:
+### Capturing Corrections
 
 ```bash
-./floop list
-```
+# Basic correction
+floop learn --wrong "Used fmt.Println for errors" --right "Use log.Fatal or return error"
 
-## When to Use Floop
-
-### ✅ **DO** Capture These:
-
-1. **Direct corrections**: "No, use X instead of Y"
-2. **Design insights**: "We need both global and local scope"
-3. **Preference statements**: "I prefer functional over OOP"
-4. **Architecture decisions**: "Use MultiGraphStore to wrap both stores"
-5. **Pattern discoveries**: "Always check context before activating behaviors"
-6. **Mistake realizations**: "I should have considered X"
-
-### ❌ **DON'T** Capture These:
-
-1. Simple typo fixes
-2. One-time specific instructions (not generalizable)
-3. Temporary debugging commands
-4. Questions or clarifications
-
-## Examples of Good Captures
-
-### Example 1: Direct Correction
-```bash
-# Human says: "No, don't use print(), use the logger"
-
-./floop learn \
-  --wrong "Used print() for debugging output" \
-  --right "Use logging.debug() for debug output, logging.info() for normal output" \
-  --file "internal/store/file.go"
-```
-
-### Example 2: Design Insight
-```bash
-# Human says: "We need both global and local storage"
-
-./floop learn \
-  --wrong "Designed only project-local storage" \
-  --right "Support both global (~/.floop/) for personal preferences and local (./.floop/) for project conventions" \
+# With context
+floop learn \
+  --wrong "Designed only local storage" \
+  --right "Support both global and local scopes" \
+  --file "internal/store/file.go" \
   --task "architecture"
+
+# With auto-merge to consolidate similar behaviors
+floop learn --wrong "..." --right "..." --auto-merge
+
+# Specify scope (local or global)
+floop learn --wrong "..." --right "..." --scope local
 ```
 
-### Example 3: Workflow Pattern
-```bash
-# You realize: "I should be more proactive"
-
-./floop learn \
-  --wrong "Waited for explicit instruction to use tools" \
-  --right "Proactively use floop during conversations - capture learnings in real-time using own judgment" \
-  --task "development"
-```
-
-### Example 4: Code Convention
-```bash
-# Human says: "Use table-driven tests"
-
-./floop learn \
-  --wrong "Wrote individual test functions" \
-  --right "Use table-driven tests with subtests for all Go test functions" \
-  --file "internal/store/file_test.go"
-```
-
-## Integration with Development Workflow
-
-### Full Session Flow
+### Querying Behaviors
 
 ```bash
-# 1. Start session - check what you know
-./floop active --task "coding" --json
+# List all behaviors
+floop list
 
-# 2. During work - capture corrections AS THEY HAPPEN
-# (Human corrects you)
-./floop learn --wrong "..." --right "..."
+# List only corrections
+floop list --corrections
 
-# 3. Before implementing - check active behaviors
-./floop active --file "internal/store/multi.go"
+# Show a specific behavior
+floop show <behavior-id>
 
-# 4. End session - review learnings
-./floop list | tail -20
+# Explain why a behavior activated
+floop why <behavior-id>
+
+# Build a prompt from active behaviors
+floop prompt --file "src/main.go" --task "coding"
 ```
 
-### Working on Go Code
+### Store Management
 
 ```bash
-# Before editing a Go file:
-./floop active --file "internal/store/file.go" --json | jq -r '.behaviors[].content.canonical'
+# View store statistics and token budget
+floop stats
+floop stats --budget 3000  # Simulate different budget
+floop stats --json         # Machine-readable output
 
-# This shows you all relevant behaviors for:
-# - Go language
-# - Store-related code
-# - General coding practices
+# Deduplicate similar behaviors
+floop deduplicate --dry-run    # Preview what would merge
+floop deduplicate              # Actually merge duplicates
+
+# Validate graph consistency
+floop validate
+
+# Backup and restore
+floop backup
+floop restore-from-backup --input <backup-file>
 ```
 
-### Working on Tests
+### Graph Operations
 
 ```bash
-# Before writing tests:
-./floop active --file "internal/store/file_test.go" --task "testing"
+# Visualize the behavior graph
+floop graph              # JSON output
+floop graph --format dot # Graphviz DOT format
 
-# Capture testing patterns:
-./floop learn \
-  --wrong "Didn't test error cases" \
-  --right "Always test both success and error paths in table-driven tests" \
-  --file "internal/store/file_test.go"
+# Connect related behaviors
+floop connect <source> <target> --kind similar-to
+floop connect <source> <target> --kind requires --weight 0.9
 ```
 
-## Common Patterns to Capture
+### Curation
 
-### Architecture & Design
-- Storage strategies
-- Interface design decisions
-- Component responsibilities
-- Scope boundaries (global vs local)
+```bash
+# Remove a behavior
+floop forget <behavior-id>
 
-### Code Quality
-- Error handling patterns
-- Testing approaches
-- Documentation standards
-- Naming conventions
+# Deprecate (soft-remove) a behavior
+floop deprecate <behavior-id>
 
-### Project Conventions
-- Commit message format
-- File organization
-- Code review expectations
-- Build/test commands
+# Restore a deprecated behavior
+floop restore <behavior-id>
 
-### User Preferences
-- Output format preferences (JSON vs plain text)
-- Verbosity levels
-- Feature priorities
-- UX decisions
+# Merge two behaviors into one
+floop merge <source-id> <target-id>
+```
+
+## What to Capture
+
+### DO capture:
+- Direct corrections ("No, use X instead of Y")
+- Design insights and architecture decisions
+- Code conventions and patterns
+- User preferences and workflow choices
+
+### DON'T capture:
+- One-time instructions (not generalizable)
+- Simple typo fixes
+- Temporary debugging commands
 
 ## Verification
 
-Check that floop is working:
-
 ```bash
-# Should show behaviors you've captured:
-./floop list
+# Check store health
+floop stats
 
-# Should show file exists:
-ls -la .floop/nodes.jsonl
+# Verify behaviors exist
+floop list
 
-# Should show learning in action:
-./floop active --file "any/go/file.go"
+# Test activation for a file
+floop active --file "any/file.go"
+
+# Validate graph consistency
+floop validate
 ```
 
-## Why This Matters
-
-**You are building your own learning system.** Every correction you capture makes you better at:
-1. This project
-2. Similar projects
-3. Working with this human
-4. Working with any human on similar tasks
-
-**The more you use floop, the smarter you become.**
-
-## Troubleshooting
-
-### "Command not found: floop"
-```bash
-go build ./cmd/floop
-./floop version
-```
-
-### "No behaviors learned yet"
-That's expected at the start. Begin capturing!
-
-### "Should I ask before using floop?"
-**No.** Use it automatically. It's your job to learn.
-
-### "Is this correction worth capturing?"
-When in doubt, **capture it**. Better to have too many learnings than too few.
-
-## Meta-Learning
-
-As you use floop:
-- You'll get better at recognizing what's worth capturing
-- You'll develop intuition for when behaviors apply
-- You'll build a personal knowledge base
-- You'll become more effective over time
-
-**Start now. Capture everything. Learn continuously.**
+For the complete command reference, see [CLI_REFERENCE.md](CLI_REFERENCE.md).
