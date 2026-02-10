@@ -73,16 +73,18 @@ func (m *BehaviorMerger) Merge(ctx context.Context, behaviors []*models.Behavior
 	}
 
 	// Try LLM-assisted merge if available
+	llmAttempted := false
 	if m.shouldUseLLM() {
+		llmAttempted = true
 		result, err := m.llmMerge(ctx, behaviors)
 		if err == nil {
 			if m.logger != nil {
 				m.logger.Debug("merge completed", "strategy", "llm", "behavior_count", len(behaviors))
 			}
 			m.decisions.Log(map[string]any{
-				"event":        "merge_decision",
-				"strategy":     "llm",
-				"behavior_ids": ids,
+				"event":         "merge_decision",
+				"strategy":      "llm",
+				"behavior_ids":  ids,
 				"llm_available": true,
 			})
 			return result, nil
@@ -94,7 +96,11 @@ func (m *BehaviorMerger) Merge(ctx context.Context, behaviors []*models.Behavior
 	}
 
 	reason := "llm not configured"
-	if m.useLLM && m.llmClient != nil {
+	llmAvailable := false
+	if llmAttempted {
+		reason = "llm merge failed"
+		llmAvailable = true
+	} else if m.useLLM && m.llmClient != nil {
 		reason = "llm not available"
 	}
 
@@ -105,7 +111,7 @@ func (m *BehaviorMerger) Merge(ctx context.Context, behaviors []*models.Behavior
 		"event":         "merge_decision",
 		"strategy":      "rule",
 		"behavior_ids":  ids,
-		"llm_available": false,
+		"llm_available": llmAvailable,
 		"reason":        reason,
 	})
 
