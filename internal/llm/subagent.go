@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
@@ -35,6 +37,12 @@ type SubagentClient struct {
 	// available caches the result of CLI detection
 	available     bool
 	availableOnce bool
+
+	// logger is the structured logger for operational output
+	logger *slog.Logger
+
+	// decisions logs decision events to JSONL
+	decisions *logging.DecisionLogger
 }
 
 // SubagentConfig configures the subagent client.
@@ -52,6 +60,12 @@ type SubagentConfig struct {
 	// When set, only CLI executables found within these directories are accepted.
 	// When empty, any directory is allowed (permissive default).
 	AllowedCLIDirs []string
+
+	// Logger is the optional structured logger for operational output.
+	Logger *slog.Logger
+
+	// DecisionLogger is the optional decision event logger.
+	DecisionLogger *logging.DecisionLogger
 }
 
 // DefaultSubagentConfig returns a SubagentConfig with sensible defaults.
@@ -72,11 +86,18 @@ func NewSubagentClient(cfg SubagentConfig) *SubagentClient {
 		cfg.Timeout = 30 * time.Second
 	}
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
 	return &SubagentClient{
 		cliPath:        cfg.CLIPath,
 		model:          cfg.Model,
 		timeout:        cfg.Timeout,
 		allowedCLIDirs: cfg.AllowedCLIDirs,
+		logger:         logger,
+		decisions:      cfg.DecisionLogger,
 	}
 }
 
@@ -138,18 +159,42 @@ func (c *SubagentClient) Available() bool {
 
 // detectAvailability checks if we're running inside a CLI session.
 func (c *SubagentClient) detectAvailability() bool {
+	c.ensureLogger()
+
 	// Check for CLI session environment variables
-	if !c.inCLISession() {
+	inSession := c.inCLISession()
+	if !inSession {
+		c.logger.Debug("subagent not available: no CLI session env vars")
+		c.decisions.Log(map[string]any{
+			"event":     "llm_availability",
+			"provider":  "subagent",
+			"available": false,
+			"reason":    "no CLI session env vars",
+		})
 		return false
 	}
 
 	// Find the CLI executable
 	cliPath := c.findCLI()
 	if cliPath == "" {
+		c.logger.Debug("subagent not available: CLI not found")
+		c.decisions.Log(map[string]any{
+			"event":     "llm_availability",
+			"provider":  "subagent",
+			"available": false,
+			"reason":    "CLI executable not found",
+		})
 		return false
 	}
 
 	c.cliPath = cliPath
+	c.logger.Debug("subagent available", "cli_path", cliPath)
+	c.decisions.Log(map[string]any{
+		"event":     "llm_availability",
+		"provider":  "subagent",
+		"available": true,
+		"cli_path":  cliPath,
+	})
 	return true
 }
 
@@ -254,6 +299,20 @@ func (c *SubagentClient) validateCLI(ctx context.Context, cliPath string) bool {
 // The prompt is passed via stdin rather than command-line arguments to avoid
 // exposing it in process listings (e.g., ps aux).
 func (c *SubagentClient) runSubagent(ctx context.Context, prompt string) (string, error) {
+	c.ensureLogger()
+	start := time.Now()
+
+	c.logger.Debug("subagent request", "model", c.model, "prompt_len", len(prompt))
+	c.decisions.Log(map[string]any{
+		"event":      "llm_request",
+		"operation":  "subagent",
+		"model":      c.model,
+		"prompt_len": len(prompt),
+	})
+
+	// At trace level, log full prompt content
+	c.logger.Log(ctx, logging.LevelTrace, "subagent prompt content", "prompt", prompt)
+
 	// Create timeout context
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -279,6 +338,16 @@ func (c *SubagentClient) runSubagent(ctx context.Context, prompt string) (string
 
 	// Run the command
 	if err := cmd.Run(); err != nil {
+		duration := time.Since(start)
+		c.logger.Debug("subagent failed", "duration_ms", duration.Milliseconds(), "error", err)
+		c.decisions.Log(map[string]any{
+			"event":       "llm_response",
+			"operation":   "subagent",
+			"duration_ms": duration.Milliseconds(),
+			"success":     false,
+			"error":       err.Error(),
+		})
+
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("subagent timed out after %v", c.timeout)
 		}
@@ -286,9 +355,31 @@ func (c *SubagentClient) runSubagent(ctx context.Context, prompt string) (string
 	}
 
 	response := strings.TrimSpace(stdout.String())
+	duration := time.Since(start)
+
 	if response == "" {
+		c.logger.Debug("subagent empty response", "duration_ms", duration.Milliseconds())
+		c.decisions.Log(map[string]any{
+			"event":       "llm_response",
+			"operation":   "subagent",
+			"duration_ms": duration.Milliseconds(),
+			"success":     false,
+			"error":       "empty response",
+		})
 		return "", fmt.Errorf("subagent returned empty response")
 	}
+
+	c.logger.Debug("subagent response", "duration_ms", duration.Milliseconds(), "response_len", len(response))
+	c.decisions.Log(map[string]any{
+		"event":        "llm_response",
+		"operation":    "subagent",
+		"duration_ms":  duration.Milliseconds(),
+		"response_len": len(response),
+		"success":      true,
+	})
+
+	// At trace level, log full response content
+	c.logger.Log(ctx, logging.LevelTrace, "subagent response content", "response", response)
 
 	return response, nil
 }
@@ -312,6 +403,14 @@ func (c *SubagentClient) ExtractCorrection(ctx context.Context, userText string)
 	}
 
 	return result, nil
+}
+
+// ensureLogger initializes the logger if it was not set (e.g., when
+// SubagentClient is constructed directly in tests without NewSubagentClient).
+func (c *SubagentClient) ensureLogger() {
+	if c.logger == nil {
+		c.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 }
 
 // DetectAndCreate attempts to create a SubagentClient if running in a CLI session.
