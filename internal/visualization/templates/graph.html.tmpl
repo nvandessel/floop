@@ -177,11 +177,11 @@
 
   // Edge styling
   var edgeWidth = {
-    'requires': 1.5,
-    'overrides': 3,
-    'conflicts': 1.5,
-    'similar-to': 0.8,
-    'learned-from': 2
+    'requires': 2,
+    'overrides': 3.5,
+    'conflicts': 2,
+    'similar-to': 1.2,
+    'learned-from': 2.5
   };
   var edgeDash = {
     'conflicts': [4, 3],
@@ -196,11 +196,11 @@
     degree[e.target] = (degree[e.target] || 0) + 1;
   });
 
-  // Compute node sizes: pagerank * 15 + degree * 0.5 + 2, clamped [2, 20]
+  // Compute node sizes: pagerank * 8 + degree * 0.3 + 1, clamped [1, 10]
   (graphData.nodes || []).forEach(function(n) {
     var pr = n.pagerank || 0;
     var deg = degree[n.id] || 0;
-    n.val = Math.min(20, Math.max(2, pr * 15 + deg * 0.5 + 2));
+    n.val = Math.min(10, Math.max(1, pr * 8 + deg * 0.3 + 1));
   });
 
   // Update stats
@@ -225,17 +225,48 @@
     .nodeRelSize(4)
     .nodeVal(function(n) { return n.val; })
     .nodeColor(function(n) { return kindColors[n.kind] || defaultColor; })
-    .nodeLabel(null)
-    .linkColor(function() { return '#45475a'; })
+    .nodeCanvasObject(function(node, ctx, globalScale) {
+      var r = Math.sqrt(node.val || 1) * 2.5;
+      var color = kindColors[node.kind] || defaultColor;
+
+      // Draw node circle
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+
+      // Draw label only when zoomed in very close (scroll-wheel zoom on a cluster)
+      if (globalScale > 8) {
+        var label = node.name || node.id;
+        if (label.length > 30) label = label.substring(0, 27) + '...';
+        var fontSize = 10 / globalScale;
+        ctx.font = fontSize + 'px -apple-system, BlinkMacSystemFont, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'rgba(205,214,244,0.7)';
+        ctx.fillText(label, node.x, node.y + r + 2);
+      }
+    })
+    .nodePointerAreaPaint(function(node, color, ctx) {
+      var r = Math.sqrt(node.val || 1) * 2.5;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+    })
+    .linkColor(function() { return 'rgba(147,153,178,0.45)'; })
     .linkWidth(function(l) { return edgeWidth[l.kind] || 1; })
     .linkLineDash(function(l) { return edgeDash[l.kind] || null; })
-    .linkDirectionalArrowLength(4)
-    .linkDirectionalArrowRelPos(0.95)
-    .linkDirectionalArrowColor(function() { return '#585b70'; })
-    .d3AlphaDecay(0.01)
-    .d3VelocityDecay(0.3)
-    .warmupTicks(80)
-    .cooldownTicks(200)
+    .linkDirectionalArrowLength(5)
+    .linkDirectionalArrowRelPos(0.92)
+    .linkDirectionalArrowColor(function() { return 'rgba(147,153,178,0.6)'; })
+    .d3AlphaDecay(0.006)
+    .d3VelocityDecay(0.2)
+    .warmupTicks(300)
+    .cooldownTicks(500)
     .onNodeHover(function(node, prevNode) {
       document.body.style.cursor = node ? 'pointer' : 'default';
       if (node) {
@@ -255,11 +286,33 @@
     })
     .onBackgroundClick(function() {
       closePanel();
+    })
+    .onEngineStop(function() {
+      // Auto-fit once when simulation first settles, capped at zoom=1
+      if (!graph.__fitted) {
+        graph.__fitted = true;
+        graph.zoomToFit(400, 200);
+        // Cap zoom so we get an overview, not a close-up
+        setTimeout(function() {
+          var z = graph.zoom();
+          if (z > 1) graph.zoom(1);
+        }, 500);
+      }
     });
 
-  // d3-force tuning
-  graph.d3Force('charge').strength(-80);
-  graph.d3Force('link').distance(60);
+  // d3-force tuning — scale repulsion with graph density
+  var nodeCount = (graphData.nodes || []).length;
+  var edgeCount = (graphData.edges || []).length;
+  var density = nodeCount > 0 ? edgeCount / nodeCount : 0;
+
+  // Very strong repulsion — nodes push apart aggressively
+  var chargeStrength = -1000 - nodeCount * 20;
+
+  graph.d3Force('charge').strength(chargeStrength);
+  // Very weak links — just enough to gently pull connected nodes closer
+  graph.d3Force('link').distance(250).strength(0.02);
+  // Stronger centering to keep the spread graph on screen
+  graph.d3Force('center').strength(0.05);
 
   // Track mouse for tooltip positioning
   document.addEventListener('mousemove', function(e) {
@@ -267,10 +320,8 @@
     tooltip.style.top = (e.pageY - 10) + 'px';
   });
 
-  // Zoom to fit after warmup
-  setTimeout(function() {
-    graph.zoomToFit(400, 40);
-  }, 1000);
+  // Fallback zoom-to-fit in case onEngineStop doesn't fire
+  setTimeout(function() { graph.zoomToFit(400, 200); }, 3000);
 
   // Detail panel
   function showDetail(node) {
