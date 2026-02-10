@@ -2,8 +2,11 @@
 package visualization
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"html/template"
 	"strings"
 
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -15,6 +18,7 @@ type Format string
 const (
 	FormatDOT  Format = "dot"
 	FormatJSON Format = "json"
+	FormatHTML Format = "html"
 )
 
 // nodeColors maps behavior kinds to DOT colors.
@@ -161,6 +165,111 @@ func RenderJSON(ctx context.Context, gs store.GraphStore) (map[string]interface{
 		"node_count": len(jsonNodes),
 		"edge_count": len(jsonEdges),
 	}, nil
+}
+
+// EnrichmentData provides optional data to augment base graph JSON.
+type EnrichmentData struct {
+	// PageRank maps behavior IDs to their PageRank scores (0.0-1.0).
+	PageRank map[string]float64
+}
+
+// RenderEnrichedJSON produces a JSON graph with optional enrichment data (e.g. PageRank scores).
+// If enrichment is nil, it behaves identically to RenderJSON.
+func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData) (map[string]interface{}, error) {
+	base, err := RenderJSON(ctx, gs)
+	if err != nil {
+		return nil, err
+	}
+
+	if enrichment == nil {
+		return base, nil
+	}
+
+	// Enrich nodes with PageRank scores
+	if enrichment.PageRank != nil {
+		if nodes, ok := base["nodes"].([]map[string]interface{}); ok {
+			for _, node := range nodes {
+				if id, ok := node["id"].(string); ok {
+					if pr, exists := enrichment.PageRank[id]; exists {
+						node["pagerank"] = pr
+					}
+				}
+			}
+		}
+	}
+
+	return base, nil
+}
+
+// htmlTemplateData holds data passed to the HTML template.
+type htmlTemplateData struct {
+	ForceGraphJS template.JS
+	GraphJSON    template.JS
+}
+
+// RenderHTML produces a self-contained HTML file with an interactive force-directed graph.
+func RenderHTML(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData) ([]byte, error) {
+	// Get enriched graph data
+	graphData, err := RenderEnrichedJSON(ctx, gs, enrichment)
+	if err != nil {
+		return nil, fmt.Errorf("render enriched JSON: %w", err)
+	}
+
+	// Marshal graph data to JSON for embedding
+	graphJSON, err := json.Marshal(graphData)
+	if err != nil {
+		return nil, fmt.Errorf("marshal graph data: %w", err)
+	}
+
+	// Load force-graph library
+	jsBytes, err := assets.ReadFile("assets/force-graph.min.js")
+	if err != nil {
+		return nil, fmt.Errorf("read force-graph.min.js: %w", err)
+	}
+
+	// Load and parse HTML template
+	tmplBytes, err := templates.ReadFile("templates/graph.html.tmpl")
+	if err != nil {
+		return nil, fmt.Errorf("read HTML template: %w", err)
+	}
+
+	tmpl, err := template.New("graph").Parse(string(tmplBytes))
+	if err != nil {
+		return nil, fmt.Errorf("parse HTML template: %w", err)
+	}
+
+	// Execute template
+	var buf bytes.Buffer
+	data := htmlTemplateData{
+		ForceGraphJS: template.JS(jsBytes),
+		GraphJSON:    template.JS(graphJSON),
+	}
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("execute HTML template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// collectEdges gathers deduplicated outbound edges for a set of nodes.
+func collectEdges(ctx context.Context, gs store.GraphStore, nodes []store.Node) ([]store.Edge, error) {
+	seen := make(map[string]bool)
+	var result []store.Edge
+	for _, node := range nodes {
+		edges, err := gs.GetEdges(ctx, node.ID, store.DirectionOutbound, "")
+		if err != nil {
+			return nil, fmt.Errorf("get edges for node %s: %w", node.ID, err)
+		}
+		for _, edge := range edges {
+			key := edge.Source + "|" + edge.Target + "|" + edge.Kind
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, edge)
+		}
+	}
+	return result, nil
 }
 
 // truncate shortens a string to maxLen, adding "..." if truncated.

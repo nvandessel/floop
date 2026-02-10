@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>floop — Behavior Graph</title>
+<style>
+  /* Catppuccin Mocha palette */
+  :root {
+    --base: #1e1e2e;
+    --surface0: #313244;
+    --surface1: #45475a;
+    --surface2: #585b70;
+    --text: #cdd6f4;
+    --subtext0: #a6adc8;
+    --subtext1: #bac2de;
+    --blue: #89b4fa;
+    --red: #f38ba8;
+    --green: #a6e3a1;
+    --yellow: #f9e2af;
+    --mauve: #cba6f7;
+    --overlay0: #6c7086;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--base);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #graph { width: 100vw; height: 100vh; }
+
+  /* Tooltip */
+  #tooltip {
+    position: absolute;
+    display: none;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    z-index: 100;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #tooltip .tt-name { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  #tooltip .tt-kind { color: var(--subtext0); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  #tooltip .tt-meta { color: var(--subtext1); font-size: 11px; margin-top: 4px; }
+
+  /* Detail panel */
+  #detail-panel {
+    position: absolute;
+    top: 0;
+    right: -380px;
+    width: 360px;
+    height: 100vh;
+    background: var(--surface0);
+    border-left: 1px solid var(--surface2);
+    padding: 20px;
+    overflow-y: auto;
+    transition: right 0.3s ease;
+    z-index: 200;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+  }
+  #detail-panel.open { right: 0; }
+  #detail-panel .dp-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--subtext0);
+    font-size: 18px;
+    cursor: pointer;
+  }
+  #detail-panel .dp-close:hover { color: var(--text); }
+  #detail-panel h2 { font-size: 16px; margin-bottom: 16px; color: var(--text); padding-right: 24px; word-break: break-word; }
+  #detail-panel .dp-section { margin-bottom: 12px; }
+  #detail-panel .dp-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--subtext0); margin-bottom: 2px; }
+  #detail-panel .dp-value { font-size: 13px; color: var(--text); }
+  #detail-panel .dp-bar { height: 4px; background: var(--surface2); border-radius: 2px; margin-top: 4px; }
+  #detail-panel .dp-bar-fill { height: 100%; border-radius: 2px; }
+
+  /* Legend */
+  #legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 11px;
+    z-index: 50;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  #legend h3 { font-size: 12px; margin-bottom: 8px; color: var(--subtext1); font-weight: 500; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-line { width: 20px; height: 0; flex-shrink: 0; }
+  .legend-label { color: var(--subtext0); }
+
+  /* Stats bar */
+  #stats {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: var(--subtext0);
+    z-index: 50;
+  }
+  #stats span { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+
+<div id="tooltip">
+  <div class="tt-name"></div>
+  <div class="tt-kind"></div>
+  <div class="tt-meta"></div>
+</div>
+
+<div id="detail-panel">
+  <button class="dp-close" onclick="closePanel()">&times;</button>
+  <h2 id="dp-name"></h2>
+  <div id="dp-content"></div>
+</div>
+
+<div id="stats">
+  <span id="stat-nodes">0</span> nodes &middot; <span id="stat-edges">0</span> edges
+</div>
+
+<div id="legend">
+  <h3>Node Types</h3>
+  <div class="legend-row"><div class="legend-dot" style="background:#89b4fa"></div><span class="legend-label">directive</span></div>
+  <div class="legend-row"><div class="legend-dot" style="background:#f38ba8"></div><span class="legend-label">constraint</span></div>
+  <div class="legend-row"><div class="legend-dot" style="background:#a6e3a1"></div><span class="legend-label">procedure</span></div>
+  <div class="legend-row"><div class="legend-dot" style="background:#f9e2af"></div><span class="legend-label">preference</span></div>
+  <h3 style="margin-top:10px">Edge Types</h3>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1.5"/></svg><span class="legend-label">requires</span></div>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="3"/></svg><span class="legend-label">overrides</span></div>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="4,3"/></svg><span class="legend-label">conflicts</span></div>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1" stroke-dasharray="2,2"/></svg><span class="legend-label">similar-to</span></div>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="2"/></svg><span class="legend-label">learned-from</span></div>
+</div>
+
+<script>
+{{.ForceGraphJS}}
+</script>
+<script>
+(function() {
+  'use strict';
+
+  // Graph data injected by Go template
+  var graphData = {{.GraphJSON}};
+
+  // Color palette (Catppuccin Mocha)
+  var kindColors = {
+    'directive':  '#89b4fa',
+    'constraint': '#f38ba8',
+    'procedure':  '#a6e3a1',
+    'preference': '#f9e2af'
+  };
+  var defaultColor = '#6c7086';
+
+  // Edge styling
+  var edgeWidth = {
+    'requires': 1.5,
+    'overrides': 3,
+    'conflicts': 1.5,
+    'similar-to': 0.8,
+    'learned-from': 2
+  };
+  var edgeDash = {
+    'conflicts': [4, 3],
+    'similar-to': [2, 2]
+  };
+
+  // Build degree map for node sizing
+  var degree = {};
+  (graphData.nodes || []).forEach(function(n) { degree[n.id] = 0; });
+  (graphData.edges || []).forEach(function(e) {
+    degree[e.source] = (degree[e.source] || 0) + 1;
+    degree[e.target] = (degree[e.target] || 0) + 1;
+  });
+
+  // Compute node sizes: pagerank * 15 + degree * 0.5 + 2, clamped [2, 20]
+  (graphData.nodes || []).forEach(function(n) {
+    var pr = n.pagerank || 0;
+    var deg = degree[n.id] || 0;
+    n.val = Math.min(20, Math.max(2, pr * 15 + deg * 0.5 + 2));
+  });
+
+  // Update stats
+  document.getElementById('stat-nodes').textContent = (graphData.nodes || []).length;
+  document.getElementById('stat-edges').textContent = (graphData.edges || []).length;
+
+  // Tooltip
+  var tooltip = document.getElementById('tooltip');
+
+  // Detail panel
+  var panel = document.getElementById('detail-panel');
+
+  // Create force graph
+  var graph = ForceGraph()(document.getElementById('graph'))
+    .graphData({
+      nodes: graphData.nodes || [],
+      links: (graphData.edges || []).map(function(e) {
+        return { source: e.source, target: e.target, kind: e.kind, weight: e.weight };
+      })
+    })
+    .backgroundColor('#1e1e2e')
+    .nodeRelSize(4)
+    .nodeVal(function(n) { return n.val; })
+    .nodeColor(function(n) { return kindColors[n.kind] || defaultColor; })
+    .nodeLabel(null)
+    .linkColor(function() { return '#45475a'; })
+    .linkWidth(function(l) { return edgeWidth[l.kind] || 1; })
+    .linkLineDash(function(l) { return edgeDash[l.kind] || null; })
+    .linkDirectionalArrowLength(4)
+    .linkDirectionalArrowRelPos(0.95)
+    .linkDirectionalArrowColor(function() { return '#585b70'; })
+    .d3AlphaDecay(0.01)
+    .d3VelocityDecay(0.3)
+    .warmupTicks(80)
+    .cooldownTicks(200)
+    .onNodeHover(function(node, prevNode) {
+      document.body.style.cursor = node ? 'pointer' : 'default';
+      if (node) {
+        var tt = document.getElementById('tooltip');
+        tt.querySelector('.tt-name').textContent = node.name || node.id;
+        tt.querySelector('.tt-kind').textContent = node.kind || 'unknown';
+        var meta = 'confidence: ' + (node.confidence || 0).toFixed(2);
+        if (node.pagerank) meta += '  pagerank: ' + node.pagerank.toFixed(3);
+        tt.querySelector('.tt-meta').textContent = meta;
+        tt.style.display = 'block';
+      } else {
+        tooltip.style.display = 'none';
+      }
+    })
+    .onNodeClick(function(node) {
+      showDetail(node);
+    })
+    .onBackgroundClick(function() {
+      closePanel();
+    });
+
+  // d3-force tuning
+  graph.d3Force('charge').strength(-80);
+  graph.d3Force('link').distance(60);
+
+  // Track mouse for tooltip positioning
+  document.addEventListener('mousemove', function(e) {
+    tooltip.style.left = (e.pageX + 12) + 'px';
+    tooltip.style.top = (e.pageY - 10) + 'px';
+  });
+
+  // Zoom to fit after warmup
+  setTimeout(function() {
+    graph.zoomToFit(400, 40);
+  }, 1000);
+
+  // Detail panel
+  function showDetail(node) {
+    document.getElementById('dp-name').textContent = node.name || node.id;
+    var html = '';
+
+    html += section('ID', node.id);
+    html += section('Kind', node.kind || 'unknown');
+    html += barSection('Confidence', node.confidence || 0, kindColors[node.kind] || defaultColor);
+
+    if (node.pagerank != null) {
+      html += barSection('PageRank', node.pagerank, '#cba6f7');
+    }
+
+    var deg = degree[node.id] || 0;
+    html += section('Connections', deg);
+
+    document.getElementById('dp-content').innerHTML = html;
+    panel.classList.add('open');
+  }
+
+  window.closePanel = function() {
+    panel.classList.remove('open');
+  };
+
+  function section(label, value) {
+    return '<div class="dp-section"><div class="dp-label">' + esc(label) + '</div><div class="dp-value">' + esc(String(value)) + '</div></div>';
+  }
+
+  function barSection(label, value, color) {
+    var pct = Math.round(value * 100);
+    return '<div class="dp-section"><div class="dp-label">' + esc(label) + '</div><div class="dp-value">' + pct + '%</div>' +
+      '<div class="dp-bar"><div class="dp-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+})();
+</script>
+</body>
+</html>
