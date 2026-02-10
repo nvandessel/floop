@@ -1,7 +1,10 @@
-.PHONY: build test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean
+.PHONY: build build-local test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean
 
 build:
 	go build -o ./floop ./cmd/floop
+
+build-local:
+	CGO_ENABLED=1 go build -tags llamacpp -o ./floop ./cmd/floop
 
 test:
 	go test -race ./...
