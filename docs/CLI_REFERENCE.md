@@ -1,0 +1,1024 @@
+# floop CLI Reference
+
+Complete reference for all floop commands. floop manages learned behaviors and conventions for AI coding agents -- it captures corrections, extracts reusable behaviors, and provides context-aware behavior activation for consistent agent operation.
+
+**Version:** 0.2.0-dev
+
+---
+
+## Global Flags
+
+These flags are available on every command.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--json` | bool | `false` | Output as JSON (for agent consumption) |
+| `--root` | string | `.` | Project root directory |
+
+---
+
+## Core
+
+Commands for initializing floop, capturing corrections, and managing hook scripts.
+
+### init
+
+Initialize floop with hook scripts and behavior learning.
+
+```
+floop init [flags]
+```
+
+Extracts embedded hook scripts, configures Claude Code settings, seeds meta-behaviors, and creates the `.floop/` data directory.
+
+**Interactive mode** (no flags): Prompts for installation scope, hooks, and token budget.
+**Non-interactive mode** (any flag provided): Uses flag values with sensible defaults. Suitable for scripts and agents.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--global` | bool | `false` | Install hooks globally (`~/.claude/`) |
+| `--project` | bool | `false` | Install hooks for this project (`.claude/`) |
+| `--hooks` | string | `""` | Which hooks to enable: `all`, `injection-only` (default in non-interactive: `all`) |
+| `--token-budget` | int | `2000` | Token budget for behavior injection |
+
+**Examples:**
+
+```bash
+# Interactive setup
+floop init
+
+# Global install with all defaults
+floop init --global
+
+# Project-level install with all defaults
+floop init --project
+
+# Both scopes with explicit options
+floop init --global --project --hooks=all --token-budget 2000
+```
+
+**See also:** [upgrade](#upgrade), [config](#config)
+
+---
+
+### learn
+
+Capture a correction and extract a behavior.
+
+```
+floop learn --wrong <text> --right <text> [flags]
+```
+
+Called by agents when they receive a correction. Records the correction, extracts a candidate behavior, and determines whether the behavior can be auto-accepted or requires human review.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--wrong` | string | *(required)* | What the agent did |
+| `--right` | string | *(required)* | What should have been done |
+| `--file` | string | `""` | Current file path |
+| `--task` | string | `""` | Current task type |
+| `--scope` | string | `"local"` | Where to save: `local` (project), `global` (user), or `both` |
+| `--auto-merge` | bool | `true` | Automatically merge similar behaviors (matches MCP behavior) |
+
+**Examples:**
+
+```bash
+# Capture a correction
+floop learn --wrong "used os.path" --right "use pathlib.Path instead"
+
+# With file context, saved globally
+floop learn --wrong "used print" --right "use logging module" --file main.py --scope global
+
+# Machine-readable output
+floop learn --wrong "hardcoded config" --right "use environment variables" --json
+```
+
+**See also:** [detect-correction](#detect-correction), [reprocess](#reprocess), [list](#list)
+
+---
+
+### reprocess
+
+Reprocess orphaned corrections into behaviors.
+
+```
+floop reprocess [flags]
+```
+
+Reads all corrections from `corrections.jsonl`, identifies those that have not been processed (no corresponding behavior exists), and runs them through the learning loop to extract behaviors.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | `false` | Show what would be processed without making changes |
+| `--scope` | string | `"local"` | Where to save behaviors: `local`, `global`, or `both` |
+| `--auto-merge` | bool | `true` | Automatically merge similar behaviors (matches MCP behavior) |
+
+**Examples:**
+
+```bash
+# Reprocess local corrections
+floop reprocess
+
+# Preview what would be processed
+floop reprocess --dry-run
+
+# Reprocess and save to global store
+floop reprocess --scope global
+```
+
+**See also:** [learn](#learn), [list](#list)
+
+---
+
+### version
+
+Print version information.
+
+```
+floop version
+```
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+floop version
+# floop version 0.2.0-dev
+
+floop version --json
+# {"version":"0.2.0-dev"}
+```
+
+---
+
+### upgrade
+
+Upgrade floop hook scripts to match the current binary version.
+
+```
+floop upgrade [flags]
+```
+
+Detects hook installations in global (`~/.claude/`) and project (`.claude/`) scopes, compares script versions against the binary version, and re-extracts scripts that are out of date.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--force` | bool | `false` | Re-extract all scripts regardless of version |
+| `--token-budget` | int | `2000` | Token budget for behavior injection |
+
+**Examples:**
+
+```bash
+# Upgrade stale scripts
+floop upgrade
+
+# Force re-extract all scripts
+floop upgrade --force
+
+# Upgrade with a custom token budget
+floop upgrade --token-budget 1500 --json
+```
+
+**See also:** [init](#init)
+
+---
+
+## Query
+
+Commands for querying, inspecting, and generating output from learned behaviors.
+
+### active
+
+Show behaviors active in the current context.
+
+```
+floop active [flags]
+```
+
+Lists all behaviors that are currently active based on the current context (file, task, language, etc.). Loads behaviors from both local and global stores.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--file` | string | `""` | Current file path |
+| `--task` | string | `""` | Current task type |
+| `--env` | string | `""` | Environment (`dev`, `staging`, `prod`) |
+
+**Examples:**
+
+```bash
+# Show behaviors active for a Go file
+floop active --file main.go
+
+# Active behaviors for testing tasks
+floop active --task testing
+
+# Machine-readable output
+floop active --file src/app.py --json
+```
+
+**See also:** [list](#list), [why](#why), [prompt](#prompt)
+
+---
+
+### list
+
+List behaviors or corrections.
+
+```
+floop list [flags]
+```
+
+Lists learned behaviors from the behavior store, or captured corrections when `--corrections` is specified.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--corrections` | bool | `false` | Show captured corrections instead of behaviors |
+| `--global` | bool | `false` | Show behaviors from global user store (`~/.floop/`) only |
+| `--all` | bool | `false` | Show behaviors from both local and global stores |
+| `--tag` | string | `""` | Filter behaviors by tag (exact match) |
+
+**Examples:**
+
+```bash
+# List local behaviors
+floop list
+
+# List behaviors from global store
+floop list --global
+
+# List all behaviors across both stores
+floop list --all
+
+# Filter by tag
+floop list --tag go
+
+# Show captured corrections
+floop list --corrections
+
+# JSON output for scripting
+floop list --all --json
+```
+
+**See also:** [active](#active), [show](#show), [learn](#learn)
+
+---
+
+### show
+
+Show details of a behavior.
+
+```
+floop show <behavior-id>
+```
+
+Displays the full details of a specific behavior, including content, activation conditions, provenance, and relationship metadata. Accepts a behavior ID or name. Searches both local and global stores.
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+# Show by ID
+floop show b-1706000000000000000
+
+# Show by name
+floop show "prefer-pathlib"
+
+# JSON output
+floop show b-1706000000000000000 --json
+```
+
+**See also:** [list](#list), [why](#why)
+
+---
+
+### why
+
+Explain why a behavior is or is not active.
+
+```
+floop why <behavior-id> [flags]
+```
+
+Shows the activation status of a behavior and explains why it matches or does not match the current context. Useful for debugging when a behavior is not being applied as expected.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--file` | string | `""` | Current file path |
+| `--task` | string | `""` | Current task type |
+| `--env` | string | `""` | Environment (`dev`, `staging`, `prod`) |
+
+**Examples:**
+
+```bash
+# Explain activation status
+floop why b-1706000000000000000
+
+# Explain in context of a specific file
+floop why b-1706000000000000000 --file main.go
+
+# JSON output for agent consumption
+floop why b-1706000000000000000 --file main.py --task testing --json
+```
+
+**See also:** [active](#active), [show](#show)
+
+---
+
+### prompt
+
+Generate a prompt section from active behaviors.
+
+```
+floop prompt [flags]
+```
+
+Compiles active behaviors into a format suitable for injection into agent system prompts. Supports token budgeting with intelligent tiering (full/summary/omit).
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--file` | string | `""` | Current file path |
+| `--task` | string | `""` | Current task type |
+| `--env` | string | `""` | Environment (`dev`, `staging`, `prod`) |
+| `--format` | string | `"markdown"` | Output format: `markdown`, `xml`, `plain` |
+| `--max-tokens` | int | `0` | Maximum tokens (0 = unlimited, deprecated: use `--token-budget`) |
+| `--token-budget` | int | `0` | Token budget for behavior injection (enables intelligent tiering) |
+| `--tiered` | bool | `false` | Use tiered injection (full/summary/omit) instead of simple truncation |
+| `--expanded` | bool | `false` | Use expanded content when available |
+
+**Examples:**
+
+```bash
+# Generate prompt for Go files
+floop prompt --file main.go
+
+# Tiered injection with token budget
+floop prompt --file main.go --tiered --token-budget 2000
+
+# XML format with budget
+floop prompt --file main.go --format xml --token-budget 500
+
+# JSON output for agent tooling
+floop prompt --file main.go --json
+```
+
+**See also:** [active](#active), [summarize](#summarize), [stats](#stats)
+
+---
+
+## Curation
+
+Commands for managing the lifecycle of individual behaviors.
+
+### forget
+
+Soft-delete a behavior from active use.
+
+```
+floop forget <behavior-id> [flags]
+```
+
+Marks a behavior as forgotten, removing it from active use. The behavior is not deleted, just marked with kind `forgotten-behavior`. Use `floop restore` to undo this action.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--force` | bool | `false` | Skip confirmation prompt |
+| `--reason` | string | `""` | Reason for forgetting |
+
+**Examples:**
+
+```bash
+# Forget with confirmation prompt
+floop forget b-1706000000000000000
+
+# Skip prompt, provide reason
+floop forget b-1706000000000000000 --force --reason "no longer relevant"
+
+# JSON mode (implies --force)
+floop forget b-1706000000000000000 --json
+```
+
+**See also:** [restore](#restore), [deprecate](#deprecate)
+
+---
+
+### deprecate
+
+Mark a behavior as deprecated.
+
+```
+floop deprecate <behavior-id> --reason <text> [flags]
+```
+
+Marks a behavior as deprecated but keeps it visible. Deprecated behaviors are not active but can be restored. Optionally link to a replacement behavior.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--reason` | string | *(required)* | Reason for deprecation |
+| `--replacement` | string | `""` | ID of behavior that replaces this one |
+
+**Examples:**
+
+```bash
+# Deprecate with reason
+floop deprecate b-old --reason "superseded by new convention"
+
+# Deprecate with replacement link
+floop deprecate b-old --reason "replaced" --replacement b-new
+
+# JSON output
+floop deprecate b-old --reason "outdated" --json
+```
+
+**See also:** [restore](#restore), [forget](#forget), [merge](#merge)
+
+---
+
+### restore
+
+Restore a deprecated or forgotten behavior.
+
+```
+floop restore <behavior-id>
+```
+
+Restores a behavior that was previously deprecated or forgotten. Undoes `floop forget` or `floop deprecate`.
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+# Restore a forgotten behavior
+floop restore b-1706000000000000000
+
+# JSON output
+floop restore b-1706000000000000000 --json
+```
+
+**See also:** [forget](#forget), [deprecate](#deprecate)
+
+---
+
+### merge
+
+Merge two behaviors into one.
+
+```
+floop merge <source-id> <target-id> [flags]
+```
+
+Combines two similar behaviors into one. The source behavior is marked as merged and linked to the target (surviving) behavior. When conditions are merged (union), and the higher confidence/priority values are kept. This action cannot be undone with restore.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--force` | bool | `false` | Skip confirmation prompt |
+| `--into` | string | `""` | ID of behavior that should survive (default: second argument) |
+
+**Examples:**
+
+```bash
+# Merge source into target (target survives)
+floop merge b-duplicate b-canonical
+
+# Explicitly choose survivor
+floop merge b-first b-second --into b-first
+
+# Skip confirmation
+floop merge b-old b-new --force
+```
+
+**See also:** [deduplicate](#deduplicate), [forget](#forget)
+
+---
+
+## Management
+
+Commands for store-level operations: deduplication, validation, and configuration.
+
+### deduplicate
+
+Find and merge duplicate behaviors.
+
+```
+floop deduplicate [flags]
+```
+
+Analyzes all behaviors in the store, identifies duplicates based on semantic similarity (Jaccard word overlap or LLM-based comparison if configured), and can automatically merge them.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | `false` | Show duplicates without merging |
+| `--threshold` | float64 | `0.9` | Similarity threshold for duplicate detection (0.0-1.0) |
+| `--scope` | string | `"local"` | Store scope: `local`, `global`, or `both` |
+
+**Examples:**
+
+```bash
+# Find and merge duplicates in local store
+floop deduplicate
+
+# Preview duplicates without merging
+floop deduplicate --dry-run
+
+# Use lower similarity threshold
+floop deduplicate --threshold 0.8
+
+# Cross-store deduplication
+floop deduplicate --scope both
+
+# JSON output
+floop deduplicate --dry-run --json
+```
+
+**See also:** [merge](#merge), [validate](#validate)
+
+---
+
+### validate
+
+Validate the behavior graph for consistency issues.
+
+```
+floop validate [flags]
+```
+
+Checks for dangling references (behaviors referencing non-existent IDs), self-references (behaviors that require/override/conflict with themselves), and cycles in relationship graphs.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--scope` | string | `"local"` | Store scope: `local`, `global`, or `both` |
+
+**Examples:**
+
+```bash
+# Validate local store
+floop validate
+
+# Validate global store
+floop validate --scope global
+
+# Validate both stores
+floop validate --scope both
+
+# JSON output
+floop validate --json
+```
+
+**See also:** [deduplicate](#deduplicate), [graph](#graph)
+
+---
+
+### config
+
+Manage floop configuration.
+
+```
+floop config <subcommand> [args]
+```
+
+View and modify floop configuration settings. Configuration is stored in `~/.floop/config.yaml`.
+
+**Subcommands:**
+
+#### config list
+
+List all configuration settings.
+
+```
+floop config list
+```
+
+No command-specific flags.
+
+#### config get
+
+Get a configuration value.
+
+```
+floop config get <key>
+```
+
+#### config set
+
+Set a configuration value.
+
+```
+floop config set <key> <value>
+```
+
+**Available configuration keys:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `llm.provider` | string | LLM provider: `anthropic`, `openai`, `ollama`, `subagent`, or empty |
+| `llm.enabled` | bool | Enable LLM features |
+| `llm.api_key` | string | API key for LLM provider |
+| `llm.base_url` | string | Custom base URL for LLM API |
+| `llm.comparison_model` | string | Model used for behavior comparison |
+| `llm.merge_model` | string | Model used for behavior merging |
+| `llm.timeout` | duration | Request timeout (e.g., `30s`) |
+| `llm.fallback_to_rules` | bool | Fall back to rule-based processing if LLM fails |
+| `deduplication.auto_merge` | bool | Automatically merge duplicates |
+| `deduplication.similarity_threshold` | float | Similarity threshold (0.0-1.0) |
+
+**Examples:**
+
+```bash
+# Show all settings
+floop config list
+
+# Get a specific setting
+floop config get llm.provider
+
+# Set LLM provider
+floop config set llm.provider anthropic
+
+# Set API key
+floop config set llm.api_key $ANTHROPIC_API_KEY
+
+# JSON output
+floop config list --json
+```
+
+**See also:** [init](#init)
+
+---
+
+## Token Optimization
+
+Commands for managing token usage and behavior summaries.
+
+### summarize
+
+Generate or regenerate summaries for behaviors.
+
+```
+floop summarize [behavior-id] [flags]
+```
+
+Generates compressed summaries for behaviors to optimize token usage. Summaries are used in tiered injection when the full behavior content would exceed the token budget. Each summary is approximately 60 characters.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--all` | bool | `false` | Generate summaries for all behaviors |
+| `--missing` | bool | `false` | Only generate for behaviors without summaries |
+| `--scope` | string | `"local"` | Scope: `local`, `global`, or `both` |
+
+**Examples:**
+
+```bash
+# Generate summary for a specific behavior
+floop summarize b-1706000000000000000
+
+# Generate summaries for all behaviors
+floop summarize --all
+
+# Only fill in missing summaries
+floop summarize --missing
+
+# JSON output
+floop summarize --all --json
+```
+
+**See also:** [stats](#stats), [prompt](#prompt)
+
+---
+
+### stats
+
+Show behavior usage statistics.
+
+```
+floop stats [flags]
+```
+
+Displays usage statistics for learned behaviors including activation counts, follow rates, ranking scores, and token budget utilization. Helps understand which behaviors are most valuable and which may need review.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--top` | int | `0` | Show only top N behaviors (0 = all) |
+| `--sort` | string | `"score"` | Sort by: `score`, `activations`, `followed`, `rate`, `confidence`, `priority` |
+| `--scope` | string | `"local"` | Scope: `local`, `global`, or `both` |
+| `--budget` | int | `2000` | Token budget for injection simulation |
+
+**Examples:**
+
+```bash
+# Show all stats
+floop stats
+
+# Top 10 behaviors by usage
+floop stats --top 10
+
+# Sort by follow rate
+floop stats --sort rate
+
+# Simulate different token budget
+floop stats --budget 1000
+
+# JSON output for programmatic access
+floop stats --json
+```
+
+**See also:** [summarize](#summarize), [prompt](#prompt), [list](#list)
+
+---
+
+## Graph
+
+Commands for visualizing and managing the behavior graph.
+
+### graph
+
+Visualize the behavior graph.
+
+```
+floop graph [flags]
+```
+
+Outputs the behavior graph in DOT (Graphviz) or JSON format for visualization.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--format` | string | `"dot"` | Output format: `dot` or `json` |
+
+**Examples:**
+
+```bash
+# Generate DOT graph (pipe to Graphviz)
+floop graph | dot -Tpng -o graph.png
+
+# JSON format
+floop graph --format json
+
+# Save DOT to file
+floop graph > behaviors.dot
+```
+
+**See also:** [connect](#connect), [validate](#validate)
+
+---
+
+### connect
+
+Create an edge between two behaviors.
+
+```
+floop connect <source> <target> <kind> [flags]
+```
+
+Creates a semantic edge between two behaviors in the graph for spreading activation.
+
+**Edge kinds:**
+
+| Kind | Description |
+|------|-------------|
+| `requires` | Source depends on target |
+| `overrides` | Source replaces target in matching context |
+| `conflicts` | Source and target cannot both be active |
+| `similar-to` | Behaviors are related/similar |
+| `learned-from` | Source was derived from target |
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--weight` | float64 | `0.8` | Edge weight (0.0-1.0) |
+| `--bidirectional` | bool | `false` | Create edges in both directions |
+
+**Examples:**
+
+```bash
+# Connect two similar behaviors
+floop connect behavior-abc behavior-xyz similar-to
+
+# Set a custom weight
+floop connect behavior-abc behavior-xyz requires --weight 0.9
+
+# Bidirectional connection
+floop connect behavior-abc behavior-xyz similar-to --bidirectional
+
+# JSON output
+floop connect behavior-abc behavior-xyz conflicts --json
+```
+
+**See also:** [graph](#graph), [validate](#validate)
+
+---
+
+## Backup
+
+Commands for backing up and restoring the behavior graph.
+
+### backup
+
+Export the full graph state to a backup file.
+
+```
+floop backup [flags]
+```
+
+Backs up the complete behavior graph (nodes + edges) to a JSON file. Keeps the last 10 backups with automatic rotation.
+
+Default location: `~/.floop/backups/floop-backup-YYYYMMDD-HHMMSS.json`
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--output` | string | `""` | Output file path (default: auto-generated in `~/.floop/backups/`) |
+
+**Examples:**
+
+```bash
+# Backup to default location
+floop backup
+
+# Backup to a specific file
+floop backup --output my-backup.json
+
+# JSON output
+floop backup --json
+```
+
+**See also:** [restore-backup](#restore-backup)
+
+---
+
+### restore-backup
+
+Restore graph state from a backup file.
+
+```
+floop restore-backup <file> [flags]
+```
+
+Restores the behavior graph from a backup JSON file. In `merge` mode (default), existing nodes and edges are skipped. In `replace` mode, the store is cleared before restoring.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--mode` | string | `"merge"` | Restore mode: `merge` or `replace` |
+
+**Examples:**
+
+```bash
+# Restore with merge (skip existing)
+floop restore-backup ~/.floop/backups/floop-backup-20260206-120000.json
+
+# Replace entire store from backup
+floop restore-backup backup.json --mode replace
+
+# JSON output
+floop restore-backup backup.json --json
+```
+
+**See also:** [backup](#backup)
+
+---
+
+## Hooks
+
+Commands used internally by Claude Code hook scripts for automatic correction detection and dynamic context injection.
+
+### detect-correction
+
+Detect and capture corrections from user text.
+
+```
+floop detect-correction [flags]
+```
+
+Analyzes user text to detect corrections and automatically capture them. Used by hooks to automatically detect when a user is correcting the agent. Uses the `MightBeCorrection()` heuristic for fast pattern matching, then falls back to LLM extraction if available.
+
+Also accepts JSON input on stdin: `{"prompt":"..."}`.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--prompt` | string | `""` | User prompt text to analyze |
+| `--dry-run` | bool | `false` | Detect only, do not capture |
+
+**Examples:**
+
+```bash
+# Detect from flag
+floop detect-correction --prompt "No, don't use print, use logging instead"
+
+# Detect from stdin (hook usage)
+echo '{"prompt":"Actually, prefer pathlib over os.path"}' | floop detect-correction
+
+# Dry run -- detect without capturing
+floop detect-correction --prompt "Wrong, use fmt.Errorf not errors.New" --dry-run
+
+# JSON output
+floop detect-correction --prompt "No, use context.Background()" --json
+```
+
+**See also:** [learn](#learn)
+
+---
+
+### activate
+
+Run spreading activation for dynamic context injection.
+
+```
+floop activate [flags]
+```
+
+Evaluates the behavior graph using spreading activation and returns new or upgraded behaviors for injection. Respects session state to prevent re-injection spam.
+
+Designed to be called from Claude Code hooks on `PreToolUse` events (`Read`, `Bash`) to dynamically surface relevant behaviors as the agent's work context evolves.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--file` | string | `""` | File path for context |
+| `--task` | string | `""` | Task type for context |
+| `--format` | string | `"markdown"` | Output format: `markdown`, `json` |
+| `--token-budget` | int | `500` | Token budget for this injection |
+| `--session-id` | string | `"default"` | Session ID for state tracking |
+
+**Examples:**
+
+```bash
+# Activate for a specific file
+floop activate --file main.go
+
+# Activate with task context and budget
+floop activate --task testing --token-budget 500
+
+# With session tracking, JSON output
+floop activate --file main.py --session-id abc123 --json
+```
+
+**See also:** [active](#active), [prompt](#prompt)
+
+---
+
+## Server
+
+### mcp-server
+
+Run floop as an MCP (Model Context Protocol) server.
+
+```
+floop mcp-server
+```
+
+Starts an MCP server that exposes floop functionality over stdio using JSON-RPC 2.0. Allows AI tools (Continue.dev, Cursor, Cline, Windsurf, GitHub Copilot) to invoke floop tools directly:
+
+- `floop_active` -- Get active behaviors for current context
+- `floop_learn` -- Capture corrections and extract behaviors
+- `floop_list` -- List all behaviors or corrections
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+# Start the MCP server (runs until disconnected)
+floop mcp-server
+
+# In Continue.dev config.json:
+# {
+#   "mcpServers": {
+#     "floop": {
+#       "command": "floop",
+#       "args": ["mcp-server"],
+#       "cwd": "${workspaceFolder}"
+#     }
+#   }
+# }
+```
+
+**See also:** [docs/integrations/mcp-server.md](integrations/mcp-server.md)
+
+---
+
+## Command Index
+
+| Command | Category | Description |
+|---------|----------|-------------|
+| [activate](#activate) | Hooks | Run spreading activation for dynamic context injection |
+| [active](#active) | Query | Show behaviors active in current context |
+| [backup](#backup) | Backup | Export full graph state to a backup file |
+| [config](#config) | Management | Manage floop configuration |
+| [connect](#connect) | Graph | Create an edge between two behaviors |
+| [deduplicate](#deduplicate) | Management | Find and merge duplicate behaviors |
+| [deprecate](#deprecate) | Curation | Mark a behavior as deprecated |
+| [detect-correction](#detect-correction) | Hooks | Detect and capture corrections from user text |
+| [forget](#forget) | Curation | Soft-delete a behavior from active use |
+| [graph](#graph) | Graph | Visualize the behavior graph |
+| [init](#init) | Core | Initialize floop with hook scripts and behavior learning |
+| [learn](#learn) | Core | Capture a correction and extract behavior |
+| [list](#list) | Query | List behaviors or corrections |
+| [merge](#merge) | Curation | Merge two behaviors into one |
+| [mcp-server](#mcp-server) | Server | Run floop as an MCP server |
+| [prompt](#prompt) | Query | Generate prompt section from active behaviors |
+| [reprocess](#reprocess) | Core | Reprocess orphaned corrections into behaviors |
+| [restore](#restore) | Curation | Restore a deprecated or forgotten behavior |
+| [restore-backup](#restore-backup) | Backup | Restore graph state from a backup file |
+| [show](#show) | Query | Show details of a behavior |
+| [stats](#stats) | Token Optimization | Show behavior usage statistics |
+| [summarize](#summarize) | Token Optimization | Generate or regenerate summaries for behaviors |
+| [upgrade](#upgrade) | Core | Upgrade hook scripts to match current binary version |
+| [validate](#validate) | Management | Validate the behavior graph for consistency issues |
+| [version](#version) | Core | Print version information |
+| [why](#why) | Query | Explain why a behavior is or isn't active |
