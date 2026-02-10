@@ -750,8 +750,13 @@ func TestSubagentClient_DetectAvailability_LogsDecision(t *testing.T) {
 		t.Fatalf("failed to read decisions.jsonl: %v", err)
 	}
 
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 decision entry, got 0")
+	}
+
 	var entry map[string]any
-	if err := json.Unmarshal(data, &entry); err != nil {
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
 		t.Fatalf("failed to parse decision entry: %v", err)
 	}
 
