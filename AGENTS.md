@@ -81,13 +81,15 @@ go fmt ./...                # Format code
   - `chore:` maintenance
 
 ### Completing Work
-1. Ensure tests pass: `go test ./...`
-2. Format code: `go fmt ./...`
-3. Close the issue: `bd close <id> --reason "..."`
-4. Sync beads: `bd sync`
-5. Commit changes on a feature branch
-6. Push and create a PR — **never commit directly to main**
-7. Wait for review before merging
+1. **Run quality gates** (if code changed):
+   - `go test ./...` — Run tests
+   - `go fmt ./...` — Format code
+   - If `cmd/floop/` changed: verify `docs/CLI_REFERENCE.md` is current
+2. Close the issue: `bd close <id> --reason "..."`
+3. Sync beads: `bd sync`
+4. Commit changes on a feature branch
+5. Push and create a PR — **never commit directly to main**
+6. Wait for review before merging
 
 ## Project Structure
 
