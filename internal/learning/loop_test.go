@@ -388,7 +388,8 @@ func TestLearningLoop_ProcessCorrection_LogsAutoAccept(t *testing.T) {
 	}
 
 	if !result.AutoAccepted {
-		t.Skipf("behavior was not auto-accepted (review reasons: %v), skipping log check", result.ReviewReasons)
+		t.Fatalf("expected auto-accept with threshold 0.5, got RequiresReview=%v, reasons=%v",
+			result.RequiresReview, result.ReviewReasons)
 	}
 
 	// Read decisions.jsonl and verify auto_accept event
@@ -452,7 +453,7 @@ func TestLearningLoop_ProcessCorrection_LogsReviewRequired(t *testing.T) {
 	}
 
 	if !result.RequiresReview {
-		t.Skip("behavior did not require review, skipping log check")
+		t.Fatal("expected constraint correction to require review")
 	}
 
 	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
