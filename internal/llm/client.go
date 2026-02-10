@@ -87,3 +87,21 @@ type Client interface {
 	// For subagent clients, this checks that the CLI tool is available.
 	Available() bool
 }
+
+// EmbeddingComparer is an optional interface that Client implementations may support
+// for embedding-based similarity comparison. Consumers should type-assert to check
+// for support: if ec, ok := client.(EmbeddingComparer); ok { ... }
+type EmbeddingComparer interface {
+	// Embed returns a dense vector embedding for the given text.
+	Embed(ctx context.Context, text string) ([]float32, error)
+
+	// CompareEmbeddings embeds both texts and returns their cosine similarity.
+	// Returns a value between -1.0 and 1.0 (typically 0.0 to 1.0 for normalized embeddings).
+	CompareEmbeddings(ctx context.Context, a, b string) (float64, error)
+}
+
+// Closer is an optional interface for clients that hold resources requiring cleanup.
+// Consumers should type-assert and call Close when done: if c, ok := client.(Closer); ok { c.Close() }
+type Closer interface {
+	Close() error
+}
