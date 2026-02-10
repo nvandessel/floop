@@ -154,6 +154,7 @@
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1.5" stroke-dasharray="4,3"/></svg><span class="legend-label">conflicts</span></div>
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1" stroke-dasharray="2,2"/></svg><span class="legend-label">similar-to</span></div>
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="2"/></svg><span class="legend-label">learned-from</span></div>
+  <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#cba6f7" stroke-width="1.5" stroke-dasharray="6,3"/></svg><span class="legend-label">merged-into</span></div>
 </div>
 
 <script>
@@ -178,15 +179,26 @@
   // Edge styling
   var edgeWidth = {
     'requires': 2,
-    'overrides': 3.5,
+    'overrides': 3,
     'conflicts': 2,
     'similar-to': 1.2,
-    'learned-from': 2.5
+    'learned-from': 2.5,
+    'merged-into': 1.5
   };
   var edgeDash = {
     'conflicts': [4, 3],
-    'similar-to': [2, 2]
+    'similar-to': [2, 2],
+    'merged-into': [6, 3]
   };
+  var edgeColors = {
+    'requires': 'rgba(137,180,250,0.5)',
+    'overrides': 'rgba(243,139,168,0.5)',
+    'conflicts': 'rgba(243,139,168,0.6)',
+    'similar-to': 'rgba(166,173,200,0.35)',
+    'learned-from': 'rgba(166,227,161,0.5)',
+    'merged-into': 'rgba(203,166,247,0.4)'
+  };
+  var defaultEdgeColor = 'rgba(147,153,178,0.45)';
 
   // Build degree map for node sizing
   var degree = {};
@@ -257,7 +269,7 @@
       ctx.fillStyle = color;
       ctx.fill();
     })
-    .linkColor(function() { return 'rgba(147,153,178,0.45)'; })
+    .linkColor(function(l) { return edgeColors[l.kind] || defaultEdgeColor; })
     .linkWidth(function(l) { return edgeWidth[l.kind] || 1; })
     .linkLineDash(function(l) { return edgeDash[l.kind] || null; })
     .linkDirectionalArrowLength(5)
@@ -282,9 +294,12 @@
       }
     })
     .onNodeClick(function(node) {
+      graph.__nodeClickTime = Date.now();
       showDetail(node);
     })
     .onBackgroundClick(function() {
+      // Ignore if a node was just clicked (force-graph fires both events)
+      if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
       closePanel();
     })
     .onEngineStop(function() {
@@ -309,8 +324,8 @@
   var chargeStrength = -1000 - nodeCount * 20;
 
   graph.d3Force('charge').strength(chargeStrength);
-  // Very weak links — just enough to gently pull connected nodes closer
-  graph.d3Force('link').distance(250).strength(0.02);
+  // Weak but visible links — enough to pull connected nodes closer together
+  graph.d3Force('link').distance(180).strength(0.08);
   // Stronger centering to keep the spread graph on screen
   graph.d3Force('center').strength(0.05);
 
@@ -328,7 +343,6 @@
     document.getElementById('dp-name').textContent = node.name || node.id;
     var html = '';
 
-    html += section('ID', node.id);
     html += section('Kind', node.kind || 'unknown');
     html += barSection('Confidence', node.confidence || 0, kindColors[node.kind] || defaultColor);
 
@@ -338,6 +352,13 @@
 
     var deg = degree[node.id] || 0;
     html += section('Connections', deg);
+
+    // Show canonical content (the actual learning)
+    if (node.canonical) {
+      html += '<div class="dp-section"><div class="dp-label">Content</div><div class="dp-value" style="white-space:pre-wrap;font-size:12px;line-height:1.5;margin-top:4px;color:var(--subtext1)">' + esc(node.canonical) + '</div></div>';
+    }
+
+    html += '<div class="dp-section" style="margin-top:8px"><div class="dp-label">ID</div><div class="dp-value" style="font-size:10px;color:var(--overlay0);word-break:break-all">' + esc(node.id) + '</div></div>';
 
     document.getElementById('dp-content').innerHTML = html;
     panel.classList.add('open');

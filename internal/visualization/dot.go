@@ -173,32 +173,78 @@ type EnrichmentData struct {
 	PageRank map[string]float64
 }
 
-// RenderEnrichedJSON produces a JSON graph with optional enrichment data (e.g. PageRank scores).
-// If enrichment is nil, it behaves identically to RenderJSON.
+// RenderEnrichedJSON produces a JSON graph with optional enrichment data (e.g. PageRank scores)
+// and additional node fields (canonical content) for the HTML visualization.
+// If enrichment is nil, it still adds content fields but skips PageRank.
 func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData) (map[string]interface{}, error) {
-	base, err := RenderJSON(ctx, gs)
+	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	if err != nil {
+		return nil, fmt.Errorf("query nodes: %w", err)
+	}
+
+	jsonNodes := make([]map[string]interface{}, 0, len(nodes))
+	for _, node := range nodes {
+		name := ""
+		if n, ok := node.Content["name"].(string); ok {
+			name = n
+		}
+		kind := ""
+		if k, ok := node.Content["kind"].(string); ok {
+			kind = k
+		}
+		confidence := 0.6
+		if meta, ok := node.Metadata["confidence"].(float64); ok {
+			confidence = meta
+		}
+
+		// Extract canonical content for detail panel
+		canonical := ""
+		if content, ok := node.Content["content"].(map[string]interface{}); ok {
+			if c, ok := content["canonical"].(string); ok {
+				canonical = c
+			}
+		}
+
+		entry := map[string]interface{}{
+			"id":         node.ID,
+			"name":       name,
+			"kind":       kind,
+			"confidence": confidence,
+			"canonical":  canonical,
+		}
+
+		// Add PageRank if available
+		if enrichment != nil && enrichment.PageRank != nil {
+			if pr, exists := enrichment.PageRank[node.ID]; exists {
+				entry["pagerank"] = pr
+			}
+		}
+
+		jsonNodes = append(jsonNodes, entry)
+	}
+
+	// Collect edges
+	edges, err := collectEdges(ctx, gs, nodes)
 	if err != nil {
 		return nil, err
 	}
 
-	if enrichment == nil {
-		return base, nil
+	jsonEdges := make([]map[string]interface{}, 0, len(edges))
+	for _, edge := range edges {
+		jsonEdges = append(jsonEdges, map[string]interface{}{
+			"source": edge.Source,
+			"target": edge.Target,
+			"kind":   edge.Kind,
+			"weight": edge.Weight,
+		})
 	}
 
-	// Enrich nodes with PageRank scores
-	if enrichment.PageRank != nil {
-		if nodes, ok := base["nodes"].([]map[string]interface{}); ok {
-			for _, node := range nodes {
-				if id, ok := node["id"].(string); ok {
-					if pr, exists := enrichment.PageRank[id]; exists {
-						node["pagerank"] = pr
-					}
-				}
-			}
-		}
-	}
-
-	return base, nil
+	return map[string]interface{}{
+		"nodes":      jsonNodes,
+		"edges":      jsonEdges,
+		"node_count": len(jsonNodes),
+		"edge_count": len(jsonEdges),
+	}, nil
 }
 
 // htmlTemplateData holds data passed to the HTML template.

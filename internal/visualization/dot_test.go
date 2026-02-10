@@ -200,7 +200,7 @@ func TestRenderEnrichedJSON_NilEnrichment(t *testing.T) {
 		t.Fatalf("RenderEnrichedJSON: %v", err)
 	}
 
-	// Should work like regular RenderJSON
+	// Should still return nodes and edges
 	nodeCount, ok := result["node_count"].(int)
 	if !ok || nodeCount != 1 {
 		t.Errorf("node_count = %v, want 1", result["node_count"])
@@ -215,6 +215,33 @@ func TestRenderEnrichedJSON_NilEnrichment(t *testing.T) {
 		if _, hasPR := node["pagerank"]; hasPR {
 			t.Error("expected no pagerank field when enrichment is nil")
 		}
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesCanonical(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes, ok := result["nodes"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("expected nodes to be []map[string]interface{}")
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	canonical, ok := nodes[0]["canonical"].(string)
+	if !ok {
+		t.Fatal("expected canonical field on node")
+	}
+	if canonical != "Test: use-worktrees" {
+		t.Errorf("canonical = %q, want %q", canonical, "Test: use-worktrees")
 	}
 }
 
