@@ -1,4 +1,4 @@
-.PHONY: build build-local test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean
+.PHONY: build build-local test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean docs-validate
 
 build:
 	go build -o ./floop ./cmd/floop
@@ -37,3 +37,17 @@ ci: fmt-check lint vet test build
 
 clean:
 	rm -f ./floop coverage.out coverage.html
+
+docs-validate:
+	@echo "Validating CLI reference documentation..."
+	@missing=""; \
+	for cmd in $$(./floop --help 2>&1 | awk '/Available Commands:/{found=1; next} found && /^  [a-z]/{print $$1} found && /^$$/{exit}'); do \
+		if ! grep -q "## $$cmd" docs/CLI_REFERENCE.md 2>/dev/null; then \
+			missing="$$missing $$cmd"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: Commands missing from docs/CLI_REFERENCE.md:$$missing"; \
+		exit 1; \
+	fi; \
+	echo "All commands documented."

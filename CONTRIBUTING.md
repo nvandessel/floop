@@ -31,8 +31,9 @@ make ci
 2. **Fork and branch** — Create a feature branch from `main` (`feat/description` or `fix/description`)
 3. **Write code** — Follow the [Go coding standards](docs/GO_GUIDELINES.md)
 4. **Write tests** — All changes need tests (see Testing below)
-5. **Run CI locally** — `make ci` must pass
-6. **Submit a PR** — Reference the related issue
+5. **Update docs** — If adding or changing CLI commands or flags, update `docs/CLI_REFERENCE.md`
+6. **Run CI locally** — `make ci` must pass
+7. **Submit a PR** — Reference the related issue
 
 ## Code Standards
 
