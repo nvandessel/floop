@@ -988,7 +988,7 @@ floop mcp-server
 # }
 ```
 
-**See also:** [docs/integrations/mcp-server.md](integrations/mcp-server.md)
+**See also:** [MCP server integration guide](integrations/mcp-server.md), [Claude Code integration guide](integrations/claude-code.md)
 
 ---
 
