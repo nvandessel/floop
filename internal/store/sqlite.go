@@ -1249,7 +1249,8 @@ func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string)
 		args = append(args, id)
 	}
 
-	query := fmt.Sprintf(
+	// G201: inClause is only "?,?,?" placeholders built from len(behaviorIDs) — no user input.
+	query := fmt.Sprintf( //nolint:gosec // placeholder-only IN clause
 		`UPDATE edges SET last_activated = ? WHERE source IN (%s) OR target IN (%s)`,
 		inClause, inClause)
 
