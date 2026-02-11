@@ -358,6 +358,56 @@ func (m *MultiGraphStore) UpdateConfidence(ctx context.Context, behaviorID strin
 	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
 }
 
+// RecordActivationHit delegates to whichever store contains the behavior.
+func (m *MultiGraphStore) RecordActivationHit(ctx context.Context, behaviorID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Try local first
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		localNode, err := m.localStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking local store: %w", err)
+		}
+		if localNode != nil {
+			return localStore.RecordActivationHit(ctx, behaviorID)
+		}
+	}
+
+	// Try global
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		globalNode, err := m.globalStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking global store: %w", err)
+		}
+		if globalNode != nil {
+			return globalStore.RecordActivationHit(ctx, behaviorID)
+		}
+	}
+
+	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
+}
+
+// TouchEdges delegates to both stores.
+func (m *MultiGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		if err := localStore.TouchEdges(ctx, behaviorIDs); err != nil {
+			return fmt.Errorf("local TouchEdges: %w", err)
+		}
+	}
+
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		if err := globalStore.TouchEdges(ctx, behaviorIDs); err != nil {
+			return fmt.Errorf("global TouchEdges: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // ValidateBehaviorGraph validates both stores and combines errors.
 // Errors from local store are prefixed with "local: " and global with "global: ".
 func (m *MultiGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error) {

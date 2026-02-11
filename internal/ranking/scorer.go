@@ -203,6 +203,13 @@ func (s *RelevanceScorer) usageScore(behavior *models.Behavior) float64 {
 		return 0.5
 	}
 
+	// No follow/confirm/override feedback yet — stay neutral.
+	// Without this, incrementing TimesActivated would produce 0/N = 0.0,
+	// penalizing all behaviors as soon as activation tracking starts.
+	if stats.TimesFollowed == 0 && stats.TimesConfirmed == 0 && stats.TimesOverridden == 0 {
+		return 0.5
+	}
+
 	// TimesFollowed + TimesConfirmed = positive signals
 	positiveSignals := stats.TimesFollowed + stats.TimesConfirmed
 	totalActivations := stats.TimesActivated

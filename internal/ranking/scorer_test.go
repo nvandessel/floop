@@ -258,6 +258,34 @@ func TestRelevanceScorer_ScoreBatch(t *testing.T) {
 	}
 }
 
+func TestUsageScore_NoFeedback(t *testing.T) {
+	scorer := NewRelevanceScorer(DefaultScorerConfig())
+	now := time.Now()
+
+	// Behavior has been activated 5 times but has no follow/confirm/override feedback
+	behavior := &models.Behavior{
+		ID:         "no-feedback",
+		Kind:       models.BehaviorKindDirective,
+		Confidence: 0.8,
+		Priority:   5,
+		Stats: models.BehaviorStats{
+			TimesActivated:  5,
+			TimesFollowed:   0,
+			TimesConfirmed:  0,
+			TimesOverridden: 0,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+	}
+
+	result := scorer.Score(behavior, nil)
+
+	// UsageScore should be 0.5 (neutral), NOT 0.0 (penalty from 0/5 ratio)
+	if result.UsageScore != 0.5 {
+		t.Errorf("UsageScore = %f, want 0.5 (neutral when no feedback data)", result.UsageScore)
+	}
+}
+
 func TestExponentialDecay(t *testing.T) {
 	halfLife := 7 * 24 * time.Hour
 

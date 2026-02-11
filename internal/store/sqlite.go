@@ -1197,6 +1197,71 @@ func (s *SQLiteGraphStore) UpdateConfidence(ctx context.Context, behaviorID stri
 	return nil
 }
 
+// RecordActivationHit increments times_activated and updates last_activated
+// for a behavior. This is called as a background side-effect of floop_active.
+func (s *SQLiteGraphStore) RecordActivationHit(ctx context.Context, behaviorID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE behavior_stats SET times_activated = times_activated + 1, last_activated = ? WHERE behavior_id = ?`,
+		now, behaviorID)
+	if err != nil {
+		return fmt.Errorf("failed to record activation hit for %s: %w", behaviorID, err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("behavior not found: %s", behaviorID)
+	}
+
+	return nil
+}
+
+// TouchEdges updates last_activated on all edges where the source or target
+// is one of the given behavior IDs. This enables temporal decay on edge
+// weights in the spreading activation engine.
+func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string) error {
+	if len(behaviorIDs) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Build parameterized IN clause
+	placeholders := make([]string, len(behaviorIDs))
+	args := make([]interface{}, 0, 1+2*len(behaviorIDs))
+	now := time.Now().Format(time.RFC3339)
+	args = append(args, now)
+	for i, id := range behaviorIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	inClause := joinStrings(placeholders, ",")
+
+	// Duplicate the IDs for the OR target IN clause
+	for _, id := range behaviorIDs {
+		args = append(args, id)
+	}
+
+	// G201: inClause is only "?,?,?" placeholders built from len(behaviorIDs) — no user input.
+	query := fmt.Sprintf( //nolint:gosec // placeholder-only IN clause
+		`UPDATE edges SET last_activated = ? WHERE source IN (%s) OR target IN (%s)`,
+		inClause, inClause)
+
+	_, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to touch edges: %w", err)
+	}
+
+	return nil
+}
+
 // Close syncs and closes the store.
 func (s *SQLiteGraphStore) Close() error {
 	if err := s.Sync(context.Background()); err != nil {

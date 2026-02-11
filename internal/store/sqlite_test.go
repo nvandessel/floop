@@ -1338,3 +1338,161 @@ func TestSQLiteGraphStore_ProvenanceCreatedAtRoundTrip(t *testing.T) {
 		t.Errorf("created_at = %v, want ~%v", createdAt, now)
 	}
 }
+
+func TestSQLiteStore_RecordActivationHit(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior
+	_, err = s.AddNode(ctx, Node{
+		ID:   "hit-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Hit Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test activation hit recording",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	// Record first hit
+	err = s.RecordActivationHit(ctx, "hit-test")
+	if err != nil {
+		t.Fatalf("RecordActivationHit() error = %v", err)
+	}
+
+	// Verify times_activated = 1 and last_activated is set
+	var timesActivated int
+	var lastActivated sql.NullString
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_activated, last_activated FROM behavior_stats WHERE behavior_id = ?`,
+		"hit-test").Scan(&timesActivated, &lastActivated)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesActivated != 1 {
+		t.Errorf("times_activated = %d, want 1", timesActivated)
+	}
+	if !lastActivated.Valid {
+		t.Error("last_activated should be set after first hit")
+	}
+
+	// Record second hit
+	err = s.RecordActivationHit(ctx, "hit-test")
+	if err != nil {
+		t.Fatalf("RecordActivationHit() second call error = %v", err)
+	}
+
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_activated FROM behavior_stats WHERE behavior_id = ?`,
+		"hit-test").Scan(&timesActivated)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesActivated != 2 {
+		t.Errorf("times_activated = %d, want 2", timesActivated)
+	}
+}
+
+func TestSQLiteStore_RecordActivationHit_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	err = s.RecordActivationHit(ctx, "nonexistent-id")
+	if err == nil {
+		t.Error("RecordActivationHit() expected error for nonexistent behavior")
+	}
+}
+
+func TestSQLiteStore_TouchEdges(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add nodes
+	for _, id := range []string{"touch-a", "touch-b", "touch-c", "touch-d"} {
+		s.AddNode(ctx, Node{
+			ID:   id,
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": id + " content",
+				},
+			},
+		})
+	}
+
+	// Add edges: a->b, a->c, c->d (d is not connected to a)
+	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-b", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-c", Kind: "similar-to", Weight: 0.6, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "touch-c", Target: "touch-d", Kind: "requires", Weight: 0.5, CreatedAt: time.Now()})
+
+	// Touch edges for seed ["touch-a"]
+	err = s.TouchEdges(ctx, []string{"touch-a"})
+	if err != nil {
+		t.Fatalf("TouchEdges() error = %v", err)
+	}
+
+	// Edges a->b and a->c should have last_activated set
+	edges, err := s.GetEdges(ctx, "touch-a", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	for _, e := range edges {
+		if e.LastActivated == nil {
+			t.Errorf("edge %s->%s: LastActivated should be set after TouchEdges", e.Source, e.Target)
+		}
+	}
+
+	// Edge c->d should NOT have last_activated set (touch-c is not in seed list)
+	edges, err = s.GetEdges(ctx, "touch-c", DirectionOutbound, "requires")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge from touch-c, got %d", len(edges))
+	}
+	if edges[0].LastActivated != nil {
+		t.Error("edge touch-c->touch-d: LastActivated should be nil (not in seed list)")
+	}
+}
+
+func TestSQLiteStore_TouchEdges_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Empty slice should not error
+	err = s.TouchEdges(ctx, []string{})
+	if err != nil {
+		t.Errorf("TouchEdges(empty) error = %v, want nil", err)
+	}
+}
