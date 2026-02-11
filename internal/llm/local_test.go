@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/models"
@@ -14,14 +16,127 @@ func TestNewLocalClient(t *testing.T) {
 	}
 }
 
-func TestLocalClient_Available(t *testing.T) {
+func TestLocalClient_Available_EmptyConfig(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 	if client.Available() {
-		t.Error("stub LocalClient.Available() should return false")
+		t.Error("Available() should return false with empty config")
 	}
 }
 
-func TestLocalClient_CompareBehaviors(t *testing.T) {
+func TestLocalClient_Available_MissingLibPath(t *testing.T) {
+	t.Setenv("YZMA_LIB", "")
+	client := NewLocalClient(LocalConfig{
+		EmbeddingModelPath: "/some/model.gguf",
+	})
+	if client.Available() {
+		t.Error("Available() should return false when lib path is missing")
+	}
+}
+
+func TestLocalClient_Available_MissingModelPath(t *testing.T) {
+	client := NewLocalClient(LocalConfig{
+		LibPath: "/some/lib/dir",
+	})
+	if client.Available() {
+		t.Error("Available() should return false when model path is missing")
+	}
+}
+
+func TestLocalClient_Available_LibPathNotDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "not-a-dir")
+	if err := os.WriteFile(tmpFile, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	modelFile := filepath.Join(tmpDir, "model.gguf")
+	if err := os.WriteFile(modelFile, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewLocalClient(LocalConfig{
+		LibPath:            tmpFile, // file, not dir
+		EmbeddingModelPath: modelFile,
+	})
+	if client.Available() {
+		t.Error("Available() should return false when lib path is a file, not a directory")
+	}
+}
+
+func TestLocalClient_Available_BothExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	libDir := filepath.Join(tmpDir, "lib")
+	if err := os.Mkdir(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	modelFile := filepath.Join(tmpDir, "model.gguf")
+	if err := os.WriteFile(modelFile, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewLocalClient(LocalConfig{
+		LibPath:            libDir,
+		EmbeddingModelPath: modelFile,
+	})
+	if !client.Available() {
+		t.Error("Available() should return true when both lib dir and model file exist")
+	}
+}
+
+func TestLocalClient_Available_FallbackToYZMALIB(t *testing.T) {
+	tmpDir := t.TempDir()
+	libDir := filepath.Join(tmpDir, "lib")
+	if err := os.Mkdir(libDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	modelFile := filepath.Join(tmpDir, "model.gguf")
+	if err := os.WriteFile(modelFile, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("YZMA_LIB", libDir)
+	client := NewLocalClient(LocalConfig{
+		EmbeddingModelPath: modelFile,
+		// LibPath empty — should fall back to YZMA_LIB
+	})
+	if !client.Available() {
+		t.Error("Available() should return true when YZMA_LIB is set and model exists")
+	}
+}
+
+func TestLocalClient_Embed_NoModelPath(t *testing.T) {
+	client := NewLocalClient(LocalConfig{})
+	ctx := context.Background()
+
+	_, err := client.Embed(ctx, "test text")
+	if err == nil {
+		t.Error("Embed should return error with no model path")
+	}
+}
+
+func TestLocalClient_Embed_NoLibPath(t *testing.T) {
+	t.Setenv("YZMA_LIB", "")
+	client := NewLocalClient(LocalConfig{
+		EmbeddingModelPath: "/some/model.gguf",
+	})
+	ctx := context.Background()
+
+	_, err := client.Embed(ctx, "test text")
+	if err == nil {
+		t.Error("Embed should return error with no lib path")
+	}
+}
+
+func TestLocalClient_CompareEmbeddings_NoConfig(t *testing.T) {
+	client := NewLocalClient(LocalConfig{})
+	ctx := context.Background()
+
+	_, err := client.CompareEmbeddings(ctx, "text a", "text b")
+	if err == nil {
+		t.Error("CompareEmbeddings should return error with no config")
+	}
+}
+
+func TestLocalClient_CompareBehaviors_NoConfig(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 	ctx := context.Background()
 
@@ -30,7 +145,7 @@ func TestLocalClient_CompareBehaviors(t *testing.T) {
 
 	_, err := client.CompareBehaviors(ctx, a, b)
 	if err == nil {
-		t.Error("stub CompareBehaviors should return error")
+		t.Error("CompareBehaviors should return error with no config")
 	}
 }
 
@@ -52,43 +167,22 @@ func TestLocalClient_MergeBehaviors(t *testing.T) {
 	}
 }
 
-func TestLocalClient_Embed(t *testing.T) {
-	client := NewLocalClient(LocalConfig{})
-	ctx := context.Background()
-
-	_, err := client.Embed(ctx, "test text")
-	if err == nil {
-		t.Error("stub Embed should return error")
-	}
-}
-
-func TestLocalClient_CompareEmbeddings(t *testing.T) {
-	client := NewLocalClient(LocalConfig{})
-	ctx := context.Background()
-
-	_, err := client.CompareEmbeddings(ctx, "text a", "text b")
-	if err == nil {
-		t.Error("stub CompareEmbeddings should return error")
-	}
-}
-
 func TestLocalClient_Close(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 	if err := client.Close(); err != nil {
-		t.Errorf("stub Close() should not return error, got: %v", err)
+		t.Errorf("Close() should not return error, got: %v", err)
+	}
+	// Double close should be safe
+	if err := client.Close(); err != nil {
+		t.Errorf("second Close() should not return error, got: %v", err)
 	}
 }
 
 func TestLocalClient_ImplementsInterfaces(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 
-	// Verify Client interface
 	var _ Client = client
-
-	// Verify EmbeddingComparer interface
 	var _ EmbeddingComparer = client
-
-	// Verify Closer interface
 	var _ Closer = client
 }
 
@@ -113,7 +207,6 @@ func TestLocalConfig_Fields(t *testing.T) {
 func TestLocalConfig_FallbackModelPath(t *testing.T) {
 	cfg := LocalConfig{
 		ModelPath: "/path/to/model.gguf",
-		// EmbeddingModelPath is empty — should fall back to ModelPath
 	}
 
 	client := NewLocalClient(cfg)
@@ -126,5 +219,13 @@ func TestLocalConfig_DefaultContextSize(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 	if client.contextSize != 512 {
 		t.Errorf("contextSize = %d, want 512 (default)", client.contextSize)
+	}
+}
+
+func TestLocalConfig_FallbackLibPathFromEnv(t *testing.T) {
+	t.Setenv("YZMA_LIB", "/env/lib/yzma")
+	client := NewLocalClient(LocalConfig{})
+	if client.libPath != "/env/lib/yzma" {
+		t.Errorf("libPath = %q, want %q (from YZMA_LIB)", client.libPath, "/env/lib/yzma")
 	}
 }
