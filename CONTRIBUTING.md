@@ -65,6 +65,28 @@ Use [conventional commits](https://www.conventionalcommits.org/):
 - `test:` test additions or changes
 - `chore:` maintenance
 
+## Release Process
+
+Releases are automated using GoReleaser and GitHub Actions. Only maintainers can trigger releases.
+
+**To create a new release:**
+
+1. Ensure `main` branch is clean and all tests pass
+2. Update `CHANGELOG.md` with release notes
+3. Trigger the version bump workflow:
+   ```bash
+   gh workflow run version-bump.yml -f bump=<patch|minor|major>
+   ```
+4. Monitor the release workflow: `gh run watch`
+5. Verify the release on GitHub: `gh release view <version>`
+
+**Version semantics:**
+- `patch` (0.0.X) — Bug fixes, minor improvements
+- `minor` (0.X.0) — New features, backwards-compatible changes
+- `major` (X.0.0) — Breaking changes, major architectural shifts
+
+For detailed instructions, see [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md).
+
 ## Pull Request Expectations
 
 - PRs should be focused — one logical change per PR

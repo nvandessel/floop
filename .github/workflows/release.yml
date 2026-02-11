@@ -10,28 +10,27 @@ permissions:
 
 jobs:
   release:
-    name: Build & Release
+    name: Release with GoReleaser
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Required for changelog generation
+
+      - name: Fetch tags
+        run: git fetch --force --tags
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
 
-      - name: Build binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -ldflags="-s -w" -o "floop-${GOOS}-${GOARCH}${ext}" ./cmd/floop
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          files: floop-*
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

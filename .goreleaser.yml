@@ -1,0 +1,93 @@
+# GoReleaser configuration for feedback-loop
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Ensure dependencies are up to date
+    - go mod tidy
+
+builds:
+  - id: floop
+    main: ./cmd/floop
+    binary: floop
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Ensure all combinations are built
+    ignore: []
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - docs/**/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 2
+    - title: Other Changes
+      order: 999
+  filters:
+    exclude:
+      - '^chore:'
+      - '^ci:'
+      - '^build:'
+      - '^test:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+
+release:
+  github:
+    owner: nvandessel
+    name: feedback-loop
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## feedback-loop {{ .Tag }}
+
+    Release artifacts for version {{ .Tag }}.
+  footer: |
+    ## Installation
+
+    Download the appropriate archive for your platform, extract it, and move the `floop` binary to your PATH.
+
+    **Full changelog**: https://github.com/nvandessel/feedback-loop/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# Disable features we're not using yet
+dockers: []
+brews: []
+scoops: []
+nfpms: []
