@@ -18,6 +18,9 @@ coverage.html
 .beads/*.db-wal
 .beads/daemon.*
 
+# Build artifacts
+build/
+
 # Git worktrees for parallel agent work
 .worktrees/
 
