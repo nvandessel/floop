@@ -1,7 +1,10 @@
 package llm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
@@ -669,5 +673,159 @@ func TestSubagentClient_MergeBehaviors_EmptyInput(t *testing.T) {
 	}
 	if err.Error() != "no behaviors to merge" {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestNewSubagentClient_LoggingWiring(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	client := NewSubagentClient(SubagentConfig{
+		Logger:         logger,
+		DecisionLogger: dl,
+	})
+
+	if client.logger != logger {
+		t.Error("expected logger to be wired through config")
+	}
+	if client.decisions != dl {
+		t.Error("expected decision logger to be wired through config")
+	}
+}
+
+func TestNewSubagentClient_NilLoggerDefault(t *testing.T) {
+	client := NewSubagentClient(SubagentConfig{})
+
+	// Should have a non-nil logger (discard logger)
+	if client.logger == nil {
+		t.Error("expected non-nil default logger")
+	}
+}
+
+func TestSubagentClient_DetectAvailability_LogsDecision(t *testing.T) {
+	// Save and restore env
+	envVars := []string{"CLAUDE_CODE", "CLAUDE_SESSION_ID", "ANTHROPIC_CLI"}
+	saved := make(map[string]string)
+	for _, v := range envVars {
+		saved[v] = os.Getenv(v)
+	}
+	defer func() {
+		for k, v := range saved {
+			if v == "" {
+				os.Unsetenv(k)
+			} else {
+				os.Setenv(k, v)
+			}
+		}
+	}()
+
+	// Clear all CLI env vars
+	for _, v := range envVars {
+		os.Unsetenv(v)
+	}
+
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	client := NewSubagentClient(SubagentConfig{
+		Logger:         logger,
+		DecisionLogger: dl,
+	})
+
+	// Trigger availability detection
+	client.Available()
+
+	// Check decision log was written
+	dl.Close() // flush
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 decision entry, got 0")
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("failed to parse decision entry: %v", err)
+	}
+
+	if entry["event"] != "llm_availability" {
+		t.Errorf("event = %v, want llm_availability", entry["event"])
+	}
+	if entry["available"] != false {
+		t.Errorf("available = %v, want false", entry["available"])
+	}
+
+	// Check stderr log
+	if !strings.Contains(buf.String(), "subagent not available") {
+		t.Errorf("expected debug log about availability, got: %q", buf.String())
+	}
+}
+
+func TestSubagentClient_RunSubagent_LogsDecision(t *testing.T) {
+	// Create a mock CLI
+	tmpDir := t.TempDir()
+	mockCLI := filepath.Join(tmpDir, "mock-cli")
+	script := "#!/bin/sh\ncat\n"
+	if err := os.WriteFile(mockCLI, []byte(script), 0o755); err != nil {
+		t.Fatalf("creating mock CLI: %v", err)
+	}
+
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	client := &SubagentClient{
+		cliPath:   mockCLI,
+		model:     "test",
+		timeout:   5 * time.Second,
+		logger:    logger,
+		decisions: dl,
+	}
+
+	_, err := client.runSubagent(context.Background(), "test prompt")
+	if err != nil {
+		t.Fatalf("runSubagent error: %v", err)
+	}
+
+	dl.Close()
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 decision entries (request+response), got %d", len(lines))
+	}
+
+	// Check request event
+	var req map[string]any
+	json.Unmarshal([]byte(lines[0]), &req)
+	if req["event"] != "llm_request" {
+		t.Errorf("first event = %v, want llm_request", req["event"])
+	}
+
+	// Check response event
+	var resp map[string]any
+	json.Unmarshal([]byte(lines[1]), &resp)
+	if resp["event"] != "llm_response" {
+		t.Errorf("second event = %v, want llm_response", resp["event"])
+	}
+	if resp["success"] != true {
+		t.Errorf("success = %v, want true", resp["success"])
 	}
 }
