@@ -2,9 +2,14 @@ package learning
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -349,5 +354,155 @@ func TestLearningLoop_NeedsReview_MergeAction(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected merge reason, got: %v", reasons)
+	}
+}
+
+func TestLearningLoop_ProcessCorrection_LogsAutoAccept(t *testing.T) {
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	s := store.NewInMemoryGraphStore()
+	cfg := &LearningLoopConfig{
+		AutoAcceptThreshold: 0.5,
+		Logger:              logging.NewLogger("debug", os.Stderr),
+		DecisionLogger:      dl,
+	}
+	loop := NewLearningLoop(s, cfg)
+	ctx := context.Background()
+
+	correction := models.Correction{
+		ID:              "test-correction-log",
+		Timestamp:       time.Now(),
+		AgentAction:     "used fmt.Println",
+		CorrectedAction: "use log.Printf for logging",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "go",
+		},
+	}
+
+	result, err := loop.ProcessCorrection(ctx, correction)
+	if err != nil {
+		t.Fatalf("ProcessCorrection failed: %v", err)
+	}
+
+	if !result.AutoAccepted {
+		t.Fatalf("expected auto-accept with threshold 0.5, got RequiresReview=%v, reasons=%v",
+			result.RequiresReview, result.ReviewReasons)
+	}
+
+	// Read decisions.jsonl and verify auto_accept event
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	found := false
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event["event"] == "auto_accept" {
+			found = true
+			if event["accepted"] != true {
+				t.Errorf("expected accepted=true, got %v", event["accepted"])
+			}
+			if _, ok := event["confidence"]; !ok {
+				t.Error("expected confidence field")
+			}
+			if _, ok := event["threshold"]; !ok {
+				t.Error("expected threshold field")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected auto_accept event, got:\n%s", string(data))
+	}
+}
+
+func TestLearningLoop_ProcessCorrection_LogsReviewRequired(t *testing.T) {
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	s := store.NewInMemoryGraphStore()
+	cfg := &LearningLoopConfig{
+		Logger:         logging.NewLogger("debug", os.Stderr),
+		DecisionLogger: dl,
+	}
+	loop := NewLearningLoop(s, cfg)
+	ctx := context.Background()
+
+	// Constraints always require review
+	correction := models.Correction{
+		ID:              "test-correction-review",
+		Timestamp:       time.Now(),
+		AgentAction:     "committed directly to main",
+		CorrectedAction: "never commit directly to main branch",
+		Context: models.ContextSnapshot{
+			Timestamp: time.Now(),
+		},
+	}
+
+	result, err := loop.ProcessCorrection(ctx, correction)
+	if err != nil {
+		t.Fatalf("ProcessCorrection failed: %v", err)
+	}
+
+	if !result.RequiresReview {
+		t.Fatal("expected constraint correction to require review")
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	found := false
+	for _, line := range lines {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		if event["event"] == "review_required" {
+			found = true
+			if _, ok := event["reasons"]; !ok {
+				t.Error("expected reasons field")
+			}
+			if _, ok := event["behavior_id"]; !ok {
+				t.Error("expected behavior_id field")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected review_required event, got:\n%s", string(data))
+	}
+}
+
+func TestLearningLoop_NilDecisionLogger_DoesNotPanic(t *testing.T) {
+	s := store.NewInMemoryGraphStore()
+	// No logger or decision logger
+	loop := NewLearningLoop(s, nil)
+	ctx := context.Background()
+
+	correction := models.Correction{
+		ID:              "test-nil-logger",
+		Timestamp:       time.Now(),
+		AgentAction:     "used pip install",
+		CorrectedAction: "use uv instead of pip",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "python",
+		},
+	}
+
+	// Should not panic with nil loggers
+	_, err := loop.ProcessCorrection(ctx, correction)
+	if err != nil {
+		t.Fatalf("ProcessCorrection failed: %v", err)
 	}
 }

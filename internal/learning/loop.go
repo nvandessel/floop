@@ -3,11 +3,13 @@ package learning
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/llm"
+	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -81,6 +83,12 @@ type LearningLoopConfig struct {
 	// Deduplicator is the optional deduplicator for finding duplicates.
 	// If nil, auto-merge is disabled regardless of AutoMerge setting.
 	Deduplicator dedup.Deduplicator
+
+	// Logger is the optional structured logger for operational output.
+	Logger *slog.Logger
+
+	// DecisionLogger is the optional decision event logger.
+	DecisionLogger *logging.DecisionLogger
 }
 
 // DefaultLearningLoopConfig returns sensible defaults for the learning loop.
@@ -121,6 +129,8 @@ func NewLearningLoop(s store.GraphStore, config *LearningLoopConfig) LearningLoo
 		autoMerge:           cfg.AutoMerge,
 		autoMergeThreshold:  cfg.AutoMergeThreshold,
 		deduplicator:        cfg.Deduplicator,
+		logger:              cfg.Logger,
+		decisions:           cfg.DecisionLogger,
 	}
 }
 
@@ -134,6 +144,8 @@ type learningLoop struct {
 	autoMerge           bool
 	autoMergeThreshold  float64
 	deduplicator        dedup.Deduplicator
+	logger              *slog.Logger
+	decisions           *logging.DecisionLogger
 }
 
 // ProcessCorrection implements LearningLoop.
@@ -142,6 +154,10 @@ func (l *learningLoop) ProcessCorrection(ctx context.Context, correction models.
 	candidate, err := l.extractor.Extract(correction)
 	if err != nil {
 		return nil, fmt.Errorf("extraction failed: %w", err)
+	}
+
+	if l.logger != nil {
+		l.logger.Debug("behavior extracted", "behavior_id", candidate.ID, "kind", candidate.Kind, "correction_id", correction.ID)
 	}
 
 	// Step 2: Check for duplicates and auto-merge if enabled
@@ -157,6 +173,10 @@ func (l *learningLoop) ProcessCorrection(ctx context.Context, correction models.
 	placement, err := l.placer.Place(ctx, candidate)
 	if err != nil {
 		return nil, fmt.Errorf("placement failed: %w", err)
+	}
+
+	if l.logger != nil {
+		l.logger.Debug("placement decided", "behavior_id", candidate.ID, "action", placement.Action, "confidence", placement.Confidence)
 	}
 
 	// Step 4: Decide if auto-accept or needs review
@@ -206,7 +226,32 @@ func (l *learningLoop) tryAutoMerge(ctx context.Context, candidate *models.Behav
 	}
 
 	if bestMatch == nil {
+		if l.logger != nil {
+			l.logger.Debug("no merge candidate found", "behavior_id", candidate.ID, "duplicates_found", len(duplicates))
+		}
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":            "auto_merge_skipped",
+				"behavior_id":      candidate.ID,
+				"duplicates_found": len(duplicates),
+				"threshold":        l.autoMergeThreshold,
+				"reason":           "no duplicate above threshold",
+			})
+		}
 		return nil, nil // No suitable duplicate found
+	}
+
+	if l.logger != nil {
+		l.logger.Debug("auto-merge triggered", "behavior_id", candidate.ID, "merge_target", bestMatch.Behavior.ID, "similarity", bestMatch.Similarity)
+	}
+	if l.decisions != nil {
+		l.decisions.Log(map[string]any{
+			"event":        "auto_merge_triggered",
+			"behavior_id":  candidate.ID,
+			"merge_target": bestMatch.Behavior.ID,
+			"similarity":   bestMatch.Similarity,
+			"threshold":    l.autoMergeThreshold,
+		})
 	}
 
 	// Perform the merge
@@ -265,7 +310,37 @@ func (l *learningLoop) needsReview(candidate *models.Behavior, placement *Placem
 		}
 	}
 
-	return len(reasons) > 0, reasons
+	needsRev := len(reasons) > 0
+
+	if needsRev {
+		if l.logger != nil {
+			l.logger.Debug("review required", "behavior_id", candidate.ID, "reasons", reasons)
+		}
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":       "review_required",
+				"behavior_id": candidate.ID,
+				"reasons":     reasons,
+				"confidence":  placement.Confidence,
+			})
+		}
+	} else {
+		accepted := placement.Confidence >= l.autoAcceptThreshold
+		if l.logger != nil {
+			l.logger.Debug("auto-accept check", "behavior_id", candidate.ID, "confidence", placement.Confidence, "threshold", l.autoAcceptThreshold, "accepted", accepted)
+		}
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":       "auto_accept",
+				"behavior_id": candidate.ID,
+				"confidence":  placement.Confidence,
+				"threshold":   l.autoAcceptThreshold,
+				"accepted":    accepted,
+			})
+		}
+	}
+
+	return needsRev, reasons
 }
 
 // commitBehavior saves the behavior to the graph.
