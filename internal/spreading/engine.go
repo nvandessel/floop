@@ -38,6 +38,15 @@ type Config struct {
 	// Inhibition configures lateral inhibition. When non-nil, highly activated
 	// nodes suppress weaker competitors, focusing the activation pattern.
 	Inhibition *InhibitionConfig
+
+	// Affinity configures virtual edge generation from shared tags.
+	// When non-nil and Enabled, behaviors sharing tags create implicit
+	// connections during propagation without needing explicit graph edges.
+	Affinity *AffinityConfig
+
+	// TagProvider supplies behavior tags for feature affinity.
+	// Required when Affinity is enabled; ignored otherwise.
+	TagProvider TagProvider
 }
 
 // DefaultConfig returns the default spreading activation configuration.
@@ -103,6 +112,13 @@ func (e *Engine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
 		seedSource[s.BehaviorID] = s.Source
 	}
 
+	// Step 1b: Pre-load all behavior tags for feature affinity.
+	var allTags map[string][]string
+	affinityEnabled := e.config.Affinity != nil && e.config.Affinity.Enabled && e.config.TagProvider != nil
+	if affinityEnabled {
+		allTags = e.config.TagProvider.GetAllBehaviorTags()
+	}
+
 	// Step 2: Propagation loop.
 	for step := 0; step < e.config.MaxSteps; step++ {
 		// Create a snapshot of current activations. New activations are
@@ -124,6 +140,14 @@ func (e *Engine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
 			if err != nil {
 				return nil, fmt.Errorf("spreading activation: get edges for %s: %w", nodeID, err)
 			}
+
+			// Append virtual affinity edges from shared tags.
+			if affinityEnabled && allTags != nil {
+				if nodeTags, ok := allTags[nodeID]; ok && len(nodeTags) > 0 {
+					edges = append(edges, virtualAffinityEdges(nodeID, nodeTags, allTags, *e.config.Affinity)...)
+				}
+			}
+
 			if len(edges) == 0 {
 				continue
 			}
