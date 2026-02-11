@@ -21,3 +21,5 @@ coverage.html
 # Git worktrees for parallel agent work
 .worktrees/
 
+# GoReleaser output
+dist/

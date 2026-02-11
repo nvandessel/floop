@@ -60,7 +60,11 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 	}
 }
 
-var version = "0.2.0-dev"
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	rootCmd := &cobra.Command{

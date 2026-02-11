@@ -15,9 +15,13 @@ func newVersionCmd() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if jsonOut {
-				json.NewEncoder(os.Stdout).Encode(map[string]string{"version": version})
+				json.NewEncoder(os.Stdout).Encode(map[string]string{
+					"version": version,
+					"commit":  commit,
+					"date":    date,
+				})
 			} else {
-				fmt.Printf("floop version %s\n", version)
+				fmt.Printf("floop version %s (commit: %s, built: %s)\n", version, commit, date)
 			}
 		},
 	}

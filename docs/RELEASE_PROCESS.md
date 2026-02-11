@@ -1,0 +1,342 @@
+# Release Process
+
+This document describes the automated release process for feedback-loop using GoReleaser.
+
+## Overview
+
+The release pipeline is fully automated:
+1. Maintainer triggers version bump workflow
+2. Workflow creates and pushes a new git tag
+3. Tag push triggers GoReleaser release workflow
+4. GoReleaser builds binaries, generates release notes, and publishes to GitHub
+
+## Prerequisites
+
+- Maintainer access to the repository
+- GitHub CLI installed (`gh`) for convenience
+- Clean `main` branch with all changes committed
+
+## Release Steps
+
+### 1. Prepare for Release
+
+Ensure the `main` branch is ready:
+
+```bash
+# Pull latest changes
+git checkout main
+git pull origin main
+
+# Verify tests pass
+make test
+
+# Verify CI suite passes
+make ci
+
+# Check for any uncommitted changes
+git status
+```
+
+### 2. Update CHANGELOG
+
+Update `CHANGELOG.md` with the changes in this release:
+
+```markdown
+## [0.2.0] - 2026-02-10
+
+### Added
+- Feature description
+
+### Fixed
+- Bug fix description
+
+### Changed
+- Change description
+```
+
+Commit the changelog:
+
+```bash
+git add CHANGELOG.md
+git commit -m "docs: update changelog for v0.2.0"
+git push origin main
+```
+
+### 3. Choose Version Bump Type
+
+Determine the appropriate version bump based on the changes:
+
+| Bump Type | When to Use | Example |
+|-----------|-------------|---------|
+| **patch** | Bug fixes, documentation updates, minor improvements that don't change functionality | 0.1.0 → 0.1.1 |
+| **minor** | New features, backwards-compatible API additions, significant improvements | 0.1.0 → 0.2.0 |
+| **major** | Breaking changes, major architectural changes, API removals or incompatible changes | 0.1.0 → 1.0.0 |
+
+**Current versioning stage**: Pre-1.0 (0.x.x)
+- Use `minor` for new features or significant changes
+- Use `patch` for bug fixes
+- Reserve `major` for when ready to commit to API stability (1.0.0)
+
+### 4. Trigger Version Bump
+
+Trigger the version bump workflow using GitHub CLI:
+
+```bash
+# For a patch release (0.1.0 → 0.1.1)
+gh workflow run version-bump.yml -f bump=patch
+
+# For a minor release (0.1.0 → 0.2.0)
+gh workflow run version-bump.yml -f bump=minor
+
+# For a major release (0.1.0 → 1.0.0)
+gh workflow run version-bump.yml -f bump=major
+```
+
+Alternatively, use the GitHub web UI:
+1. Go to **Actions** tab
+2. Select **Version Bump** workflow
+3. Click **Run workflow**
+4. Choose bump type from dropdown
+5. Click **Run workflow**
+
+### 5. Monitor Release
+
+Watch the workflows:
+
+```bash
+# Watch the version bump workflow
+gh run watch
+
+# After tag is created, the release workflow will trigger automatically
+# You'll see it in the workflow list
+gh run list --workflow=release.yml
+```
+
+### 6. Verify Release
+
+Once complete, verify the release:
+
+```bash
+# View the release
+gh release view v0.2.0
+
+# Download and test a binary
+gh release download v0.2.0 -p "floop-v0.2.0-linux-amd64.tar.gz"
+tar xzf floop-v0.2.0-linux-amd64.tar.gz
+./floop version
+```
+
+Expected output:
+```
+floop version v0.2.0 (commit: abc1234, built: 2026-02-10T15:30:00Z)
+```
+
+### 7. Announce Release
+
+After verification:
+- Update any deployment documentation
+- Notify users via appropriate channels
+- Update integration guides if needed
+
+## Release Artifacts
+
+Each release produces:
+
+| Artifact | Description |
+|----------|-------------|
+| **6 binaries** | linux/darwin/windows × amd64/arm64 |
+| **Archives** | `.tar.gz` for Unix, `.zip` for Windows |
+| **Checksums** | `checksums.txt` with SHA256 hashes |
+| **Release notes** | Auto-generated from conventional commits |
+
+Archives include:
+- `floop` binary
+- `LICENSE`
+- `README.md`
+- `CHANGELOG.md`
+- `docs/` directory
+
+## Local Testing
+
+Test the release process locally before pushing:
+
+```bash
+# Install GoReleaser (if not already installed)
+go install github.com/goreleaser/goreleaser/v2@latest
+
+# Validate configuration
+goreleaser check
+
+# Test build without publishing
+goreleaser build --snapshot --clean
+
+# Check built binaries
+ls -lh dist/*/
+
+# Test version injection
+./dist/floop_linux_amd64_v1/floop version
+
+# Test full release pipeline (doesn't publish)
+goreleaser release --snapshot --clean
+
+# Clean up
+rm -rf dist/
+```
+
+## Version Information
+
+All binaries include build metadata:
+
+```bash
+./floop version
+# Output: floop version v0.2.0 (commit: abc1234, built: 2026-02-10T15:30:00Z)
+
+./floop version --json
+# Output: {"version":"v0.2.0","commit":"abc1234","date":"2026-02-10T15:30:00Z"}
+```
+
+**Version sources:**
+- `version` — From git tag (e.g., `v0.2.0`)
+- `commit` — Short git commit SHA
+- `date` — Build timestamp (RFC3339)
+
+**Development builds:**
+- Built with `make build` show `version=dev`
+- Include current commit SHA and build time
+
+## Troubleshooting
+
+### Release Workflow Fails
+
+**Check GoReleaser logs:**
+```bash
+gh run view --log
+```
+
+**Common issues:**
+- **Missing tag:** Ensure version bump workflow completed
+- **Build failure:** Check `go.mod` and dependencies are up to date
+- **Invalid config:** Run `goreleaser check` locally
+
+### Wrong Version Tagged
+
+If you need to delete and recreate a tag:
+
+```bash
+# Delete local tag
+git tag -d v0.2.0
+
+# Delete remote tag (careful!)
+git push origin :refs/tags/v0.2.0
+
+# Create new tag
+git tag -a v0.2.0 -m "Release v0.2.0"
+git push origin v0.2.0
+```
+
+**Note:** Only do this immediately after tagging, before anyone downloads the release.
+
+### Release Published but Broken
+
+If a release is published but has issues:
+
+1. **Don't delete the release** — it breaks links
+2. Create a hotfix and release a new patch version
+3. Update the broken release description with a warning and link to the fix
+
+### Emergency Hotfix
+
+For critical bugs in production:
+
+```bash
+# Create hotfix branch from the release tag
+git checkout -b hotfix/critical-bug v0.2.0
+
+# Fix the bug
+# ... make changes ...
+
+# Commit fix
+git add .
+git commit -m "fix: critical bug description"
+
+# Push hotfix branch
+git push origin hotfix/critical-bug
+
+# Create PR to main
+gh pr create --base main --title "fix: critical bug" --body "Emergency hotfix for v0.2.0"
+
+# After PR merge, trigger patch release
+gh workflow run version-bump.yml -f bump=patch
+```
+
+## CI/CD Workflows
+
+### version-bump.yml
+
+**Trigger:** Manual workflow dispatch
+**Permissions:** `contents: write`
+**Purpose:** Calculate next version and create tag
+
+**Inputs:**
+- `bump`: choice of `patch`, `minor`, or `major`
+
+**Steps:**
+1. Checkout with full history
+2. Calculate next version from latest tag
+3. Create annotated tag
+4. Push tag (triggers release workflow)
+
+### release.yml
+
+**Trigger:** Tag push (`v*`)
+**Permissions:** `contents: write`
+**Purpose:** Build and publish release
+
+**Steps:**
+1. Checkout with full history (for changelog)
+2. Setup Go from `go.mod`
+3. Run GoReleaser with `--clean` flag
+4. Publish to GitHub Releases
+
+### test-release.yml
+
+**Trigger:** PR changes to release files
+**Permissions:** `contents: read`
+**Purpose:** Validate release config before merge
+
+**Steps:**
+1. Checkout code
+2. Run GoReleaser in snapshot mode
+3. Verify binaries work
+4. Check for expected builds
+
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `.goreleaser.yml` | GoReleaser configuration (builds, archives, changelog) |
+| `.github/workflows/release.yml` | Release automation workflow |
+| `.github/workflows/version-bump.yml` | Version tagging workflow |
+| `.github/workflows/test-release.yml` | PR validation workflow |
+| `Makefile` | Local build with version injection |
+
+## Future Enhancements
+
+Not currently implemented but can be added later:
+
+- **Homebrew tap** — Automatic formula updates
+- **Docker images** — Multi-arch container publishing
+- **Scoop manifest** — Windows package manager
+- **AUR package** — Arch Linux user repository
+- **Binary signing** — GPG or cosign signatures
+- **SBOM generation** — Software bill of materials
+- **Release channels** — Beta/RC releases
+
+To add these, extend `.goreleaser.yml` with the appropriate sections. See [GoReleaser documentation](https://goreleaser.com/customization/) for details.
+
+## Questions?
+
+For questions about the release process:
+- Check the [GoReleaser docs](https://goreleaser.com)
+- Review past releases: `gh release list`
+- Open an issue with the `question` label

@@ -1,0 +1,80 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    name: Bump Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate next version
+        id: version
+        run: |
+          # Get latest tag, default to v0.0.0 if none exists
+          LATEST_TAG=$(git tag -l "v*" --sort=-v:refname | head -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+
+          # Parse version (strip 'v' prefix)
+          VERSION=${LATEST_TAG#v}
+          IFS='.' read -r -a VERSION_PARTS <<< "$VERSION"
+          MAJOR="${VERSION_PARTS[0]}"
+          MINOR="${VERSION_PARTS[1]}"
+          PATCH="${VERSION_PARTS[2]}"
+
+          # Bump version based on input
+          case "${{ inputs.bump }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          # Create new version tag
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Previous version: $LATEST_TAG"
+          echo "New version: $NEW_VERSION"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ steps.version.outputs.new_version }}" -m "Release ${{ steps.version.outputs.new_version }}"
+          git push origin "${{ steps.version.outputs.new_version }}"
+
+      - name: Summary
+        run: |
+          echo "✅ Successfully created and pushed tag: ${{ steps.version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "The release workflow will now automatically build and publish the release." >> $GITHUB_STEP_SUMMARY
