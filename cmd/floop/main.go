@@ -11,7 +11,7 @@ import (
 
 // createLLMClient creates an LLM client based on config settings.
 // Returns nil if LLM is not enabled or configured.
-// Supports providers: anthropic, openai, ollama, subagent, local.
+// Supports providers: anthropic, openai, ollama, subagent.
 // When provider is "subagent" or not specified with LLM enabled, attempts auto-detection.
 func createLLMClient(cfg *config.FloopConfig) llm.Client {
 	if cfg == nil {
@@ -43,13 +43,6 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 		return llm.NewOpenAIClient(clientCfg)
 	case "anthropic":
 		return llm.NewAnthropicClient(clientCfg)
-	case "local":
-		return llm.NewLocalClient(llm.LocalConfig{
-			ModelPath:          cfg.LLM.LocalModelPath,
-			EmbeddingModelPath: cfg.LLM.LocalEmbeddingModelPath,
-			GPULayers:          cfg.LLM.LocalGPULayers,
-			ContextSize:        cfg.LLM.LocalContextSize,
-		})
 	case "subagent":
 		if client := llm.DetectAndCreate(); client != nil {
 			return client

@@ -211,41 +211,14 @@ type similarityResult struct {
 }
 
 // computeSimilarity calculates similarity between two behaviors.
-// Uses embedding-based comparison if the LLM client supports EmbeddingComparer,
-// then tries LLM-based comparison, otherwise falls back to Jaccard word overlap.
+// Uses LLM-based comparison if available and configured, otherwise falls back
+// to Jaccard word overlap.
 func (d *StoreDeduplicator) computeSimilarity(a, b *models.Behavior) similarityResult {
 	if d.config.UseLLM && d.llmClient != nil && d.llmClient.Available() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Prefer embedding-based comparison if supported
-		if ec, ok := d.llmClient.(llm.EmbeddingComparer); ok {
-			sim, err := ec.CompareEmbeddings(ctx, a.Content.Canonical, b.Content.Canonical)
-			if err == nil {
-				method := "embedding"
-				isDup := sim >= d.config.SimilarityThreshold
-
-				if d.logger != nil {
-					d.logger.Debug("similarity computed", "behavior_a", a.ID, "behavior_b", b.ID, "score", sim, "method", method)
-				}
-				if d.decisions != nil {
-					d.decisions.Log(map[string]any{
-						"event":        "similarity_computed",
-						"behavior_a":   a.ID,
-						"behavior_b":   b.ID,
-						"score":        sim,
-						"method":       method,
-						"threshold":    d.config.SimilarityThreshold,
-						"is_duplicate": isDup,
-					})
-				}
-
-				return similarityResult{score: sim, method: method}
-			}
-			// Fall through on error
-		}
-
-		// Try full LLM comparison
+		// Try LLM comparison
 		result, err := d.llmClient.CompareBehaviors(ctx, a, b)
 		if err == nil && result != nil {
 			method := "llm"

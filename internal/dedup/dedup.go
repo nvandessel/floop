@@ -19,7 +19,7 @@ type DuplicateMatch struct {
 	Similarity float64 `json:"similarity" yaml:"similarity"`
 
 	// SimilarityMethod describes how similarity was computed.
-	// Valid values: "jaccard", "llm", "embedding", "hybrid"
+	// Valid values: "jaccard", "llm", "hybrid"
 	SimilarityMethod string `json:"similarity_method" yaml:"similarity_method"`
 
 	// MergeRecommended indicates whether merging is recommended based on

@@ -188,7 +188,7 @@ func TestValidate_InvalidProvider(t *testing.T) {
 }
 
 func TestValidate_ValidProviders(t *testing.T) {
-	validProviders := []string{"", "anthropic", "openai", "subagent", "local"}
+	validProviders := []string{"", "anthropic", "openai", "subagent"}
 
 	for _, provider := range validProviders {
 		t.Run(provider, func(t *testing.T) {
@@ -250,69 +250,6 @@ func TestLLMConfigString(t *testing.T) {
 	}
 	if !strings.Contains(s, "claude-3-haiku") {
 		t.Errorf("String() should contain model, got: %s", s)
-	}
-}
-
-func TestLoadFromFile_LocalConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-
-	configContent := `
-llm:
-  provider: local
-  enabled: true
-  local_model_path: /path/to/model.gguf
-  local_embedding_model_path: /path/to/embed.gguf
-  local_gpu_layers: 32
-  local_context_size: 2048
-`
-	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-		t.Fatalf("failed to write test config: %v", err)
-	}
-
-	config, err := LoadFromFile(configPath)
-	if err != nil {
-		t.Fatalf("LoadFromFile failed: %v", err)
-	}
-
-	if config.LLM.Provider != "local" {
-		t.Errorf("expected Provider 'local', got '%s'", config.LLM.Provider)
-	}
-	if config.LLM.LocalModelPath != "/path/to/model.gguf" {
-		t.Errorf("expected LocalModelPath '/path/to/model.gguf', got '%s'", config.LLM.LocalModelPath)
-	}
-	if config.LLM.LocalEmbeddingModelPath != "/path/to/embed.gguf" {
-		t.Errorf("expected LocalEmbeddingModelPath '/path/to/embed.gguf', got '%s'", config.LLM.LocalEmbeddingModelPath)
-	}
-	if config.LLM.LocalGPULayers != 32 {
-		t.Errorf("expected LocalGPULayers 32, got %d", config.LLM.LocalGPULayers)
-	}
-	if config.LLM.LocalContextSize != 2048 {
-		t.Errorf("expected LocalContextSize 2048, got %d", config.LLM.LocalContextSize)
-	}
-}
-
-func TestEnvOverrides_LocalConfig(t *testing.T) {
-	// t.Setenv automatically restores (or unsets) each var when the test ends
-	t.Setenv("FLOOP_LOCAL_MODEL_PATH", "/env/model.gguf")
-	t.Setenv("FLOOP_LOCAL_EMBEDDING_MODEL_PATH", "/env/embed.gguf")
-	t.Setenv("FLOOP_LOCAL_GPU_LAYERS", "16")
-	t.Setenv("FLOOP_LOCAL_CONTEXT_SIZE", "4096")
-
-	config := Default()
-	applyEnvOverrides(config)
-
-	if config.LLM.LocalModelPath != "/env/model.gguf" {
-		t.Errorf("expected LocalModelPath '/env/model.gguf', got '%s'", config.LLM.LocalModelPath)
-	}
-	if config.LLM.LocalEmbeddingModelPath != "/env/embed.gguf" {
-		t.Errorf("expected LocalEmbeddingModelPath '/env/embed.gguf', got '%s'", config.LLM.LocalEmbeddingModelPath)
-	}
-	if config.LLM.LocalGPULayers != 16 {
-		t.Errorf("expected LocalGPULayers 16, got %d", config.LLM.LocalGPULayers)
-	}
-	if config.LLM.LocalContextSize != 4096 {
-		t.Errorf("expected LocalContextSize 4096, got %d", config.LLM.LocalContextSize)
 	}
 }
 

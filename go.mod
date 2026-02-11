@@ -5,7 +5,6 @@ go 1.25.7
 require (
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/spf13/cobra v1.10.2
-	github.com/tcpipuk/llama-go v0.0.0-20260129181358-7fbd22088492
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.3
 )
