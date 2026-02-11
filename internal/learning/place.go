@@ -471,6 +471,13 @@ func NodeToBehavior(node store.Node) models.Behavior {
 		if structured, ok := content["structured"].(map[string]interface{}); ok {
 			b.Content.Structured = structured
 		}
+		if tags, ok := content["tags"].([]interface{}); ok {
+			for _, t := range tags {
+				if s, ok := t.(string); ok {
+					b.Content.Tags = append(b.Content.Tags, s)
+				}
+			}
+		}
 	} else if content, ok := node.Content["content"].(models.BehaviorContent); ok {
 		b.Content = content
 	}

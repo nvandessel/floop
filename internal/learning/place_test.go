@@ -551,6 +551,53 @@ func TestNodeToBehavior_StringCreatedAt(t *testing.T) {
 	}
 }
 
+func TestNodeToBehavior_Tags(t *testing.T) {
+	node := store.Node{
+		ID:   "tag-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "use git worktree",
+				"tags":      []interface{}{"git", "worktree"},
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	b := NodeToBehavior(node)
+
+	if len(b.Content.Tags) != 2 {
+		t.Fatalf("NodeToBehavior() Tags len = %d, want 2", len(b.Content.Tags))
+	}
+	if b.Content.Tags[0] != "git" {
+		t.Errorf("Tags[0] = %q, want %q", b.Content.Tags[0], "git")
+	}
+	if b.Content.Tags[1] != "worktree" {
+		t.Errorf("Tags[1] = %q, want %q", b.Content.Tags[1], "worktree")
+	}
+}
+
+func TestNodeToBehavior_NoTags(t *testing.T) {
+	node := store.Node{
+		ID:   "no-tag-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "do something",
+			},
+		},
+		Metadata: map[string]interface{}{},
+	}
+
+	b := NodeToBehavior(node)
+
+	if len(b.Content.Tags) != 0 {
+		t.Errorf("NodeToBehavior() Tags = %v, want empty", b.Content.Tags)
+	}
+}
+
 func TestGraphPlacer_determineEdges(t *testing.T) {
 	s := store.NewInMemoryGraphStore()
 	gp := NewGraphPlacer(s).(*graphPlacer)

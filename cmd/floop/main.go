@@ -116,6 +116,8 @@ context-aware behavior activation for consistent agent operation.`,
 		newRestoreFromBackupCmd(),
 		// Hook management commands
 		newUpgradeCmd(),
+		// Tag management commands
+		newTagsCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
