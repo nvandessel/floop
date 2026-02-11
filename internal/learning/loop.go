@@ -229,26 +229,30 @@ func (l *learningLoop) tryAutoMerge(ctx context.Context, candidate *models.Behav
 		if l.logger != nil {
 			l.logger.Debug("no merge candidate found", "behavior_id", candidate.ID, "duplicates_found", len(duplicates))
 		}
-		l.decisions.Log(map[string]any{
-			"event":            "auto_merge_skipped",
-			"behavior_id":      candidate.ID,
-			"duplicates_found": len(duplicates),
-			"threshold":        l.autoMergeThreshold,
-			"reason":           "no duplicate above threshold",
-		})
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":            "auto_merge_skipped",
+				"behavior_id":      candidate.ID,
+				"duplicates_found": len(duplicates),
+				"threshold":        l.autoMergeThreshold,
+				"reason":           "no duplicate above threshold",
+			})
+		}
 		return nil, nil // No suitable duplicate found
 	}
 
 	if l.logger != nil {
 		l.logger.Debug("auto-merge triggered", "behavior_id", candidate.ID, "merge_target", bestMatch.Behavior.ID, "similarity", bestMatch.Similarity)
 	}
-	l.decisions.Log(map[string]any{
-		"event":        "auto_merge_triggered",
-		"behavior_id":  candidate.ID,
-		"merge_target": bestMatch.Behavior.ID,
-		"similarity":   bestMatch.Similarity,
-		"threshold":    l.autoMergeThreshold,
-	})
+	if l.decisions != nil {
+		l.decisions.Log(map[string]any{
+			"event":        "auto_merge_triggered",
+			"behavior_id":  candidate.ID,
+			"merge_target": bestMatch.Behavior.ID,
+			"similarity":   bestMatch.Similarity,
+			"threshold":    l.autoMergeThreshold,
+		})
+	}
 
 	// Perform the merge
 	merged, err := l.deduplicator.MergeDuplicates(ctx, []dedup.DuplicateMatch{*bestMatch}, candidate)
@@ -312,24 +316,28 @@ func (l *learningLoop) needsReview(candidate *models.Behavior, placement *Placem
 		if l.logger != nil {
 			l.logger.Debug("review required", "behavior_id", candidate.ID, "reasons", reasons)
 		}
-		l.decisions.Log(map[string]any{
-			"event":       "review_required",
-			"behavior_id": candidate.ID,
-			"reasons":     reasons,
-			"confidence":  placement.Confidence,
-		})
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":       "review_required",
+				"behavior_id": candidate.ID,
+				"reasons":     reasons,
+				"confidence":  placement.Confidence,
+			})
+		}
 	} else {
 		accepted := placement.Confidence >= l.autoAcceptThreshold
 		if l.logger != nil {
 			l.logger.Debug("auto-accept check", "behavior_id", candidate.ID, "confidence", placement.Confidence, "threshold", l.autoAcceptThreshold, "accepted", accepted)
 		}
-		l.decisions.Log(map[string]any{
-			"event":       "auto_accept",
-			"behavior_id": candidate.ID,
-			"confidence":  placement.Confidence,
-			"threshold":   l.autoAcceptThreshold,
-			"accepted":    accepted,
-		})
+		if l.decisions != nil {
+			l.decisions.Log(map[string]any{
+				"event":       "auto_accept",
+				"behavior_id": candidate.ID,
+				"confidence":  placement.Confidence,
+				"threshold":   l.autoAcceptThreshold,
+				"accepted":    accepted,
+			})
+		}
 	}
 
 	return needsRev, reasons
