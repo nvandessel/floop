@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 
@@ -123,7 +124,11 @@ func (c *LocalClient) loadModel() error {
 		}
 
 		modelParams := llama.ModelDefaultParams()
-		modelParams.NGpuLayers = int32(min(c.gpuLayers, int(^int32(0)))) //nolint:gosec // GPU layers capped at int32 max
+		gpuLayers := c.gpuLayers
+		if gpuLayers > math.MaxInt32 {
+			gpuLayers = math.MaxInt32
+		}
+		modelParams.NGpuLayers = int32(gpuLayers)
 
 		model, err := llama.ModelLoadFromFile(path, modelParams)
 		if err != nil {
@@ -176,7 +181,11 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	tokens := llama.Tokenize(c.vocab, text, true, true)
 
 	ctxParams := llama.ContextDefaultParams()
-	ctxParams.NCtx = uint32(len(tokens) + 64) //nolint:gosec // token count is always small positive
+	nTokens := len(tokens) + 64
+	if nTokens > math.MaxUint32 {
+		nTokens = math.MaxUint32
+	}
+	ctxParams.NCtx = uint32(nTokens)
 
 	lctx, err := llama.InitFromModel(c.model, ctxParams)
 	if err != nil {
