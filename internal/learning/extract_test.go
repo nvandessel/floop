@@ -653,14 +653,6 @@ func TestBehaviorExtractor_Extract_Provenance(t *testing.T) {
 		t.Error("Provenance.CreatedAt should not be zero")
 	}
 
-	// Learned behaviors should not be approved yet
-	if behavior.Provenance.IsApproved() {
-		t.Error("newly extracted behavior should not be approved")
-	}
-
-	if !behavior.Provenance.IsPending() {
-		t.Error("newly extracted behavior should be pending approval")
-	}
 }
 
 func TestBehaviorExtractor_Extract_Stats(t *testing.T) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
@@ -52,12 +51,6 @@ type LearningLoop interface {
 	// It extracts a behavior, determines graph placement, and optionally
 	// auto-accepts the behavior if confidence is high enough.
 	ProcessCorrection(ctx context.Context, correction models.Correction) (*LearningResult, error)
-
-	// ApprovePending approves a pending behavior, updating its provenance.
-	ApprovePending(ctx context.Context, behaviorID, approver string) error
-
-	// RejectPending rejects a pending behavior with a reason.
-	RejectPending(ctx context.Context, behaviorID, rejector, reason string) error
 }
 
 // LearningLoopConfig holds configuration for the learning loop.
@@ -183,15 +176,7 @@ func (l *learningLoop) ProcessCorrection(ctx context.Context, correction models.
 	requiresReview, reasons := l.needsReview(candidate, placement)
 	autoAccepted := !requiresReview && placement.Confidence >= l.autoAcceptThreshold
 
-	// Step 5: Always commit to graph (either as approved or pending)
-	// Auto-accepted behaviors will have ApprovedBy set to "auto"
-	// Behaviors requiring review will be saved as pending (ApprovedBy="")
-	if autoAccepted {
-		// Set auto-approval in provenance
-		candidate.Provenance.ApprovedBy = "auto"
-		now := time.Now()
-		candidate.Provenance.ApprovedAt = &now
-	}
+	// Step 5: Commit to graph
 	if err := l.commitBehavior(ctx, candidate, placement); err != nil {
 		return nil, fmt.Errorf("commit failed: %w", err)
 	}
@@ -384,54 +369,4 @@ func (l *learningLoop) commitBehavior(ctx context.Context, behavior *models.Beha
 	}
 
 	return l.store.Sync(ctx)
-}
-
-// ApprovePending implements LearningLoop.
-func (l *learningLoop) ApprovePending(ctx context.Context, behaviorID, approver string) error {
-	node, err := l.store.GetNode(ctx, behaviorID)
-	if err != nil {
-		return err
-	}
-	if node == nil {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	// Update provenance
-	if prov, ok := node.Content["provenance"].(map[string]interface{}); ok {
-		now := time.Now()
-		prov["approved_by"] = approver
-		prov["approved_at"] = now
-	}
-
-	// Increase confidence
-	if conf, ok := node.Metadata["confidence"].(float64); ok {
-		node.Metadata["confidence"] = minFloat(1.0, conf+0.2)
-	}
-
-	return l.store.UpdateNode(ctx, *node)
-}
-
-// RejectPending implements LearningLoop.
-func (l *learningLoop) RejectPending(ctx context.Context, behaviorID, rejector, reason string) error {
-	node, err := l.store.GetNode(ctx, behaviorID)
-	if err != nil {
-		return err
-	}
-	if node == nil {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	node.Kind = "rejected-behavior"
-	node.Metadata["rejected_by"] = rejector
-	node.Metadata["rejected_at"] = time.Now()
-	node.Metadata["rejection_reason"] = reason
-
-	return l.store.UpdateNode(ctx, *node)
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
 }

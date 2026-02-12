@@ -22,21 +22,9 @@ type Provenance struct {
 	Author string `json:"author,omitempty" yaml:"author,omitempty"`
 
 	// For learned behaviors
-	CorrectionID string     `json:"correction_id,omitempty" yaml:"correction_id,omitempty"`
-	ApprovedBy   string     `json:"approved_by,omitempty" yaml:"approved_by,omitempty"`
-	ApprovedAt   *time.Time `json:"approved_at,omitempty" yaml:"approved_at,omitempty"`
+	CorrectionID string `json:"correction_id,omitempty" yaml:"correction_id,omitempty"`
 
 	// For imported behaviors
 	Package        string `json:"package,omitempty" yaml:"package,omitempty"`
 	PackageVersion string `json:"package_version,omitempty" yaml:"package_version,omitempty"`
-}
-
-// IsApproved returns true if a learned behavior has been approved
-func (p *Provenance) IsApproved() bool {
-	return p.SourceType == SourceTypeLearned && p.ApprovedBy != ""
-}
-
-// IsPending returns true if a learned behavior is awaiting approval
-func (p *Provenance) IsPending() bool {
-	return p.SourceType == SourceTypeLearned && p.ApprovedBy == ""
 }

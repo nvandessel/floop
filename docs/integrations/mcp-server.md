@@ -420,7 +420,6 @@ In `.vscode/settings.json`:
 - Check `.floop/` directory is writable
 - Verify corrections saved: `floop list --corrections`
 - Review learning result: look for `auto_accepted` or `requires_review` status
-- Check for behaviors needing approval: low confidence scores may create pending behaviors
 
 ---
 
@@ -459,17 +458,7 @@ Better than:
 
 ---
 
-### 2. Review Auto-Accepted Behaviors Periodically
-
-```bash
-floop list --json | jq '.[] | select(.provenance.approved_by == "auto")'
-```
-
-Check if auto-accepted behaviors need refinement.
-
----
-
-### 3. Use Global + Local Storage
+### 2. Use Global + Local Storage
 
 - **Global** (`~/.floop/`): Personal conventions, language preferences
 - **Local** (`./.floop/`): Project-specific patterns, team conventions
@@ -484,7 +473,7 @@ The MCP server queries both stores and merges results (local takes precedence).
 
 ---
 
-### 4. Keep Behaviors Focused
+### 3. Keep Behaviors Focused
 
 Use `floop merge` to combine similar behaviors instead of accumulating many small ones.
 

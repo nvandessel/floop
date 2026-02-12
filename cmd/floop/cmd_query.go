@@ -100,9 +100,6 @@ func newShowCmd() *cobra.Command {
 				if found.Provenance.CorrectionID != "" {
 					fmt.Printf("  Correction: %s\n", found.Provenance.CorrectionID)
 				}
-				if found.Provenance.ApprovedBy != "" {
-					fmt.Printf("  Approved by: %s\n", found.Provenance.ApprovedBy)
-				}
 				fmt.Println()
 
 				if len(found.Requires) > 0 {
