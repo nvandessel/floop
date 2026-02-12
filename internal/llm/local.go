@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"sync"
 
@@ -37,7 +36,7 @@ func loadLib(libPath string) error {
 type LocalClient struct {
 	libPath            string
 	embeddingModelPath string
-	gpuLayers          int
+	gpuLayers          int32
 	contextSize        int
 
 	mu      sync.Mutex
@@ -66,7 +65,7 @@ type LocalConfig struct {
 	EmbeddingModelPath string
 
 	// GPULayers is the number of layers to offload to GPU (0 = CPU only).
-	GPULayers int
+	GPULayers int32
 
 	// ContextSize is the context window size in tokens.
 	ContextSize int
@@ -124,11 +123,7 @@ func (c *LocalClient) loadModel() error {
 		}
 
 		modelParams := llama.ModelDefaultParams()
-		gpuLayers := c.gpuLayers
-		if gpuLayers > math.MaxInt32 {
-			gpuLayers = math.MaxInt32
-		}
-		modelParams.NGpuLayers = int32(gpuLayers)
+		modelParams.NGpuLayers = c.gpuLayers
 
 		model, err := llama.ModelLoadFromFile(path, modelParams)
 		if err != nil {
@@ -181,11 +176,7 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	tokens := llama.Tokenize(c.vocab, text, true, true)
 
 	ctxParams := llama.ContextDefaultParams()
-	nTokens := len(tokens) + 64
-	if nTokens > math.MaxUint32 {
-		nTokens = math.MaxUint32
-	}
-	ctxParams.NCtx = uint32(nTokens)
+	ctxParams.NCtx = uint32(len(tokens) + 64)
 
 	lctx, err := llama.InitFromModel(c.model, ctxParams)
 	if err != nil {
