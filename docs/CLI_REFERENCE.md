@@ -738,11 +738,17 @@ Visualize the behavior graph.
 floop graph [flags]
 ```
 
-Outputs the behavior graph in DOT (Graphviz) or JSON format for visualization.
+Outputs the behavior graph in DOT (Graphviz), JSON, or interactive HTML format.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--format` | string | `"dot"` | Output format: `dot` or `json` |
+| `--format` | string | `"dot"` | Output format: `dot`, `json`, or `html` |
+| `-o`, `--output` | string | | Output file path (html format only) |
+| `--no-open` | bool | `false` | Don't open browser after generating HTML |
+
+The `html` format generates a self-contained HTML file with an interactive force-directed graph visualization. Nodes are colored by behavior kind and sized by PageRank score + connection degree. Hover for tooltips, click nodes for a detail panel.
+
+![Graph View](images/graph-view.png)
 
 **Examples:**
 
@@ -752,6 +758,12 @@ floop graph | dot -Tpng -o graph.png
 
 # JSON format
 floop graph --format json
+
+# Interactive HTML graph (opens in browser)
+floop graph --format html
+
+# Save HTML to specific path without opening
+floop graph --format html -o graph.html --no-open
 
 # Save DOT to file
 floop graph > behaviors.dot

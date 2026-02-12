@@ -250,10 +250,10 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 
 // htmlTemplateData holds data passed to the HTML template.
 // ForceGraphSrc is a data: URI for loading the library via <script src>.
-// GraphJSON is HTML-escaped JSON safe for inline <script> injection.
+// GraphJSON is pre-sanitized JSON (via json.HTMLEscape) safe for inline <script>.
 type htmlTemplateData struct {
 	ForceGraphSrc template.URL
-	GraphJSON     template.HTML
+	GraphJSON     template.JS
 }
 
 // RenderHTML produces a self-contained HTML file with an interactive force-directed graph.
@@ -298,7 +298,7 @@ func RenderHTML(ctx context.Context, gs store.GraphStore, enrichment *Enrichment
 		// ForceGraphSrc: trusted embedded asset, base64-encoded — no user input.
 		ForceGraphSrc: template.URL("data:text/javascript;base64," + base64.StdEncoding.EncodeToString(jsBytes)), // #nosec G203
 		// GraphJSON: pre-sanitized via json.HTMLEscape — </script> breakout impossible.
-		GraphJSON: template.HTML(escaped.String()), // #nosec G203
+		GraphJSON: template.JS(escaped.String()), // #nosec G203
 	}
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("execute HTML template: %w", err)
