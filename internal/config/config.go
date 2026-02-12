@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -116,7 +117,7 @@ type LLMConfig struct {
 
 	// LocalGPULayers is the number of model layers to offload to GPU (0 = CPU only).
 	// Only used when provider is "local".
-	LocalGPULayers int `json:"local_gpu_layers,omitempty" yaml:"local_gpu_layers,omitempty"`
+	LocalGPULayers int32 `json:"local_gpu_layers,omitempty" yaml:"local_gpu_layers,omitempty"`
 
 	// LocalContextSize is the context window size in tokens for local models.
 	// Defaults to 512 if not set. Only used when provider is "local".
@@ -367,7 +368,7 @@ func applyEnvOverrides(config *FloopConfig) {
 	}
 	if v := os.Getenv("FLOOP_LOCAL_GPU_LAYERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
-			config.LLM.LocalGPULayers = n
+			config.LLM.LocalGPULayers = int32(min(n, math.MaxInt32))
 		}
 	}
 	if v := os.Getenv("FLOOP_LOCAL_CONTEXT_SIZE"); v != "" {
