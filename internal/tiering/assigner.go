@@ -196,10 +196,11 @@ func (a *TierAssigner) estimateTokens(text string) int {
 	return tokens.EstimateTokens(text)
 }
 
-// QuickAssign is a convenience method that creates a scorer and summarizer internally
+// QuickAssign creates a tiered injection plan using the canonical ActivationTierMapper
+// path. Behaviors are scored with the default relevance scorer, converted via bridge,
+// and tiered using activation thresholds with budget demotion.
 func QuickAssign(behaviors []models.Behavior, tokenBudget int) *models.InjectionPlan {
-	scorer := ranking.NewRelevanceScorer(ranking.DefaultScorerConfig())
-	summarizer := summarization.NewRuleSummarizer(summarization.DefaultConfig())
-	assigner := NewTierAssigner(DefaultTierAssignerConfig(), scorer, summarizer)
-	return assigner.AssignTiers(behaviors, nil, tokenBudget)
+	results, behaviorMap := BehaviorsToResults(behaviors)
+	mapper := NewActivationTierMapper(DefaultActivationTierConfig())
+	return mapper.MapResults(results, behaviorMap, tokenBudget)
 }
