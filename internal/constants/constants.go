@@ -36,12 +36,3 @@ const (
 	// ContentSimilarityWeight is the weight given to content similarity.
 	ContentSimilarityWeight = 0.6
 )
-
-// Token budget allocation constants
-const (
-	// FullTierBudgetPercent is the percentage of token budget for full behavior content.
-	FullTierBudgetPercent = 0.60
-
-	// SummaryTierBudgetPercent is the percentage of token budget for summarized behaviors.
-	SummaryTierBudgetPercent = 0.30
-)

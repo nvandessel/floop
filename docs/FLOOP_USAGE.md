@@ -106,7 +106,7 @@ floop prompt --file "src/main.go" --task "coding"
 ### Store Management
 
 ```bash
-# View store statistics and token budget
+# View store statistics and token budget (see docs/TOKEN_BUDGET.md for details)
 floop stats
 floop stats --budget 3000  # Simulate different budget
 floop stats --json         # Machine-readable output
