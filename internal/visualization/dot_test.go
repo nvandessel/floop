@@ -291,6 +291,85 @@ func TestRenderHTML_ProducesValidHTML(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_GraphDataIsJSObject(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+
+	htmlStr := string(html)
+
+	// Graph data must be embedded as a JS object literal, not a quoted string.
+	// If template.HTML is used instead of template.JS, html/template double-encodes
+	// the JSON inside <script> context, producing `var graphData = "{...}"` (string)
+	// instead of `var graphData = {...}` (object).
+	if strings.Contains(htmlStr, `var graphData = "`) {
+		t.Error("graphData is a quoted string — should be an object literal (use template.JS, not template.HTML)")
+	}
+	if !strings.Contains(htmlStr, `var graphData = {`) {
+		t.Error("expected graphData to be an object literal starting with '{'")
+	}
+}
+
+func TestRenderHTML_ScriptBreakoutEscaped(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	// Add a behavior with </script> in its content to test XSS prevention
+	node := store.Node{
+		ID:   "b-xss",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "xss-test",
+			"kind": "constraint",
+			"content": map[string]interface{}{
+				"canonical": `Try to break out: </script><script>alert(1)</script>`,
+			},
+			"provenance": map[string]interface{}{"source_type": "manual"},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.5,
+			"priority":   0,
+			"scope":      "local",
+		},
+	}
+	if _, err := gs.AddNode(ctx, node); err != nil {
+		t.Fatalf("add xss node: %v", err)
+	}
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+
+	htmlStr := string(html)
+
+	// The literal </script> must NOT appear in the JSON data section.
+	// json.HTMLEscape converts < to \u003c, preventing script breakout.
+	dataIdx := strings.Index(htmlStr, "var graphData = ")
+	if dataIdx == -1 {
+		t.Fatal("could not find graphData in HTML")
+	}
+	// Check the section after graphData injection up to the closing </script>
+	dataSection := htmlStr[dataIdx : dataIdx+len(htmlStr[dataIdx:])]
+	endIdx := strings.Index(dataSection, ";\n")
+	if endIdx > 0 {
+		dataSection = dataSection[:endIdx]
+	}
+
+	if strings.Contains(dataSection, "</script>") {
+		t.Error("raw </script> found in graphData — XSS vulnerability")
+	}
+	if !strings.Contains(dataSection, `\u003c/script\u003e`) {
+		t.Error("expected </script> to be escaped as \\u003c/script\\u003e")
+	}
+}
+
 func TestRenderHTML_EmptyStore(t *testing.T) {
 	gs := setupTestStore(t)
 	ctx := context.Background()
