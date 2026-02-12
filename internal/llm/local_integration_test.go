@@ -161,22 +161,22 @@ func TestLocalClient_Integration_CompareBehaviors(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name            string
-		aCanonical      string
-		bCanonical      string
-		wantIntentMatch bool
+		name               string
+		aCanonical         string
+		bCanonical         string
+		wantMergeCandidate bool
 	}{
 		{
-			name:            "near-duplicate behaviors",
-			aCanonical:      "Always run go test before committing changes",
-			bCanonical:      "Run go test prior to each commit to catch regressions",
-			wantIntentMatch: true,
+			name:               "near-duplicate behaviors",
+			aCanonical:         "Always run go test before committing changes",
+			bCanonical:         "Run go test prior to each commit to catch regressions",
+			wantMergeCandidate: true,
 		},
 		{
-			name:            "unrelated behaviors",
-			aCanonical:      "Use table-driven tests with t.Run",
-			bCanonical:      "Never commit secrets or API keys to the repository",
-			wantIntentMatch: false,
+			name:               "unrelated behaviors",
+			aCanonical:         "Use table-driven tests with t.Run",
+			bCanonical:         "Never commit secrets or API keys to the repository",
+			wantMergeCandidate: false,
 		},
 	}
 
@@ -192,9 +192,9 @@ func TestLocalClient_Integration_CompareBehaviors(t *testing.T) {
 			t.Logf("similarity=%.4f intent=%v merge=%v",
 				result.SemanticSimilarity, result.IntentMatch, result.MergeCandidate)
 
-			if result.IntentMatch != tt.wantIntentMatch {
-				t.Errorf("IntentMatch = %v, want %v (similarity=%.4f)",
-					result.IntentMatch, tt.wantIntentMatch, result.SemanticSimilarity)
+			if result.MergeCandidate != tt.wantMergeCandidate {
+				t.Errorf("MergeCandidate = %v, want %v (similarity=%.4f)",
+					result.MergeCandidate, tt.wantMergeCandidate, result.SemanticSimilarity)
 			}
 		})
 	}
