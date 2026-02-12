@@ -19,7 +19,7 @@ When configured as an MCP server, floop exposes these tools to your AI agent:
 | `floop_list` | List all stored behaviors |
 | `floop_connect` | Create edges between behaviors |
 | `floop_deduplicate` | Find and merge duplicate behaviors |
-| `floop_graph` | Render behavior graph (DOT or JSON) |
+| `floop_graph` | Render behavior graph (DOT, JSON, or HTML) |
 | `floop_validate` | Check graph consistency |
 | `floop_backup` | Export graph state to backup file |
 | `floop_restore` | Import graph state from backup |
@@ -126,9 +126,18 @@ floop restore-from-backup --input <backup-file>
 ### Graph Operations
 
 ```bash
-# Visualize the behavior graph
-floop graph              # JSON output
-floop graph --format dot # Graphviz DOT format
+# Interactive HTML graph (opens in browser)
+floop graph --format html
+
+# Save HTML graph to file without opening
+floop graph --format html -o graph.html --no-open
+
+# Graphviz DOT format
+floop graph --format dot
+floop graph --format dot | dot -Tpng -o graph.png
+
+# JSON format
+floop graph --format json
 
 # Connect related behaviors
 floop connect <source> <target> --kind similar-to

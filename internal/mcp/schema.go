@@ -176,13 +176,13 @@ type FloopConnectOutput struct {
 
 // FloopGraphInput defines the input for floop_graph tool.
 type FloopGraphInput struct {
-	Format string `json:"format,omitempty" jsonschema:"Output format: dot or json (default: json)"`
+	Format string `json:"format,omitempty" jsonschema:"Output format: dot, json, or html (default: json)"`
 }
 
 // FloopGraphOutput defines the output for floop_graph tool.
 type FloopGraphOutput struct {
 	Format    string      `json:"format" jsonschema:"Output format used"`
-	Graph     interface{} `json:"graph" jsonschema:"Graph data (DOT string or JSON object)"`
+	Graph     interface{} `json:"graph" jsonschema:"Graph data (DOT string, JSON object, or HTML string)"`
 	NodeCount int         `json:"node_count" jsonschema:"Number of nodes in graph"`
 	EdgeCount int         `json:"edge_count" jsonschema:"Number of edges in graph"`
 }

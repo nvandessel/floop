@@ -82,7 +82,7 @@ func (s *Server) registerTools() error {
 	// Register floop_graph tool
 	sdk.AddTool(s.server, &sdk.Tool{
 		Name:        "floop_graph",
-		Description: "Render the behavior graph in DOT (Graphviz) or JSON format for visualization",
+		Description: "Render the behavior graph in DOT (Graphviz), JSON, or interactive HTML format for visualization",
 	}, s.handleFloopGraph)
 
 	return nil
@@ -1323,7 +1323,34 @@ func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest,
 			EdgeCount: edgeCount,
 		}, nil
 
+	case visualization.FormatHTML:
+		s.pageRankMu.RLock()
+		pageRank := s.pageRankCache
+		s.pageRankMu.RUnlock()
+
+		enrichment := &visualization.EnrichmentData{PageRank: pageRank}
+		htmlBytes, err := visualization.RenderHTML(ctx, s.store, enrichment)
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("render HTML: %w", err)
+		}
+
+		nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("query nodes: %w", err)
+		}
+		edges, err := visualization.CollectEdges(ctx, s.store, nodes)
+		if err != nil {
+			return nil, FloopGraphOutput{}, fmt.Errorf("collect edges: %w", err)
+		}
+
+		return nil, FloopGraphOutput{
+			Format:    "html",
+			Graph:     string(htmlBytes),
+			NodeCount: len(nodes),
+			EdgeCount: len(edges),
+		}, nil
+
 	default:
-		return nil, FloopGraphOutput{}, fmt.Errorf("unsupported format %q (use 'dot' or 'json')", format)
+		return nil, FloopGraphOutput{}, fmt.Errorf("unsupported format %q (use 'dot', 'json', or 'html')", format)
 	}
 }
