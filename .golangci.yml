@@ -30,6 +30,7 @@ linters:
     gosec:
       excludes:
         - G104  # Unhandled errors — too noisy
+        - G115  # Integer overflow conversion — no dataflow analysis, false positives on bounded values
         - G204  # Subprocess with variable — we validate CLI paths
         - G301  # Directory permissions — tracked in w03.6
         - G302  # File permissions — tracked in w03.6
