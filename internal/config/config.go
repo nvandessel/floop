@@ -24,6 +24,18 @@ type FloopConfig struct {
 
 	// Logging contains settings for operational and decision logging.
 	Logging LoggingConfig `json:"logging" yaml:"logging"`
+
+	// TokenBudget contains settings for token budget management.
+	TokenBudget TokenBudgetConfig `json:"token_budget" yaml:"token_budget"`
+}
+
+// TokenBudgetConfig configures token budget limits for behavior injection.
+type TokenBudgetConfig struct {
+	// Default is the token budget for MCP resource handlers and CLI default.
+	Default int `json:"default" yaml:"default"`
+
+	// DynamicContext is the token budget for hook-triggered activate calls.
+	DynamicContext int `json:"dynamic_context" yaml:"dynamic_context"`
 }
 
 // LoggingConfig configures floop's logging behavior.
@@ -133,6 +145,10 @@ func Default() *FloopConfig {
 		Logging: LoggingConfig{
 			Level: "info",
 		},
+		TokenBudget: TokenBudgetConfig{
+			Default:        2000,
+			DynamicContext: 500,
+		},
 	}
 }
 
@@ -198,6 +214,13 @@ func (c *FloopConfig) Validate() error {
 		return fmt.Errorf("invalid log level: %s (valid: info, debug, trace, or empty for default)", c.Logging.Level)
 	}
 
+	if c.TokenBudget.Default < 0 {
+		return fmt.Errorf("token_budget.default must be non-negative, got %d", c.TokenBudget.Default)
+	}
+	if c.TokenBudget.DynamicContext < 0 {
+		return fmt.Errorf("token_budget.dynamic_context must be non-negative, got %d", c.TokenBudget.DynamicContext)
+	}
+
 	return nil
 }
 
@@ -261,6 +284,17 @@ func applyEnvOverrides(config *FloopConfig) {
 
 	if v := os.Getenv("FLOOP_LOG_LEVEL"); v != "" {
 		config.Logging.Level = v
+	}
+
+	if v := os.Getenv("FLOOP_TOKEN_BUDGET"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			config.TokenBudget.Default = n
+		}
+	}
+	if v := os.Getenv("FLOOP_TOKEN_BUDGET_DYNAMIC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			config.TokenBudget.DynamicContext = n
+		}
 	}
 }
 

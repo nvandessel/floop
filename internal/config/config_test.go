@@ -381,6 +381,85 @@ func TestValidate_ValidLogLevels(t *testing.T) {
 	}
 }
 
+func TestDefault_TokenBudget(t *testing.T) {
+	config := Default()
+
+	if config.TokenBudget.Default != 2000 {
+		t.Errorf("expected TokenBudget.Default 2000, got %d", config.TokenBudget.Default)
+	}
+	if config.TokenBudget.DynamicContext != 500 {
+		t.Errorf("expected TokenBudget.DynamicContext 500, got %d", config.TokenBudget.DynamicContext)
+	}
+}
+
+func TestLoadFromFile_TokenBudget(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+token_budget:
+  default: 3000
+  dynamic_context: 800
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	config, err := LoadFromFile(configPath)
+	if err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+
+	if config.TokenBudget.Default != 3000 {
+		t.Errorf("expected TokenBudget.Default 3000, got %d", config.TokenBudget.Default)
+	}
+	if config.TokenBudget.DynamicContext != 800 {
+		t.Errorf("expected TokenBudget.DynamicContext 800, got %d", config.TokenBudget.DynamicContext)
+	}
+}
+
+func TestEnvOverrides_TokenBudget(t *testing.T) {
+	t.Setenv("FLOOP_TOKEN_BUDGET", "1500")
+	t.Setenv("FLOOP_TOKEN_BUDGET_DYNAMIC", "300")
+
+	config := Default()
+	applyEnvOverrides(config)
+
+	if config.TokenBudget.Default != 1500 {
+		t.Errorf("expected TokenBudget.Default 1500, got %d", config.TokenBudget.Default)
+	}
+	if config.TokenBudget.DynamicContext != 300 {
+		t.Errorf("expected TokenBudget.DynamicContext 300, got %d", config.TokenBudget.DynamicContext)
+	}
+}
+
+func TestValidate_TokenBudget(t *testing.T) {
+	tests := []struct {
+		name           string
+		defaultBudget  int
+		dynamicContext int
+		wantErr        bool
+	}{
+		{"valid defaults", 2000, 500, false},
+		{"zero default", 0, 500, false},
+		{"zero dynamic", 2000, 0, false},
+		{"negative default", -1, 500, true},
+		{"negative dynamic", 2000, -1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Default()
+			config.TokenBudget.Default = tt.defaultBudget
+			config.TokenBudget.DynamicContext = tt.dynamicContext
+			err := config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadFromFile_NotFound(t *testing.T) {
 	_, err := LoadFromFile("/nonexistent/path/config.yaml")
 	if err == nil {
