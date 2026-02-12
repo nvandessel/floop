@@ -39,9 +39,9 @@ type LocalClient struct {
 	gpuLayers          int
 	contextSize        int
 
-	mu    sync.Mutex
-	model llama.Model
-	vocab llama.Vocab
+	mu      sync.Mutex
+	model   llama.Model
+	vocab   llama.Vocab
 	nEmbd   int32
 	loaded  bool
 	loadErr error
@@ -123,7 +123,7 @@ func (c *LocalClient) loadModel() error {
 		}
 
 		modelParams := llama.ModelDefaultParams()
-		modelParams.NGpuLayers = int32(c.gpuLayers)
+		modelParams.NGpuLayers = int32(min(c.gpuLayers, int(^int32(0)))) //nolint:gosec // GPU layers capped at int32 max
 
 		model, err := llama.ModelLoadFromFile(path, modelParams)
 		if err != nil {
@@ -176,13 +176,13 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	tokens := llama.Tokenize(c.vocab, text, true, true)
 
 	ctxParams := llama.ContextDefaultParams()
-	ctxParams.NCtx = uint32(len(tokens) + 64) // fit the text with padding for special tokens
+	ctxParams.NCtx = uint32(len(tokens) + 64) //nolint:gosec // token count is always small positive
 
 	lctx, err := llama.InitFromModel(c.model, ctxParams)
 	if err != nil {
 		return nil, fmt.Errorf("creating embedding context: %w", err)
 	}
-	defer llama.Free(lctx)
+	defer func() { _ = llama.Free(lctx) }()
 
 	llama.SetEmbeddings(lctx, true)
 
@@ -245,7 +245,7 @@ func (c *LocalClient) Close() error {
 	defer c.mu.Unlock()
 
 	if c.loaded {
-		llama.ModelFree(c.model)
+		_ = llama.ModelFree(c.model)
 		c.model = 0
 		c.vocab = 0
 		c.nEmbd = 0
