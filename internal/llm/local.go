@@ -176,7 +176,7 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	tokens := llama.Tokenize(c.vocab, text, true, true)
 
 	ctxParams := llama.ContextDefaultParams()
-	ctxParams.NCtx = uint32(len(tokens) + 16) // fit the text with padding
+	ctxParams.NCtx = uint32(len(tokens) + 64) // fit the text with padding for special tokens
 
 	lctx, err := llama.InitFromModel(c.model, ctxParams)
 	if err != nil {
@@ -187,7 +187,9 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	llama.SetEmbeddings(lctx, true)
 
 	batch := llama.BatchGetOne(tokens)
-	llama.Decode(lctx, batch)
+	if _, err := llama.Decode(lctx, batch); err != nil {
+		return nil, fmt.Errorf("decoding tokens: %w", err)
+	}
 
 	rawVec, err := llama.GetEmbeddingsSeq(lctx, 0, c.nEmbd)
 	if err != nil {
@@ -244,7 +246,11 @@ func (c *LocalClient) Close() error {
 
 	if c.loaded {
 		llama.ModelFree(c.model)
+		c.model = 0
+		c.vocab = 0
+		c.nEmbd = 0
 		c.loaded = false
+		c.once = sync.Once{} // allow reloading after close
 	}
 	return nil
 }
