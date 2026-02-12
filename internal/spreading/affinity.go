@@ -40,7 +40,9 @@ type TagProvider interface {
 
 // virtualAffinityEdges generates virtual edges from tag overlap between
 // nodeID and all other behaviors in the tag map.
-// Virtual edges use kind "feature-affinity" and have no temporal decay.
+// Virtual edges use kind "feature-affinity" and are created fresh each
+// activation cycle (CreatedAt set to now), so temporal decay has negligible
+// effect on them in practice.
 func virtualAffinityEdges(nodeID string, nodeTags []string, allTags map[string][]string, config AffinityConfig) []store.Edge {
 	if len(nodeTags) == 0 {
 		return nil

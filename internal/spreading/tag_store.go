@@ -2,6 +2,7 @@ package spreading
 
 import (
 	"context"
+	"log"
 
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -21,6 +22,7 @@ func NewStoreTagProvider(s store.GraphStore) *StoreTagProvider {
 func (p *StoreTagProvider) GetAllBehaviorTags() map[string][]string {
 	nodes, err := p.store.QueryNodes(context.Background(), map[string]interface{}{"kind": "behavior"})
 	if err != nil {
+		log.Printf("warning: tag provider failed to query behaviors: %v", err)
 		return nil
 	}
 
