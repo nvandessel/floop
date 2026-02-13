@@ -41,6 +41,15 @@ Add floop as an MCP server in your AI tool's config. Example for Claude Code (`~
 
 See [docs/integrations/](integrations/) for more tools.
 
+### MCP Resources
+
+The MCP server also exposes resources that clients can subscribe to:
+
+| URI | Description |
+|-----|-------------|
+| `floop://behaviors/active` | Active behaviors for current context (auto-loaded, 2000-token budget) |
+| `floop://behaviors/expand/{id}` | Full details for a specific behavior (resource template) |
+
 ### MCP Workflow
 
 ```
@@ -120,7 +129,28 @@ floop validate
 
 # Backup and restore
 floop backup
-floop restore-from-backup --input <backup-file>
+floop restore-backup <backup-file>
+```
+
+### Similarity & Deduplication
+
+floop uses a 3-tier fallback chain to detect duplicate behaviors:
+
+1. **Embedding similarity** — cosine similarity between behavior embeddings (fastest, requires an embedding provider)
+2. **LLM comparison** — structured semantic comparison when embeddings are unavailable
+3. **Jaccard word overlap** — rule-based fallback: 40% when-condition overlap + 60% content word overlap
+
+The first method that produces a result is used. See [Similarity Pipeline](SIMILARITY.md) for details.
+
+```bash
+# Preview duplicates (dry run)
+floop deduplicate --dry-run
+
+# Use a custom similarity threshold (default: 0.9)
+floop deduplicate --threshold 0.85
+
+# Cross-store deduplication (local + global)
+floop deduplicate --scope both
 ```
 
 ### Graph Operations
@@ -140,8 +170,8 @@ floop graph --format dot | dot -Tpng -o graph.png
 floop graph --format json
 
 # Connect related behaviors
-floop connect <source> <target> --kind similar-to
-floop connect <source> <target> --kind requires --weight 0.9
+floop connect <source> <target> similar-to
+floop connect <source> <target> requires --weight 0.9
 ```
 
 ### Curation

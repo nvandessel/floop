@@ -505,7 +505,7 @@ Find and merge duplicate behaviors.
 floop deduplicate [flags]
 ```
 
-Analyzes all behaviors in the store, identifies duplicates based on semantic similarity (Jaccard word overlap or LLM-based comparison if configured), and can automatically merge them.
+Analyzes all behaviors in the store, identifies duplicates based on semantic similarity (embedding, LLM, or Jaccard word overlap — see [Similarity Pipeline](SIMILARITY.md)), and can automatically merge them.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -612,7 +612,7 @@ floop config set <key> <value>
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `llm.provider` | string | LLM provider: `anthropic`, `openai`, `ollama`, `subagent`, or empty |
+| `llm.provider` | string | LLM provider: `anthropic`, `openai`, `ollama`, `subagent`, `local`, or empty |
 | `llm.enabled` | bool | Enable LLM features |
 | `llm.api_key` | string | API key for LLM provider |
 | `llm.base_url` | string | Custom base URL for LLM API |
@@ -620,8 +620,14 @@ floop config set <key> <value>
 | `llm.merge_model` | string | Model used for behavior merging |
 | `llm.timeout` | duration | Request timeout (e.g., `30s`) |
 | `llm.fallback_to_rules` | bool | Fall back to rule-based processing if LLM fails |
+| `llm.local_lib_path` | string | Directory containing yzma shared libraries (local provider) |
+| `llm.local_model_path` | string | Path to GGUF model for text generation (local provider) |
+| `llm.local_embedding_model_path` | string | Path to GGUF model for embeddings; falls back to `local_model_path` (local provider) |
+| `llm.local_gpu_layers` | int | GPU layer offload count; 0 = CPU only (local provider) |
+| `llm.local_context_size` | int | Context window size in tokens; default 512 (local provider) |
 | `deduplication.auto_merge` | bool | Automatically merge duplicates |
 | `deduplication.similarity_threshold` | float | Similarity threshold (0.0-1.0) |
+| `logging.level` | string | Log verbosity: `info`, `debug`, `trace` |
 
 **Examples:**
 
@@ -643,6 +649,29 @@ floop config list --json
 ```
 
 **See also:** [init](#init)
+
+---
+
+### Environment Variables
+
+Environment variables override their corresponding config keys. They are applied after the config file is loaded.
+
+| Variable | Config Key | Notes |
+|----------|-----------|-------|
+| `FLOOP_LLM_PROVIDER` | `llm.provider` | |
+| `FLOOP_LLM_ENABLED` | `llm.enabled` | `"true"` or `"1"` to enable |
+| `ANTHROPIC_API_KEY` | `llm.api_key` | When `provider=anthropic` |
+| `OPENAI_API_KEY` | `llm.api_key` | When `provider=openai` |
+| `OLLAMA_HOST` | `llm.base_url` | When `provider=ollama`; default: `http://localhost:11434/v1` |
+| `FLOOP_LOCAL_LIB_PATH` | `llm.local_lib_path` | |
+| `FLOOP_LOCAL_MODEL_PATH` | `llm.local_model_path` | |
+| `FLOOP_LOCAL_EMBEDDING_MODEL_PATH` | `llm.local_embedding_model_path` | |
+| `FLOOP_LOCAL_GPU_LAYERS` | `llm.local_gpu_layers` | |
+| `FLOOP_LOCAL_CONTEXT_SIZE` | `llm.local_context_size` | |
+| `FLOOP_AUTO_MERGE` | `deduplication.auto_merge` | `"true"` or `"1"` to enable |
+| `FLOOP_SIMILARITY_THRESHOLD` | `deduplication.similarity_threshold` | |
+| `FLOOP_LOG_LEVEL` | `logging.level` | |
+| `FLOOP_ENV` | — | Override environment auto-detection |
 
 ---
 
@@ -818,6 +847,47 @@ floop connect behavior-abc behavior-xyz conflicts --json
 
 ---
 
+### tags
+
+Manage behavior tags.
+
+```
+floop tags <subcommand> [flags]
+```
+
+#### tags backfill
+
+Extract and assign semantic tags to existing behaviors using dictionary-based extraction.
+
+```
+floop tags backfill [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | `false` | Show what tags would be assigned without making changes |
+| `--scope` | string | `"local"` | Store scope: `local`, `global`, or `both` |
+
+**Examples:**
+
+```bash
+# Preview tag extraction
+floop tags backfill --dry-run
+
+# Backfill tags for local store
+floop tags backfill
+
+# Backfill across both stores
+floop tags backfill --scope both
+
+# JSON output
+floop tags backfill --json
+```
+
+**See also:** [list](#list) (`--tag` flag), [deduplicate](#deduplicate)
+
+---
+
 ## Backup
 
 Commands for backing up and restoring the behavior graph.
@@ -974,11 +1044,28 @@ Run floop as an MCP (Model Context Protocol) server.
 floop mcp-server
 ```
 
-Starts an MCP server that exposes floop functionality over stdio using JSON-RPC 2.0. Allows AI tools (Continue.dev, Cursor, Cline, Windsurf, GitHub Copilot) to invoke floop tools directly:
+Starts an MCP server that exposes floop functionality over stdio using JSON-RPC 2.0. Allows AI tools (Continue.dev, Cursor, Cline, Windsurf, GitHub Copilot) to invoke floop tools directly.
 
-- `floop_active` -- Get active behaviors for current context
-- `floop_learn` -- Capture corrections and extract behaviors
-- `floop_list` -- List all behaviors or corrections
+**Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `floop_active` | Get active behaviors for current context |
+| `floop_learn` | Capture corrections and extract behaviors |
+| `floop_list` | List all behaviors or corrections |
+| `floop_deduplicate` | Find and merge duplicate behaviors |
+| `floop_backup` | Export full graph state to backup file |
+| `floop_restore` | Import graph state from backup (merge or replace) |
+| `floop_connect` | Create edge between two behaviors for spreading activation |
+| `floop_validate` | Validate behavior graph for consistency issues |
+| `floop_graph` | Render graph in DOT, JSON, or interactive HTML format |
+
+**Resources:**
+
+| URI | Description |
+|-----|-------------|
+| `floop://behaviors/active` | Active behaviors for current context (auto-loaded, 2000-token budget) |
+| `floop://behaviors/expand/{id}` | Full details for a specific behavior (resource template) |
 
 No command-specific flags.
 
@@ -1092,6 +1179,7 @@ floop help completion bash
 | [show](#show) | Query | Show details of a behavior |
 | [stats](#stats) | Token Optimization | Show behavior usage statistics |
 | [summarize](#summarize) | Token Optimization | Generate or regenerate summaries for behaviors |
+| [tags](#tags) | Graph | Manage behavior tags |
 | [upgrade](#upgrade) | Core | Upgrade hook scripts to match current binary version |
 | [validate](#validate) | Management | Validate the behavior graph for consistency issues |
 | [version](#version) | Core | Print version information |

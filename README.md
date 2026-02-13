@@ -79,6 +79,8 @@ When you correct your AI agent, floop captures the correction and extracts a **b
 ## Documentation
 
 - [CLI reference](docs/CLI_REFERENCE.md) — Complete reference for all commands and flags
+- [Usage guide](docs/FLOOP_USAGE.md) — How to use floop via MCP or CLI
+- [Similarity pipeline](docs/SIMILARITY.md) — How deduplication and similarity detection work
 - [Integration guides](docs/integrations/) — Setup for Claude Code, Cursor, Windsurf, and others
 - [Research & theory](docs/SCIENCE.md) — The cognitive science behind spreading activation
 - [Origin story](docs/LORE.md) — How floop came to be
