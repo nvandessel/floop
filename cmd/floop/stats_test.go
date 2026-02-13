@@ -6,32 +6,8 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/tiering"
+	"github.com/nvandessel/feedback-loop/internal/tokens"
 )
-
-func TestEstimateTokens(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    int
-	}{
-		{"empty string", "", 0},
-		{"single char", "a", 1},
-		{"four chars", "abcd", 1},
-		{"five chars", "abcde", 2},
-		{"eight chars", "abcdefgh", 2},
-		{"known content", "Use Go modules for dependency management", 10},
-		{"longer content", "This is a somewhat long behavior content for testing token budget limits", 18},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := estimateTokens(tt.content)
-			if got != tt.want {
-				t.Errorf("estimateTokens(%q) = %d, want %d", tt.content, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestBudgetSimulationVaryingBudgets(t *testing.T) {
 	now := time.Now()
@@ -234,8 +210,8 @@ func TestTokenBudgetSection(t *testing.T) {
 
 	var behaviorStats []testBehaviorStat
 	for _, b := range behaviors {
-		tokenCost := estimateTokens(b.Content.Canonical)
-		summaryCost := estimateTokens(b.Content.Summary)
+		tokenCost := tokens.EstimateTokens(b.Content.Canonical)
+		summaryCost := tokens.EstimateTokens(b.Content.Summary)
 		behaviorStats = append(behaviorStats, testBehaviorStat{
 			ID:          b.ID,
 			TokenCost:   tokenCost,

@@ -12,6 +12,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/tiering"
+	"github.com/nvandessel/feedback-loop/internal/tokens"
 	"github.com/spf13/cobra"
 )
 
@@ -101,8 +102,8 @@ Examples:
 					followRate = float64(positiveSignals) / float64(behavior.Stats.TimesActivated)
 				}
 
-				tokenCost := estimateTokens(behavior.Content.Canonical)
-				summaryCost := estimateTokens(behavior.Content.Summary)
+				tokenCost := tokens.EstimateTokens(behavior.Content.Canonical)
+				summaryCost := tokens.EstimateTokens(behavior.Content.Summary)
 
 				stats = append(stats, BehaviorStats{
 					ID:              behavior.ID,
@@ -330,14 +331,6 @@ func repeatChar(c rune, n int) string {
 		result[i] = c
 	}
 	return string(result)
-}
-
-// estimateTokens estimates token count for text using the (len+3)/4 heuristic
-func estimateTokens(text string) int {
-	if text == "" {
-		return 0
-	}
-	return (len(text) + 3) / 4
 }
 
 // truncatePreview truncates a string to maxLen characters, appending "..." if truncated
