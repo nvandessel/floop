@@ -648,7 +648,7 @@ floop config list --json
 
 ## Token Optimization
 
-Commands for managing token usage and behavior summaries.
+Commands for managing token usage and behavior summaries. For details on how the token budget system works (tiering, demotion, configuration), see [TOKEN_BUDGET.md](TOKEN_BUDGET.md).
 
 ### summarize
 
