@@ -594,21 +594,23 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 	}
 
 	// Auto-backup after successful learn (bounded background worker)
-	s.runBackground("auto-backup", func() {
-		backupDir, err := backup.DefaultBackupDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: auto-backup failed (dir): %v\n", err)
-			return
-		}
-		backupPath := backup.GenerateBackupPath(backupDir)
-		if _, err := backup.Backup(context.Background(), s.store, backupPath); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: auto-backup failed: %v\n", err)
-			return
-		}
-		if err := backup.RotateBackups(backupDir, 10); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: auto-backup rotation failed: %v\n", err)
-		}
-	})
+	if s.backupConfig == nil || s.backupConfig.AutoBackup {
+		s.runBackground("auto-backup", func() {
+			backupDir, err := backup.DefaultBackupDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: auto-backup failed (dir): %v\n", err)
+				return
+			}
+			backupPath := backup.GenerateBackupPath(backupDir)
+			if _, err := backup.Backup(context.Background(), s.store, backupPath); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: auto-backup failed: %v\n", err)
+				return
+			}
+			if _, err := backup.ApplyRetention(backupDir, s.retentionPolicy); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: auto-backup retention failed: %v\n", err)
+			}
+		})
+	}
 
 	// Debounced PageRank refresh after graph mutation
 	s.debouncedRefreshPageRank()
@@ -997,17 +999,26 @@ func (s *Server) handleFloopBackup(ctx context.Context, req *sdk.CallToolRequest
 		return nil, FloopBackupOutput{}, fmt.Errorf("backup failed: %w", err)
 	}
 
-	// Rotate old backups (keep last 10)
+	// Apply retention policy
 	backupDir := filepath.Dir(outputPath)
-	if err := backup.RotateBackups(backupDir, 10); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to rotate backups: %v\n", err)
+	if _, err := backup.ApplyRetention(backupDir, s.retentionPolicy); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to apply retention: %v\n", err)
+	}
+
+	// Get file size for output
+	var sizeBytes int64
+	if info, err := os.Stat(outputPath); err == nil {
+		sizeBytes = info.Size()
 	}
 
 	return nil, FloopBackupOutput{
-		Path:      outputPath,
-		NodeCount: len(result.Nodes),
-		EdgeCount: len(result.Edges),
-		Message:   fmt.Sprintf("Backup created: %d nodes, %d edges → %s", len(result.Nodes), len(result.Edges), outputPath),
+		Path:       outputPath,
+		NodeCount:  len(result.Nodes),
+		EdgeCount:  len(result.Edges),
+		Version:    result.Version,
+		Compressed: result.Version == backup.FormatV2,
+		SizeBytes:  sizeBytes,
+		Message:    fmt.Sprintf("Backup created: %d nodes, %d edges → %s", len(result.Nodes), len(result.Edges), outputPath),
 	}, nil
 }
 

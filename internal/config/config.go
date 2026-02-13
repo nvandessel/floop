@@ -27,6 +27,9 @@ type FloopConfig struct {
 
 	// TokenBudget contains settings for token budget management.
 	TokenBudget TokenBudgetConfig `json:"token_budget" yaml:"token_budget"`
+
+	// Backup contains settings for backup operations.
+	Backup BackupConfig `json:"backup" yaml:"backup"`
 }
 
 // TokenBudgetConfig configures token budget limits for behavior injection.
@@ -36,6 +39,30 @@ type TokenBudgetConfig struct {
 
 	// DynamicContext is the token budget for hook-triggered activate calls.
 	DynamicContext int `json:"dynamic_context" yaml:"dynamic_context"`
+}
+
+// BackupConfig configures backup behavior.
+type BackupConfig struct {
+	// Compression enables gzip compression for backups (V2 format).
+	Compression bool `json:"compression" yaml:"compression"`
+
+	// AutoBackup enables automatic backups after learn operations.
+	AutoBackup bool `json:"auto_backup" yaml:"auto_backup"`
+
+	// Retention configures backup retention policies.
+	Retention RetentionConfig `json:"retention" yaml:"retention"`
+}
+
+// RetentionConfig configures backup retention policies.
+type RetentionConfig struct {
+	// MaxCount is the maximum number of backups to keep (0 = unlimited).
+	MaxCount int `json:"max_count" yaml:"max_count"`
+
+	// MaxAge is the maximum age of backups (e.g., "30d", "2w", "720h"). Empty = disabled.
+	MaxAge string `json:"max_age" yaml:"max_age"`
+
+	// MaxTotalSize is the maximum total size of backups (e.g., "100MB", "1GB"). Empty = disabled.
+	MaxTotalSize string `json:"max_total_size" yaml:"max_total_size"`
 }
 
 // LoggingConfig configures floop's logging behavior.
@@ -149,6 +176,13 @@ func Default() *FloopConfig {
 			Default:        2000,
 			DynamicContext: 500,
 		},
+		Backup: BackupConfig{
+			Compression: true,
+			AutoBackup:  true,
+			Retention: RetentionConfig{
+				MaxCount: 10,
+			},
+		},
 	}
 }
 
@@ -221,7 +255,77 @@ func (c *FloopConfig) Validate() error {
 		return fmt.Errorf("token_budget.dynamic_context must be non-negative, got %d", c.TokenBudget.DynamicContext)
 	}
 
+	// Backup validation
+	if c.Backup.Retention.MaxCount < 0 {
+		return fmt.Errorf("backup.retention.max_count must be >= 0, got %d", c.Backup.Retention.MaxCount)
+	}
+
+	if c.Backup.Retention.MaxAge != "" {
+		if _, err := parseDurationSimple(c.Backup.Retention.MaxAge); err != nil {
+			return fmt.Errorf("backup.retention.max_age: %w", err)
+		}
+	}
+
+	if c.Backup.Retention.MaxTotalSize != "" {
+		if _, err := parseSizeSimple(c.Backup.Retention.MaxTotalSize); err != nil {
+			return fmt.Errorf("backup.retention.max_total_size: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// parseDurationSimple validates duration strings like "30d", "2w", "720h".
+func parseDurationSimple(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty duration string")
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return d, nil
+	}
+	if len(s) < 2 {
+		return 0, fmt.Errorf("invalid duration: %q", s)
+	}
+	suffix := s[len(s)-1]
+	num, err := strconv.Atoi(s[:len(s)-1])
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration: %q", s)
+	}
+	switch suffix {
+	case 'd':
+		return time.Duration(num) * 24 * time.Hour, nil
+	case 'w':
+		return time.Duration(num) * 7 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unknown duration suffix %q in %q", string(suffix), s)
+	}
+}
+
+// parseSizeSimple validates size strings like "100MB", "1GB".
+func parseSizeSimple(s string) (int64, error) {
+	if s == "" {
+		return 0, fmt.Errorf("empty size string")
+	}
+	s = strings.TrimSpace(s)
+	type sizeSuffix struct {
+		suffix     string
+		multiplier int64
+	}
+	for _, ss := range []sizeSuffix{
+		{"GB", 1024 * 1024 * 1024},
+		{"MB", 1024 * 1024},
+		{"KB", 1024},
+		{"B", 1},
+	} {
+		if strings.HasSuffix(s, ss.suffix) {
+			num, err := strconv.ParseInt(strings.TrimSuffix(s, ss.suffix), 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid size: %q", s)
+			}
+			return num * ss.multiplier, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid size: %q (expected suffix: B, KB, MB, GB)", s)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
@@ -295,6 +399,22 @@ func applyEnvOverrides(config *FloopConfig) {
 		if n, err := strconv.Atoi(v); err == nil {
 			config.TokenBudget.DynamicContext = n
 		}
+	}
+
+	// Backup config overrides
+	if v := os.Getenv("FLOOP_BACKUP_COMPRESSION"); v != "" {
+		config.Backup.Compression = v == "true" || v == "1"
+	}
+	if v := os.Getenv("FLOOP_BACKUP_AUTO"); v != "" {
+		config.Backup.AutoBackup = v == "true" || v == "1"
+	}
+	if v := os.Getenv("FLOOP_BACKUP_MAX_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			config.Backup.Retention.MaxCount = n
+		}
+	}
+	if v := os.Getenv("FLOOP_BACKUP_MAX_AGE"); v != "" {
+		config.Backup.Retention.MaxAge = v
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nvandessel/feedback-loop/internal/backup"
 	"github.com/nvandessel/feedback-loop/internal/config"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/ratelimit"
@@ -44,6 +45,10 @@ type Server struct {
 	// PageRank debounce
 	pageRankDebounce   *time.Timer
 	pageRankDebounceMu sync.Mutex
+
+	// Backup configuration and retention policy
+	backupConfig    *config.BackupConfig
+	retentionPolicy backup.RetentionPolicy
 
 	// Bounded worker pool for background goroutines
 	workerPool chan struct{}
@@ -91,19 +96,22 @@ func NewServer(cfg *Config) (*Server, error) {
 		fmt.Fprintf(os.Stderr, "warning: failed to load config, using defaults: %v\n", err)
 		floopCfg = config.Default()
 	}
+	retPolicy := buildRetentionPolicy(&floopCfg.Backup)
 
 	s := &Server{
-		server:        mcpServer,
-		store:         graphStore,
-		root:          cfg.Root,
-		floopConfig:   floopCfg,
-		session:       session.NewState(session.DefaultConfig()),
-		auditLogger:   NewAuditLogger(cfg.Root, homeDir),
-		pageRankCache: make(map[string]float64),
-		toolLimiters:  ratelimit.NewToolLimiters(),
-		boostTracker:  ranking.DefaultBoostTracker(),
-		workerPool:    make(chan struct{}, maxBackgroundWorkers),
-		done:          make(chan struct{}),
+		server:          mcpServer,
+		store:           graphStore,
+		root:            cfg.Root,
+		floopConfig:     floopCfg,
+		session:         session.NewState(session.DefaultConfig()),
+		auditLogger:     NewAuditLogger(cfg.Root, homeDir),
+		pageRankCache:   make(map[string]float64),
+		toolLimiters:    ratelimit.NewToolLimiters(),
+		boostTracker:    ranking.DefaultBoostTracker(),
+		backupConfig:    &floopCfg.Backup,
+		retentionPolicy: retPolicy,
+		workerPool:      make(chan struct{}, maxBackgroundWorkers),
+		done:            make(chan struct{}),
 	}
 
 	// Auto-seed meta-behaviors into global store (non-fatal)
@@ -226,6 +234,37 @@ func autoSeedGlobalStore(graphStore *store.MultiGraphStore) {
 	if len(result.Added) > 0 || len(result.Updated) > 0 {
 		fmt.Fprintf(os.Stderr, "floop: seeded %d, updated %d meta-behavior(s)\n", len(result.Added), len(result.Updated))
 	}
+}
+
+// buildRetentionPolicy constructs a retention policy from backup config.
+func buildRetentionPolicy(cfg *config.BackupConfig) backup.RetentionPolicy {
+	var policies []backup.RetentionPolicy
+
+	if cfg.Retention.MaxCount > 0 {
+		policies = append(policies, &backup.CountPolicy{MaxCount: cfg.Retention.MaxCount})
+	}
+
+	if cfg.Retention.MaxAge != "" {
+		if d, err := backup.ParseDuration(cfg.Retention.MaxAge); err == nil {
+			policies = append(policies, &backup.AgePolicy{MaxAge: d})
+		}
+	}
+
+	if cfg.Retention.MaxTotalSize != "" {
+		if s, err := backup.ParseSize(cfg.Retention.MaxTotalSize); err == nil {
+			policies = append(policies, &backup.SizePolicy{MaxTotalBytes: s})
+		}
+	}
+
+	if len(policies) == 0 {
+		return &backup.CountPolicy{MaxCount: 10}
+	}
+
+	if len(policies) == 1 {
+		return policies[0]
+	}
+
+	return &backup.CompositePolicy{Policies: policies}
 }
 
 // Close closes the server and releases resources.

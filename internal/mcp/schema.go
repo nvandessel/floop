@@ -134,10 +134,13 @@ type FloopBackupInput struct {
 
 // FloopBackupOutput defines the output for floop_backup tool.
 type FloopBackupOutput struct {
-	Path      string `json:"path" jsonschema:"Path to the backup file"`
-	NodeCount int    `json:"node_count" jsonschema:"Number of nodes backed up"`
-	EdgeCount int    `json:"edge_count" jsonschema:"Number of edges backed up"`
-	Message   string `json:"message" jsonschema:"Human-readable result message"`
+	Path       string `json:"path" jsonschema:"Path to the backup file"`
+	NodeCount  int    `json:"node_count" jsonschema:"Number of nodes backed up"`
+	EdgeCount  int    `json:"edge_count" jsonschema:"Number of edges backed up"`
+	Version    int    `json:"version" jsonschema:"Backup format version (1=JSON, 2=gzip+SHA-256)"`
+	Compressed bool   `json:"compressed" jsonschema:"Whether the backup is gzip compressed"`
+	SizeBytes  int64  `json:"size_bytes" jsonschema:"Size of the backup file in bytes"`
+	Message    string `json:"message" jsonschema:"Human-readable result message"`
 }
 
 // FloopRestoreInput defines the input for floop_restore tool.

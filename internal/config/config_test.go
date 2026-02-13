@@ -467,6 +467,114 @@ func TestLoadFromFile_NotFound(t *testing.T) {
 	}
 }
 
+func TestDefault_BackupConfig(t *testing.T) {
+	config := Default()
+
+	if !config.Backup.Compression {
+		t.Error("expected Backup.Compression to be true by default")
+	}
+	if !config.Backup.AutoBackup {
+		t.Error("expected Backup.AutoBackup to be true by default")
+	}
+	if config.Backup.Retention.MaxCount != 10 {
+		t.Errorf("expected Backup.Retention.MaxCount 10, got %d", config.Backup.Retention.MaxCount)
+	}
+	if config.Backup.Retention.MaxAge != "" {
+		t.Errorf("expected Backup.Retention.MaxAge empty, got %q", config.Backup.Retention.MaxAge)
+	}
+	if config.Backup.Retention.MaxTotalSize != "" {
+		t.Errorf("expected Backup.Retention.MaxTotalSize empty, got %q", config.Backup.Retention.MaxTotalSize)
+	}
+}
+
+func TestEnvOverrides_BackupConfig(t *testing.T) {
+	t.Setenv("FLOOP_BACKUP_COMPRESSION", "false")
+	t.Setenv("FLOOP_BACKUP_AUTO", "false")
+	t.Setenv("FLOOP_BACKUP_MAX_COUNT", "5")
+	t.Setenv("FLOOP_BACKUP_MAX_AGE", "30d")
+
+	config := Default()
+	applyEnvOverrides(config)
+
+	if config.Backup.Compression {
+		t.Error("expected Backup.Compression to be false after env override")
+	}
+	if config.Backup.AutoBackup {
+		t.Error("expected Backup.AutoBackup to be false after env override")
+	}
+	if config.Backup.Retention.MaxCount != 5 {
+		t.Errorf("expected Backup.Retention.MaxCount 5, got %d", config.Backup.Retention.MaxCount)
+	}
+	if config.Backup.Retention.MaxAge != "30d" {
+		t.Errorf("expected Backup.Retention.MaxAge '30d', got %q", config.Backup.Retention.MaxAge)
+	}
+}
+
+func TestValidate_BackupConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		modify  func(*FloopConfig)
+		wantErr bool
+	}{
+		{"valid defaults", func(c *FloopConfig) {}, false},
+		{"valid with max_age", func(c *FloopConfig) { c.Backup.Retention.MaxAge = "30d" }, false},
+		{"valid with max_total_size", func(c *FloopConfig) { c.Backup.Retention.MaxTotalSize = "100MB" }, false},
+		{"negative max_count", func(c *FloopConfig) { c.Backup.Retention.MaxCount = -1 }, true},
+		{"invalid max_age", func(c *FloopConfig) { c.Backup.Retention.MaxAge = "invalid" }, true},
+		{"invalid max_total_size", func(c *FloopConfig) { c.Backup.Retention.MaxTotalSize = "invalid" }, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Default()
+			tt.modify(config)
+			err := config.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadFromFile_BackupConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	configContent := `
+backup:
+  compression: false
+  auto_backup: false
+  retention:
+    max_count: 5
+    max_age: "30d"
+    max_total_size: "500MB"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	config, err := LoadFromFile(configPath)
+	if err != nil {
+		t.Fatalf("LoadFromFile failed: %v", err)
+	}
+
+	if config.Backup.Compression {
+		t.Error("expected Backup.Compression to be false")
+	}
+	if config.Backup.AutoBackup {
+		t.Error("expected Backup.AutoBackup to be false")
+	}
+	if config.Backup.Retention.MaxCount != 5 {
+		t.Errorf("expected MaxCount 5, got %d", config.Backup.Retention.MaxCount)
+	}
+	if config.Backup.Retention.MaxAge != "30d" {
+		t.Errorf("expected MaxAge '30d', got %q", config.Backup.Retention.MaxAge)
+	}
+	if config.Backup.Retention.MaxTotalSize != "500MB" {
+		t.Errorf("expected MaxTotalSize '500MB', got %q", config.Backup.Retention.MaxTotalSize)
+	}
+}
+
 func TestLoadFromFile_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
