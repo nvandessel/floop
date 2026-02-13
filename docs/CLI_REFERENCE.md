@@ -628,6 +628,11 @@ floop config set <key> <value>
 | `deduplication.auto_merge` | bool | Automatically merge duplicates |
 | `deduplication.similarity_threshold` | float | Similarity threshold (0.0-1.0) |
 | `logging.level` | string | Log verbosity: `info`, `debug`, `trace` |
+| `backup.compression` | bool | Enable gzip compression for backups (V2 format); default `true` |
+| `backup.auto_backup` | bool | Automatically backup after learn operations; default `true` |
+| `backup.retention.max_count` | int | Maximum number of backups to retain; default `10` |
+| `backup.retention.max_age` | string | Maximum age of backups (e.g., `30d`, `2w`, `720h`); empty = disabled |
+| `backup.retention.max_total_size` | string | Maximum total size of all backups (e.g., `100MB`, `1GB`); empty = disabled |
 
 **Examples:**
 
@@ -671,6 +676,10 @@ Environment variables override their corresponding config keys. They are applied
 | `FLOOP_AUTO_MERGE` | `deduplication.auto_merge` | `"true"` or `"1"` to enable |
 | `FLOOP_SIMILARITY_THRESHOLD` | `deduplication.similarity_threshold` | |
 | `FLOOP_LOG_LEVEL` | `logging.level` | |
+| `FLOOP_BACKUP_COMPRESSION` | `backup.compression` | `"true"` or `"1"` to enable (default: enabled) |
+| `FLOOP_BACKUP_AUTO` | `backup.auto_backup` | `"true"` or `"1"` to enable (default: enabled) |
+| `FLOOP_BACKUP_MAX_COUNT` | `backup.retention.max_count` | Integer; default `10` |
+| `FLOOP_BACKUP_MAX_AGE` | `backup.retention.max_age` | Duration string (e.g., `30d`, `2w`) |
 | `FLOOP_ENV` | — | Override environment auto-detection |
 
 ---
@@ -900,28 +909,84 @@ Export the full graph state to a backup file.
 floop backup [flags]
 ```
 
-Backs up the complete behavior graph (nodes + edges) to a JSON file. Keeps the last 10 backups with automatic rotation.
+Backs up the complete behavior graph (nodes + edges) to a compressed file with SHA-256 integrity verification (V2 format). Applies retention policy to rotate old backups (default: keep last 10).
 
-Default location: `~/.floop/backups/floop-backup-YYYYMMDD-HHMMSS.json`
+Default location: `~/.floop/backups/floop-backup-YYYYMMDD-HHMMSS.json.gz`
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--output` | string | `""` | Output file path (default: auto-generated in `~/.floop/backups/`) |
+| `--no-compress` | bool | `false` | Create V1 uncompressed `.json` backup instead of V2 compressed `.json.gz` |
 
 **Examples:**
 
 ```bash
-# Backup to default location
+# Backup to default location (V2 compressed)
 floop backup
 
 # Backup to a specific file
-floop backup --output my-backup.json
+floop backup --output my-backup.json.gz
+
+# Create uncompressed V1 backup
+floop backup --no-compress
 
 # JSON output
 floop backup --json
 ```
 
-**See also:** [restore-backup](#restore-backup)
+**See also:** [backup list](#backup-list), [backup verify](#backup-verify), [restore-backup](#restore-backup)
+
+---
+
+### backup list
+
+List all backups with metadata.
+
+```
+floop backup list
+```
+
+Lists all backup files in the default backup directory. For V2 files, reads the header line only (no decompression needed) to show node/edge counts. Shows version, format, size, and filename for each backup.
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+# List all backups
+floop backup list
+
+# JSON output
+floop backup list --json
+```
+
+**See also:** [backup](#backup), [backup verify](#backup-verify)
+
+---
+
+### backup verify
+
+Verify backup file integrity.
+
+```
+floop backup verify <file>
+```
+
+Checks the SHA-256 checksum of a V2 backup file to detect corruption or tampering. For V1 files, reports that integrity checking is not available (V1 has no checksum).
+
+No command-specific flags.
+
+**Examples:**
+
+```bash
+# Verify a V2 backup
+floop backup verify ~/.floop/backups/floop-backup-20260211-143005.json.gz
+
+# JSON output
+floop backup verify backup.json.gz --json
+```
+
+**See also:** [backup](#backup), [backup list](#backup-list)
 
 ---
 
@@ -933,7 +998,7 @@ Restore graph state from a backup file.
 floop restore-backup <file> [flags]
 ```
 
-Restores the behavior graph from a backup JSON file. In `merge` mode (default), existing nodes and edges are skipped. In `replace` mode, the store is cleared before restoring.
+Restores the behavior graph from a backup file. Automatically detects V1 (plain JSON) and V2 (compressed) formats. In `merge` mode (default), existing nodes and edges are skipped. In `replace` mode, the store is cleared before restoring.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -942,14 +1007,17 @@ Restores the behavior graph from a backup JSON file. In `merge` mode (default), 
 **Examples:**
 
 ```bash
-# Restore with merge (skip existing)
+# Restore a V2 compressed backup
+floop restore-backup ~/.floop/backups/floop-backup-20260206-120000.json.gz
+
+# Restore a legacy V1 backup (auto-detected)
 floop restore-backup ~/.floop/backups/floop-backup-20260206-120000.json
 
 # Replace entire store from backup
-floop restore-backup backup.json --mode replace
+floop restore-backup backup.json.gz --mode replace
 
 # JSON output
-floop restore-backup backup.json --json
+floop restore-backup backup.json.gz --json
 ```
 
 **See also:** [backup](#backup)
