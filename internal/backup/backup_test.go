@@ -71,7 +71,7 @@ func TestBackupRestore_RoundTrip(t *testing.T) {
 	addTestData(t, srcStore)
 
 	ctx := context.Background()
-	backupPath := filepath.Join(t.TempDir(), "test-backup.json")
+	backupPath := filepath.Join(t.TempDir(), "test-backup.json.gz")
 
 	// Backup
 	backup, err := Backup(ctx, srcStore, backupPath)
@@ -79,8 +79,8 @@ func TestBackupRestore_RoundTrip(t *testing.T) {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if backup.Version != 1 {
-		t.Errorf("Version = %d, want 1", backup.Version)
+	if backup.Version != 2 {
+		t.Errorf("Version = %d, want 2", backup.Version)
 	}
 	if len(backup.Nodes) != 3 {
 		t.Errorf("Nodes = %d, want 3", len(backup.Nodes))
@@ -395,7 +395,111 @@ func TestGenerateBackupPath(t *testing.T) {
 	if filepath.Dir(path) != dir {
 		t.Errorf("dir = %s, want %s", filepath.Dir(path), dir)
 	}
+	if !strings.HasSuffix(path, ".json.gz") {
+		t.Errorf("path = %s, want .json.gz suffix", path)
+	}
+}
+
+func TestGenerateBackupPathV1(t *testing.T) {
+	dir := "/tmp/backups"
+	path := GenerateBackupPathV1(dir)
+
+	if filepath.Dir(path) != dir {
+		t.Errorf("dir = %s, want %s", filepath.Dir(path), dir)
+	}
 	if filepath.Ext(path) != ".json" {
 		t.Errorf("ext = %s, want .json", filepath.Ext(path))
+	}
+}
+
+func TestBackup_DefaultsToV2(t *testing.T) {
+	srcStore := createTestStore(t)
+	defer srcStore.Close()
+	addTestData(t, srcStore)
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	backupPath := filepath.Join(dir, "test-backup.json.gz")
+
+	result, err := Backup(ctx, srcStore, backupPath)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+
+	if result.Version != FormatV2 {
+		t.Errorf("Version = %d, want %d (V2)", result.Version, FormatV2)
+	}
+
+	// Verify file is V2 format
+	version, err := DetectFormat(backupPath)
+	if err != nil {
+		t.Fatalf("DetectFormat() error = %v", err)
+	}
+	if version != FormatV2 {
+		t.Errorf("DetectFormat() = %d, want %d", version, FormatV2)
+	}
+}
+
+func TestRestore_V1BackwardCompat(t *testing.T) {
+	srcStore := createTestStore(t)
+	defer srcStore.Close()
+	addTestData(t, srcStore)
+
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// Create a V1 backup explicitly
+	v1Path := filepath.Join(dir, "v1-backup.json")
+	_, err := BackupWithOptions(ctx, srcStore, v1Path, false)
+	if err != nil {
+		t.Fatalf("BackupWithOptions(compress=false) error = %v", err)
+	}
+
+	// Restore V1 file using the auto-detecting Restore
+	dstStore := createTestStore(t)
+	defer dstStore.Close()
+
+	result, err := Restore(ctx, dstStore, v1Path, RestoreMerge)
+	if err != nil {
+		t.Fatalf("Restore(V1) error = %v", err)
+	}
+
+	if result.NodesRestored != 3 {
+		t.Errorf("NodesRestored = %d, want 3", result.NodesRestored)
+	}
+	if result.EdgesRestored != 2 {
+		t.Errorf("EdgesRestored = %d, want 2", result.EdgesRestored)
+	}
+}
+
+func TestRotateBackups_MixedFormats(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a mix of V1 and V2 backup files
+	files := []string{
+		"floop-backup-20260201-120000.json",
+		"floop-backup-20260202-120000.json.gz",
+		"floop-backup-20260203-120000.json",
+		"floop-backup-20260204-120000.json.gz",
+		"floop-backup-20260205-120000.json.gz",
+	}
+	for _, name := range files {
+		os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0600)
+	}
+
+	if err := RotateBackups(dir, 3); err != nil {
+		t.Fatalf("RotateBackups() error = %v", err)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	count := 0
+	for _, e := range entries {
+		if isBackupFile(e.Name()) {
+			count++
+		}
+	}
+
+	if count != 3 {
+		t.Errorf("after rotation, got %d files, want 3", count)
 	}
 }

@@ -132,9 +132,12 @@ floop deduplicate              # Actually merge duplicates
 # Validate graph consistency
 floop validate
 
-# Backup and restore
-floop backup
-floop restore-backup <backup-file>
+# Backup and restore (V2: compressed + integrity verification)
+floop backup                       # Create compressed .json.gz backup
+floop backup --no-compress         # Create uncompressed .json backup
+floop backup list                  # List all backups with metadata
+floop backup verify <file>         # Verify backup integrity (SHA-256)
+floop restore-backup <backup-file> # Restore (auto-detects V1/V2)
 ```
 
 ### Similarity & Deduplication
