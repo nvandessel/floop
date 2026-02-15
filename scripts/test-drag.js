@@ -46,9 +46,6 @@ async function testDrag() {
         (n) => !isFinite(n.x) || !isFinite(n.y)
       ).length;
 
-      // Get the d3 simulation state
-      const sim = g.d3Force("charge");
-
       return {
         nodeCount: nodes.length,
         linkCount: (data.links || []).length,
@@ -101,15 +98,11 @@ async function testDrag() {
         });
       }
 
-      // Hook into force-graph's drag handlers
+      // Hook into force-graph's drag handler (onNodeDrag only — avoid
+      // overriding onNodeDragEnd which is configured in the production template)
       const g = window.__graph;
       g.onNodeDrag((node) => {
         window.__dragEvents.push({ type: "onNodeDrag", nodeId: node.id, ts: Date.now() });
-      });
-      g.onNodeDragEnd((node) => {
-        window.__dragEvents.push({ type: "onNodeDragEnd", nodeId: node.id, ts: Date.now() });
-        node.fx = undefined;
-        node.fy = undefined;
       });
     });
 

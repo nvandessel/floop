@@ -64,7 +64,7 @@ graph-html:
 
 graph-screenshot: graph-html
 	@command -v node >/dev/null 2>&1 || (echo "node required (install Node.js)" && exit 1)
-	@test -d build/node_modules/playwright || npm install --prefix build playwright && npx --prefix build playwright install chromium
+	@test -d build/node_modules/playwright || (npm install --prefix build playwright && npx --prefix build playwright install chromium)
 	NODE_PATH=build/node_modules node scripts/screenshot.js build/graph/graph.html build/graph/graph.png
 	@echo "Screenshot: build/graph/graph.png"
 
