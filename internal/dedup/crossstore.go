@@ -493,6 +493,13 @@ func (d *CrossStoreDeduplicator) redirectEdges(ctx context.Context, s store.Grap
 			LastActivated: edge.LastActivated,
 			Metadata:      edge.Metadata,
 		}
+		// Defensive fallback for legacy edges missing Weight/CreatedAt
+		if newEdge.Weight <= 0 {
+			newEdge.Weight = 1.0
+		}
+		if newEdge.CreatedAt.IsZero() {
+			newEdge.CreatedAt = time.Now()
+		}
 		if err := s.AddEdge(ctx, newEdge); err != nil {
 			return fmt.Errorf("failed to add redirected inbound edge: %w", err)
 		}
@@ -513,6 +520,13 @@ func (d *CrossStoreDeduplicator) redirectEdges(ctx context.Context, s store.Grap
 			CreatedAt:     edge.CreatedAt,
 			LastActivated: edge.LastActivated,
 			Metadata:      edge.Metadata,
+		}
+		// Defensive fallback for legacy edges missing Weight/CreatedAt
+		if newEdge.Weight <= 0 {
+			newEdge.Weight = 1.0
+		}
+		if newEdge.CreatedAt.IsZero() {
+			newEdge.CreatedAt = time.Now()
 		}
 		if err := s.AddEdge(ctx, newEdge); err != nil {
 			return fmt.Errorf("failed to add redirected outbound edge: %w", err)
