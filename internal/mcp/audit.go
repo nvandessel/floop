@@ -168,6 +168,7 @@ func sanitizeToolParams(toolName string, params map[string]interface{}) map[stri
 		"kind":          true,
 		"tag":           true,
 		"corrections":   true,
+		"signal":        true,
 	}
 
 	// Parameters whose existence is safe to log but whose values may contain
@@ -183,6 +184,7 @@ func sanitizeToolParams(toolName string, params map[string]interface{}) map[stri
 		"output_path": true,
 		"weight":      true,
 		"auto_merge":  true,
+		"behavior_id": true,
 	}
 
 	for key, val := range params {

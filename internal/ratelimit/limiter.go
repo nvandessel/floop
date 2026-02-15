@@ -87,6 +87,7 @@ func NewToolLimiters() ToolLimiters {
 		"floop_list":        NewLimiter(1.0, 10),      // 60/minute, burst 10
 		"floop_validate":    NewLimiter(10.0/60.0, 5), // 10/minute, burst 5
 		"floop_graph":       NewLimiter(30.0/60.0, 5), // 30/minute, burst 5
+		"floop_feedback":    NewLimiter(30.0/60.0, 5), // 30/minute, burst 5
 	}
 }
 

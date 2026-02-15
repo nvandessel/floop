@@ -1496,3 +1496,155 @@ func TestSQLiteStore_TouchEdges_Empty(t *testing.T) {
 		t.Errorf("TouchEdges(empty) error = %v, want nil", err)
 	}
 }
+
+func TestSQLiteStore_RecordConfirmed(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior
+	_, err = s.AddNode(ctx, Node{
+		ID:   "confirm-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Confirm Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test confirm recording",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	// Record first confirmation
+	err = s.RecordConfirmed(ctx, "confirm-test")
+	if err != nil {
+		t.Fatalf("RecordConfirmed() error = %v", err)
+	}
+
+	var timesConfirmed int
+	var lastConfirmed sql.NullString
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_confirmed, last_confirmed FROM behavior_stats WHERE behavior_id = ?`,
+		"confirm-test").Scan(&timesConfirmed, &lastConfirmed)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesConfirmed != 1 {
+		t.Errorf("times_confirmed = %d, want 1", timesConfirmed)
+	}
+	if !lastConfirmed.Valid {
+		t.Error("last_confirmed should be set after first confirmation")
+	}
+
+	// Record second confirmation
+	err = s.RecordConfirmed(ctx, "confirm-test")
+	if err != nil {
+		t.Fatalf("RecordConfirmed() second call error = %v", err)
+	}
+
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_confirmed FROM behavior_stats WHERE behavior_id = ?`,
+		"confirm-test").Scan(&timesConfirmed)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesConfirmed != 2 {
+		t.Errorf("times_confirmed = %d, want 2", timesConfirmed)
+	}
+}
+
+func TestSQLiteStore_RecordConfirmed_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	err = s.RecordConfirmed(context.Background(), "nonexistent-id")
+	if err == nil {
+		t.Error("RecordConfirmed() expected error for nonexistent behavior")
+	}
+}
+
+func TestSQLiteStore_RecordOverridden(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior
+	_, err = s.AddNode(ctx, Node{
+		ID:   "override-test",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Override Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test override recording",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	// Record first override
+	err = s.RecordOverridden(ctx, "override-test")
+	if err != nil {
+		t.Fatalf("RecordOverridden() error = %v", err)
+	}
+
+	var timesOverridden int
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_overridden FROM behavior_stats WHERE behavior_id = ?`,
+		"override-test").Scan(&timesOverridden)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesOverridden != 1 {
+		t.Errorf("times_overridden = %d, want 1", timesOverridden)
+	}
+
+	// Record second override
+	err = s.RecordOverridden(ctx, "override-test")
+	if err != nil {
+		t.Fatalf("RecordOverridden() second call error = %v", err)
+	}
+
+	err = s.db.QueryRowContext(ctx,
+		`SELECT times_overridden FROM behavior_stats WHERE behavior_id = ?`,
+		"override-test").Scan(&timesOverridden)
+	if err != nil {
+		t.Fatalf("query stats error = %v", err)
+	}
+	if timesOverridden != 2 {
+		t.Errorf("times_overridden = %d, want 2", timesOverridden)
+	}
+}
+
+func TestSQLiteStore_RecordOverridden_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	err = s.RecordOverridden(context.Background(), "nonexistent-id")
+	if err == nil {
+		t.Error("RecordOverridden() expected error for nonexistent behavior")
+	}
+}

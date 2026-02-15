@@ -431,6 +431,66 @@ func (m *MultiGraphStore) RecordActivationHit(ctx context.Context, behaviorID st
 	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
 }
 
+// RecordConfirmed delegates to whichever store contains the behavior.
+func (m *MultiGraphStore) RecordConfirmed(ctx context.Context, behaviorID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Try local first
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		localNode, err := m.localStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking local store: %w", err)
+		}
+		if localNode != nil {
+			return localStore.RecordConfirmed(ctx, behaviorID)
+		}
+	}
+
+	// Try global
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		globalNode, err := m.globalStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking global store: %w", err)
+		}
+		if globalNode != nil {
+			return globalStore.RecordConfirmed(ctx, behaviorID)
+		}
+	}
+
+	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
+}
+
+// RecordOverridden delegates to whichever store contains the behavior.
+func (m *MultiGraphStore) RecordOverridden(ctx context.Context, behaviorID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Try local first
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		localNode, err := m.localStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking local store: %w", err)
+		}
+		if localNode != nil {
+			return localStore.RecordOverridden(ctx, behaviorID)
+		}
+	}
+
+	// Try global
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		globalNode, err := m.globalStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking global store: %w", err)
+		}
+		if globalNode != nil {
+			return globalStore.RecordOverridden(ctx, behaviorID)
+		}
+	}
+
+	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
+}
+
 // TouchEdges delegates to both stores.
 func (m *MultiGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string) error {
 	m.mu.Lock()

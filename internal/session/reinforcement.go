@@ -74,8 +74,8 @@ func (c ReinforcementConfig) ShouldReinforce(
 		return ReinforcementDecision{ShouldReinforce: true, Reason: "upgrade"}
 	}
 
-	// Violation detection: behavior activated often but rarely followed.
-	// A behavior is "violated" when TimesActivated > 0 and follow rate < 50%.
+	// Violation detection: behavior has enough feedback data to conclude
+	// it is being consistently overridden (positive rate < 40%).
 	if c.ViolationBoost && isViolated(stats) {
 		return ReinforcementDecision{ShouldReinforce: true, Reason: "violation_detected"}
 	}
@@ -108,12 +108,17 @@ func (c ReinforcementConfig) effectiveBackoff(injectionCount int, kind models.Be
 	return backoff
 }
 
-// isViolated returns true when a behavior has been activated but not followed
-// at least half the time (follow rate < 50%).
+// isViolated returns true when a behavior has enough feedback data to
+// conclude it is being consistently overridden (positive rate < 40%).
+// Uses totalFeedback as the denominator (not TimesActivated) with a
+// minimum sample size of 3 to avoid spurious violation signals.
 func isViolated(stats models.BehaviorStats) bool {
-	if stats.TimesActivated == 0 {
+	totalFeedback := stats.TimesFollowed + stats.TimesConfirmed + stats.TimesOverridden
+	if totalFeedback < 3 {
 		return false
 	}
-	followRate := float64(stats.TimesFollowed) / float64(stats.TimesActivated)
-	return followRate < 0.5
+
+	positiveSignals := float64(stats.TimesFollowed + stats.TimesConfirmed)
+	positiveRate := positiveSignals / float64(totalFeedback)
+	return positiveRate < 0.4
 }

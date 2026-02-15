@@ -274,11 +274,12 @@ func TestShouldReinforce_ViolationDetected(t *testing.T) {
 		LastPrompt: 0,
 	}
 
-	// Behavior activated 10 times, followed 2 times (20% follow rate).
-	// Should reinforce regardless of backoff.
+	// Behavior activated 10 times with feedback: 1 followed, 4 overridden.
+	// Positive rate = 1/5 = 20% < 40% threshold. Should reinforce regardless of backoff.
 	stats := models.BehaviorStats{
-		TimesActivated: 10,
-		TimesFollowed:  2,
+		TimesActivated:  10,
+		TimesFollowed:   1,
+		TimesOverridden: 4,
 	}
 
 	decision := cfg.ShouldReinforce(
@@ -312,21 +313,23 @@ func TestShouldReinforce_ViolationDetected(t *testing.T) {
 		t.Error("expected ShouldReinforce=false with ViolationBoost disabled")
 	}
 
-	// Follow rate exactly 50% should NOT trigger violation.
-	stats50 := models.BehaviorStats{
-		TimesActivated: 10,
-		TimesFollowed:  5,
+	// Positive rate at 40% threshold should NOT trigger violation.
+	// 2 followed + 1 overridden = 3 total feedback, 2/3 = 67% positive >= 40%.
+	statsAboveThreshold := models.BehaviorStats{
+		TimesActivated:  10,
+		TimesFollowed:   2,
+		TimesOverridden: 1,
 	}
-	decision50 := cfg.ShouldReinforce(
+	decisionAbove := cfg.ShouldReinforce(
 		record,
 		0.8,
 		models.TierFull,
 		models.BehaviorKindDirective,
-		stats50,
+		statsAboveThreshold,
 		1,
 	)
-	if decision50.ShouldReinforce {
-		t.Error("expected ShouldReinforce=false for 50% follow rate (not a violation)")
+	if decisionAbove.ShouldReinforce {
+		t.Error("expected ShouldReinforce=false for positive rate above threshold (not a violation)")
 	}
 }
 
@@ -373,5 +376,90 @@ func TestShouldReinforce_MaxReinjections(t *testing.T) {
 	)
 	if !decisionAtMax.ShouldReinforce {
 		t.Error("expected ShouldReinforce=true at exactly MaxReinjections count")
+	}
+}
+
+func TestIsViolated(t *testing.T) {
+	tests := []struct {
+		name  string
+		stats models.BehaviorStats
+		want  bool
+	}{
+		{
+			name:  "no feedback data at all",
+			stats: models.BehaviorStats{TimesActivated: 10},
+			want:  false,
+		},
+		{
+			name: "below minimum sample size",
+			stats: models.BehaviorStats{
+				TimesActivated:  10,
+				TimesFollowed:   1,
+				TimesOverridden: 1,
+			},
+			want: false, // only 2 total feedback < 3 minimum
+		},
+		{
+			name: "exactly at minimum sample — not violated",
+			stats: models.BehaviorStats{
+				TimesActivated: 10,
+				TimesFollowed:  2,
+				TimesConfirmed: 1,
+			},
+			want: false, // 3/3 = 100% positive
+		},
+		{
+			name: "at minimum sample — violated",
+			stats: models.BehaviorStats{
+				TimesActivated:  10,
+				TimesOverridden: 3,
+			},
+			want: true, // 0/3 = 0% positive
+		},
+		{
+			name: "positive rate at 40% threshold — not violated",
+			stats: models.BehaviorStats{
+				TimesActivated:  10,
+				TimesFollowed:   2,
+				TimesOverridden: 3,
+			},
+			want: false, // 2/5 = 0.4, not < 0.4
+		},
+		{
+			name: "positive rate below 40% — violated",
+			stats: models.BehaviorStats{
+				TimesActivated:  10,
+				TimesFollowed:   1,
+				TimesOverridden: 4,
+			},
+			want: true, // 1/5 = 0.2 < 0.4
+		},
+		{
+			name: "confirmed signals count as positive",
+			stats: models.BehaviorStats{
+				TimesActivated:  10,
+				TimesFollowed:   1,
+				TimesConfirmed:  3,
+				TimesOverridden: 1,
+			},
+			want: false, // (1+3)/5 = 0.8 >= 0.4
+		},
+		{
+			name: "all overridden",
+			stats: models.BehaviorStats{
+				TimesActivated:  20,
+				TimesOverridden: 5,
+			},
+			want: true, // 0/5 = 0.0 < 0.4
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isViolated(tt.stats)
+			if got != tt.want {
+				t.Errorf("isViolated() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

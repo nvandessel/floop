@@ -211,3 +211,16 @@ type ValidationErrorOutput struct {
 	RefID      string `json:"ref_id" jsonschema:"The problematic referenced ID"`
 	Issue      string `json:"issue" jsonschema:"Issue type: dangling, cycle, or self-reference"`
 }
+
+// FloopFeedbackInput defines the input for floop_feedback tool.
+type FloopFeedbackInput struct {
+	BehaviorID string `json:"behavior_id" jsonschema:"ID of the behavior to provide feedback on,required"`
+	Signal     string `json:"signal" jsonschema:"Feedback signal: confirmed (behavior was helpful) or overridden (behavior was contradicted),required"`
+}
+
+// FloopFeedbackOutput defines the output for floop_feedback tool.
+type FloopFeedbackOutput struct {
+	BehaviorID string `json:"behavior_id" jsonschema:"ID of the behavior"`
+	Signal     string `json:"signal" jsonschema:"Feedback signal that was recorded"`
+	Message    string `json:"message" jsonschema:"Human-readable result message"`
+}

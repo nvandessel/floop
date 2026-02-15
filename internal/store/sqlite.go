@@ -1222,6 +1222,55 @@ func (s *SQLiteGraphStore) RecordActivationHit(ctx context.Context, behaviorID s
 	return nil
 }
 
+// RecordConfirmed increments times_confirmed and updates last_confirmed for a behavior.
+// This is called when the user explicitly confirms or implicitly continues using a behavior.
+func (s *SQLiteGraphStore) RecordConfirmed(ctx context.Context, behaviorID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE behavior_stats SET times_confirmed = times_confirmed + 1, last_confirmed = ? WHERE behavior_id = ?`,
+		now, behaviorID)
+	if err != nil {
+		return fmt.Errorf("failed to record confirmed for %s: %w", behaviorID, err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("behavior not found: %s", behaviorID)
+	}
+
+	return nil
+}
+
+// RecordOverridden increments times_overridden for a behavior.
+// This is called when the user or agent contradicted the behavior.
+func (s *SQLiteGraphStore) RecordOverridden(ctx context.Context, behaviorID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE behavior_stats SET times_overridden = times_overridden + 1 WHERE behavior_id = ?`,
+		behaviorID)
+	if err != nil {
+		return fmt.Errorf("failed to record overridden for %s: %w", behaviorID, err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("behavior not found: %s", behaviorID)
+	}
+
+	return nil
+}
+
 // TouchEdges updates last_activated on all edges where the source or target
 // is one of the given behavior IDs. This enables temporal decay on edge
 // weights in the spreading activation engine.

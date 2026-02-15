@@ -50,6 +50,13 @@ type Server struct {
 	// Bounded worker pool for background goroutines
 	workerPool chan struct{}
 
+	// Session-scoped implicit confirmation tracking.
+	// Each behavior gets at most 1 implicit confirmation per session (not per
+	// floop_active call). This measures "how many distinct work sessions
+	// involved this behavior" — a far better usefulness proxy than per-call counting.
+	confirmedSessionMu   sync.Mutex
+	confirmedThisSession map[string]struct{}
+
 	// Shutdown coordination
 	done      chan struct{} // closed on shutdown
 	closeOnce sync.Once
@@ -96,18 +103,19 @@ func NewServer(cfg *Config) (*Server, error) {
 	retPolicy := buildRetentionPolicy(&floopCfg.Backup)
 
 	s := &Server{
-		server:          mcpServer,
-		store:           graphStore,
-		root:            cfg.Root,
-		floopConfig:     floopCfg,
-		session:         session.NewState(session.DefaultConfig()),
-		auditLogger:     NewAuditLogger(cfg.Root, homeDir),
-		pageRankCache:   make(map[string]float64),
-		toolLimiters:    ratelimit.NewToolLimiters(),
-		backupConfig:    &floopCfg.Backup,
-		retentionPolicy: retPolicy,
-		workerPool:      make(chan struct{}, maxBackgroundWorkers),
-		done:            make(chan struct{}),
+		server:               mcpServer,
+		store:                graphStore,
+		root:                 cfg.Root,
+		floopConfig:          floopCfg,
+		session:              session.NewState(session.DefaultConfig()),
+		auditLogger:          NewAuditLogger(cfg.Root, homeDir),
+		pageRankCache:        make(map[string]float64),
+		toolLimiters:         ratelimit.NewToolLimiters(),
+		backupConfig:         &floopCfg.Backup,
+		retentionPolicy:      retPolicy,
+		workerPool:           make(chan struct{}, maxBackgroundWorkers),
+		confirmedThisSession: make(map[string]struct{}),
+		done:                 make(chan struct{}),
 	}
 
 	// Auto-seed meta-behaviors into global store (non-fatal)

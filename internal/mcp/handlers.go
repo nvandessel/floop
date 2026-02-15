@@ -84,6 +84,12 @@ func (s *Server) registerTools() error {
 		Description: "Render the behavior graph in DOT (Graphviz), JSON, or interactive HTML format for visualization",
 	}, s.handleFloopGraph)
 
+	// Register floop_feedback tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_feedback",
+		Description: "Provide explicit feedback on a behavior: confirmed (helpful) or overridden (contradicted)",
+	}, s.handleFloopFeedback)
+
 	return nil
 }
 
@@ -442,11 +448,28 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 		"repo":     actCtx.RepoRoot,
 	}
 
-	// Record activation hits for user behaviors in background (skip seed behaviors —
-	// they activate every call and don't provide useful signal).
+	// Compute session-scoped implicit confirmations.
+	// Behaviors that are active and NOT yet confirmed this session get
+	// a single implicit confirmation. This bounds the signal to 1 per
+	// behavior per session instead of N-1 (where N = floop_active calls).
+	activeBehaviors := result.Active
+
+	var implicitConfirmIDs []string
+	s.confirmedSessionMu.Lock()
+	for _, b := range activeBehaviors {
+		if strings.HasPrefix(b.ID, "seed-") {
+			continue
+		}
+		if _, already := s.confirmedThisSession[b.ID]; !already {
+			s.confirmedThisSession[b.ID] = struct{}{}
+			implicitConfirmIDs = append(implicitConfirmIDs, b.ID)
+		}
+	}
+	s.confirmedSessionMu.Unlock()
+
+	// Record activation hits + implicit confirmations in background.
 	// Note: confidence reinforcement has been replaced by ACT-R base-level activation
 	// (see ranking/actr.go), which derives frequency+recency from existing data.
-	activeBehaviors := result.Active
 	s.runBackground("activation-recording", func() {
 		type activationRecorder interface {
 			RecordActivationHit(ctx context.Context, behaviorID string) error
@@ -458,6 +481,18 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 				}
 				if err := recorder.RecordActivationHit(context.Background(), b.ID); err != nil {
 					fmt.Fprintf(os.Stderr, "warning: activation hit recording failed: %v\n", err)
+				}
+			}
+		}
+
+		// Record session-scoped implicit confirmations.
+		type confirmRecorder interface {
+			RecordConfirmed(ctx context.Context, behaviorID string) error
+		}
+		if recorder, ok := s.store.(confirmRecorder); ok {
+			for _, id := range implicitConfirmIDs {
+				if err := recorder.RecordConfirmed(context.Background(), id); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: implicit confirmation recording failed: %v\n", err)
 				}
 			}
 		}
@@ -1344,4 +1379,69 @@ func (s *Server) handleFloopGraph(ctx context.Context, req *sdk.CallToolRequest,
 	default:
 		return nil, FloopGraphOutput{}, fmt.Errorf("unsupported format %q (use 'dot', 'json', or 'html')", format)
 	}
+}
+
+// handleFloopFeedback implements the floop_feedback tool.
+// It records explicit feedback (confirmed or overridden) for a behavior.
+func (s *Server) handleFloopFeedback(ctx context.Context, req *sdk.CallToolRequest, args FloopFeedbackInput) (_ *sdk.CallToolResult, _ FloopFeedbackOutput, retErr error) {
+	start := time.Now()
+	defer func() {
+		s.auditTool("floop_feedback", start, retErr, sanitizeToolParams("floop_feedback", map[string]interface{}{
+			"behavior_id": args.BehaviorID, "signal": args.Signal,
+		}), "local")
+	}()
+
+	if err := ratelimit.CheckLimit(s.toolLimiters, "floop_feedback"); err != nil {
+		return nil, FloopFeedbackOutput{}, err
+	}
+
+	// Validate required fields
+	if args.BehaviorID == "" {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("'behavior_id' parameter is required")
+	}
+	if args.Signal == "" {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("'signal' parameter is required")
+	}
+	if args.Signal != "confirmed" && args.Signal != "overridden" {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("'signal' must be 'confirmed' or 'overridden', got %q", args.Signal)
+	}
+
+	// Verify behavior exists
+	node, err := s.store.GetNode(ctx, args.BehaviorID)
+	if err != nil {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("failed to look up behavior: %w", err)
+	}
+	if node == nil {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("behavior not found: %s", args.BehaviorID)
+	}
+
+	// Record the feedback signal
+	type feedbackRecorder interface {
+		RecordConfirmed(ctx context.Context, behaviorID string) error
+		RecordOverridden(ctx context.Context, behaviorID string) error
+	}
+
+	recorder, ok := s.store.(feedbackRecorder)
+	if !ok {
+		return nil, FloopFeedbackOutput{}, fmt.Errorf("store does not support feedback recording")
+	}
+
+	switch args.Signal {
+	case "confirmed":
+		if err := recorder.RecordConfirmed(ctx, args.BehaviorID); err != nil {
+			return nil, FloopFeedbackOutput{}, fmt.Errorf("failed to record confirmed: %w", err)
+		}
+	case "overridden":
+		if err := recorder.RecordOverridden(ctx, args.BehaviorID); err != nil {
+			return nil, FloopFeedbackOutput{}, fmt.Errorf("failed to record overridden: %w", err)
+		}
+	}
+
+	message := fmt.Sprintf("Feedback recorded: behavior %s marked as %s", args.BehaviorID, args.Signal)
+
+	return nil, FloopFeedbackOutput{
+		BehaviorID: args.BehaviorID,
+		Signal:     args.Signal,
+		Message:    message,
+	}, nil
 }
