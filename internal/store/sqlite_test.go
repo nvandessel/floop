@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1766,5 +1768,116 @@ func TestSQLiteGraphStore_PruneWeakEdges_NoneToRemove(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("PruneWeakEdges() pruned %d, want 0", n)
+	}
+}
+
+func TestSQLiteGraphStore_SyncReconcilesTruncatedJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add 5 behaviors
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("b-%d", i)
+		_, err := s.AddNode(ctx, Node{
+			ID:   id,
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": fmt.Sprintf("Behavior %d content", i),
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("AddNode(%s) error = %v", id, err)
+		}
+	}
+
+	// Sync once to create initial JSONL with all 5 behaviors
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("first Sync() error = %v", err)
+	}
+
+	// Verify JSONL has 5 nodes
+	nodesFile := filepath.Join(tmpDir, ".floop", "nodes.jsonl")
+	nodes, err := s.readNodesFromJSONL()
+	if err != nil {
+		t.Fatalf("readNodesFromJSONL() error = %v", err)
+	}
+	if len(nodes) != 5 {
+		t.Fatalf("initial JSONL has %d nodes, want 5", len(nodes))
+	}
+
+	// Truncate JSONL to only 2 nodes (simulate partial/stale JSONL)
+	f, err := os.Create(nodesFile)
+	if err != nil {
+		t.Fatalf("os.Create() error = %v", err)
+	}
+	encoder := json.NewEncoder(f)
+	for _, node := range nodes[:2] {
+		if err := encoder.Encode(node); err != nil {
+			t.Fatalf("encode node: %v", err)
+		}
+	}
+	f.Close()
+
+	// Verify JSONL now has only 2 nodes
+	truncatedNodes, err := s.readNodesFromJSONL()
+	if err != nil {
+		t.Fatalf("readNodesFromJSONL() after truncation error = %v", err)
+	}
+	if len(truncatedNodes) != 2 {
+		t.Fatalf("truncated JSONL has %d nodes, want 2", len(truncatedNodes))
+	}
+
+	// Add a 6th behavior to make the store dirty
+	_, err = s.AddNode(ctx, Node{
+		ID:   "b-6",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "b-6",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Behavior 6 content",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode(b-6) error = %v", err)
+	}
+
+	// Sync again - incremental export would only add b-6 to the 2-node JSONL,
+	// resulting in 3 nodes instead of the correct 6. The reconciliation should
+	// detect the mismatch and fall back to full export.
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("second Sync() error = %v", err)
+	}
+
+	// Read JSONL and verify ALL 6 behaviors are present
+	finalNodes, err := s.readNodesFromJSONL()
+	if err != nil {
+		t.Fatalf("readNodesFromJSONL() after reconciliation error = %v", err)
+	}
+	if len(finalNodes) != 6 {
+		t.Errorf("JSONL has %d nodes after reconciliation, want 6", len(finalNodes))
+	}
+
+	// Verify specific behaviors are present
+	nodeIDs := make(map[string]bool)
+	for _, n := range finalNodes {
+		nodeIDs[n.ID] = true
+	}
+	for i := 1; i <= 6; i++ {
+		id := fmt.Sprintf("b-%d", i)
+		if !nodeIDs[id] {
+			t.Errorf("missing behavior %s in JSONL after reconciliation", id)
+		}
 	}
 }

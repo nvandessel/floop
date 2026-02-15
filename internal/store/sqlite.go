@@ -937,6 +937,13 @@ func (s *SQLiteGraphStore) Sync(ctx context.Context) error {
 			if err := s.exportNodesToJSONL(ctx); err != nil {
 				return fmt.Errorf("failed to export nodes: %w", err)
 			}
+		} else {
+			// Reconcile: verify JSONL node count matches SQLite behavior count.
+			// If they diverge (e.g., JSONL was truncated or committed at a partial
+			// state), fall back to full export to prevent accumulated desync.
+			if err := s.reconcileNodeCount(ctx); err != nil {
+				return fmt.Errorf("failed to reconcile node count: %w", err)
+			}
 		}
 	} else {
 		// No dirty behaviors, but JSONL file might not exist - ensure it does
@@ -1039,6 +1046,31 @@ func (s *SQLiteGraphStore) incrementalExportNodes(ctx context.Context, dirtyOps 
 		if err := encoder.Encode(node); err != nil {
 			return fmt.Errorf("failed to encode node: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// reconcileNodeCount compares the JSONL node count with the SQLite behavior
+// count. If they diverge, it falls back to a full export to prevent stale
+// JSONL from accumulating desync over time.
+func (s *SQLiteGraphStore) reconcileNodeCount(ctx context.Context) error {
+	// Count behaviors in SQLite
+	var sqliteCount int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM behaviors").Scan(&sqliteCount); err != nil {
+		return fmt.Errorf("count behaviors in SQLite: %w", err)
+	}
+
+	// Count nodes in JSONL
+	jsonlNodes, err := s.readNodesFromJSONL()
+	if err != nil {
+		// If we can't read the JSONL, do a full export
+		return s.exportNodesToJSONL(ctx)
+	}
+
+	// If counts diverge, fall back to full export
+	if len(jsonlNodes) != sqliteCount {
+		return s.exportNodesToJSONL(ctx)
 	}
 
 	return nil
