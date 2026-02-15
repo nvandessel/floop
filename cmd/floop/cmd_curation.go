@@ -246,9 +246,11 @@ Use --replacement to link to a newer behavior.`,
 			// Add deprecated-to edge if replacement specified
 			if replacement != "" {
 				edge := store.Edge{
-					Source: id,
-					Target: replacement,
-					Kind:   "deprecated-to",
+					Source:    id,
+					Target:    replacement,
+					Kind:      "deprecated-to",
+					Weight:    1.0,
+					CreatedAt: now,
 					Metadata: map[string]interface{}{
 						"created_at": now.Format(time.RFC3339),
 					},
@@ -568,9 +570,11 @@ This action cannot be undone with restore.`,
 
 			// Add merged-into edge
 			edge := store.Edge{
-				Source: sourceID,
-				Target: targetID,
-				Kind:   "merged-into",
+				Source:    sourceID,
+				Target:    targetID,
+				Kind:      "merged-into",
+				Weight:    1.0,
+				CreatedAt: now,
 				Metadata: map[string]interface{}{
 					"merged_at": now.Format(time.RFC3339),
 				},
@@ -586,6 +590,13 @@ This action cannot be undone with restore.`,
 					if e.Kind != "merged-into" { // Don't redirect the edge we just added
 						// Remove old edge
 						_ = graphStore.RemoveEdge(ctx, e.Source, e.Target, e.Kind)
+						// Defensive fallback for legacy edges missing Weight/CreatedAt
+						if e.Weight <= 0 {
+							e.Weight = 1.0
+						}
+						if e.CreatedAt.IsZero() {
+							e.CreatedAt = now
+						}
 						// Add redirected edge
 						e.Target = targetID
 						_ = graphStore.AddEdge(ctx, e)

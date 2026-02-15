@@ -710,8 +710,16 @@ func TestMergeWorkflow(t *testing.T) {
 	edges, _ := graphStore.GetEdges(ctx, id1, store.DirectionOutbound, "merged-into")
 	if len(edges) != 1 {
 		t.Errorf("expected 1 merged-into edge, got %d", len(edges))
-	} else if edges[0].Target != id2 {
-		t.Errorf("merged-into edge target = %v, want %v", edges[0].Target, id2)
+	} else {
+		if edges[0].Target != id2 {
+			t.Errorf("merged-into edge target = %v, want %v", edges[0].Target, id2)
+		}
+		if edges[0].Weight <= 0 {
+			t.Errorf("merged-into edge weight = %f, want > 0", edges[0].Weight)
+		}
+		if edges[0].CreatedAt.IsZero() {
+			t.Error("merged-into edge CreatedAt should not be zero")
+		}
 	}
 	graphStore.Close()
 
@@ -825,4 +833,102 @@ func TestRestoreActiveBehaviorFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "not deprecated or forgotten") {
 		t.Errorf("expected 'not deprecated or forgotten' error, got: %v", err)
 	}
+}
+
+func TestDeprecateWithReplacement(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	// Initialize
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	// Create first behavior (to be deprecated)
+	rootCmd2 := newTestRootCmd()
+	rootCmd2.AddCommand(newLearnCmd())
+	rootCmd2.SetOut(&bytes.Buffer{})
+	rootCmd2.SetArgs([]string{
+		"learn",
+		"--wrong", "used print statements for debugging",
+		"--right", "use structured logging",
+		"--file", "app.py",
+		"--root", tmpDir,
+	})
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("learn 1 failed: %v", err)
+	}
+
+	// Create second behavior (replacement)
+	rootCmd3a := newTestRootCmd()
+	rootCmd3a.AddCommand(newLearnCmd())
+	rootCmd3a.SetOut(&bytes.Buffer{})
+	rootCmd3a.SetArgs([]string{
+		"learn",
+		"--wrong", "used fmt.Println for logging",
+		"--right", "use slog package",
+		"--file", "main.go",
+		"--root", tmpDir,
+	})
+	if err := rootCmd3a.Execute(); err != nil {
+		t.Fatalf("learn 2 failed: %v", err)
+	}
+
+	// Get behavior IDs from store
+	ctx := context.Background()
+	graphStore, err := store.NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to open store: %v", err)
+	}
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	if err != nil {
+		t.Fatalf("failed to query behaviors: %v", err)
+	}
+	if len(nodes) < 2 {
+		t.Fatalf("expected 2 behaviors, got %d", len(nodes))
+	}
+	id1 := nodes[0].ID
+	id2 := nodes[1].ID
+	graphStore.Close()
+
+	// Deprecate the first behavior with second as replacement
+	rootCmd4 := newTestRootCmd()
+	rootCmd4.AddCommand(newDeprecateCmd())
+	rootCmd4.SetOut(&bytes.Buffer{})
+	rootCmd4.SetArgs([]string{
+		"deprecate", id1,
+		"--reason", "superseded by slog approach",
+		"--replacement", id2,
+		"--root", tmpDir,
+	})
+	if err := rootCmd4.Execute(); err != nil {
+		t.Fatalf("deprecate failed: %v", err)
+	}
+
+	// Verify deprecated-to edge exists with valid Weight and CreatedAt
+	graphStore, err = store.NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to reopen store: %v", err)
+	}
+	edges, err := graphStore.GetEdges(ctx, id1, store.DirectionOutbound, "deprecated-to")
+	if err != nil {
+		t.Fatalf("failed to get edges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 deprecated-to edge, got %d", len(edges))
+	}
+	if edges[0].Target != id2 {
+		t.Errorf("deprecated-to edge target = %v, want %v", edges[0].Target, id2)
+	}
+	if edges[0].Weight <= 0 {
+		t.Errorf("deprecated-to edge weight = %f, want > 0", edges[0].Weight)
+	}
+	if edges[0].CreatedAt.IsZero() {
+		t.Error("deprecated-to edge CreatedAt should not be zero")
+	}
+	graphStore.Close()
 }
