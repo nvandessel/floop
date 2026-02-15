@@ -730,8 +730,15 @@ func (s *SQLiteGraphStore) QueryNodes(ctx context.Context, predicate map[string]
 }
 
 // AddEdge adds an edge to the store.
-// Callers must explicitly set Weight and CreatedAt; no hidden defaults are applied.
+// Weight must be in (0.0, 1.0] and CreatedAt must be non-zero.
 func (s *SQLiteGraphStore) AddEdge(ctx context.Context, edge Edge) error {
+	if edge.Weight <= 0 || edge.Weight > 1.0 {
+		return fmt.Errorf("edge weight must be in (0.0, 1.0], got %f", edge.Weight)
+	}
+	if edge.CreatedAt.IsZero() {
+		return fmt.Errorf("edge CreatedAt must be set")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

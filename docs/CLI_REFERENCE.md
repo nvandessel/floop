@@ -836,7 +836,7 @@ Creates a semantic edge between two behaviors in the graph for spreading activat
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--weight` | float64 | `0.8` | Edge weight (0.0-1.0) |
+| `--weight` | float64 | `0.8` | Edge weight (0.0-1.0], exclusive zero |
 | `--bidirectional` | bool | `false` | Create edges in both directions |
 
 **Examples:**

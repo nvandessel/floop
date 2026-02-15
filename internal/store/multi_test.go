@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func setupTestStores(t *testing.T) (localRoot, globalRoot string, cleanup func()) {
@@ -563,7 +564,7 @@ func TestMultiGraphStore_AddEdge(t *testing.T) {
 	})
 
 	// Add edge
-	edge := Edge{Source: "node-a", Target: "node-b", Kind: "requires"}
+	edge := Edge{Source: "node-a", Target: "node-b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()}
 	err = store.AddEdge(ctx, edge)
 	if err != nil {
 		t.Fatalf("AddEdge() failed: %v", err)

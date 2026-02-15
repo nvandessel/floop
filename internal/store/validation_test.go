@@ -305,10 +305,11 @@ func TestValidateBehaviorGraph_DanglingEdgeTarget(t *testing.T) {
 	}
 
 	edge := Edge{
-		Source: "behavior-a",
-		Target: "nonexistent-target",
-		Kind:   "similar-to",
-		Weight: 0.8,
+		Source:    "behavior-a",
+		Target:    "nonexistent-target",
+		Kind:      "similar-to",
+		Weight:    0.8,
+		CreatedAt: time.Now(),
 	}
 	if err := store.AddEdge(ctx, edge); err != nil {
 		t.Fatalf("failed to add edge: %v", err)

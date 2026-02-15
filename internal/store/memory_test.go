@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestInMemoryGraphStore_AddNode(t *testing.T) {
@@ -133,7 +134,7 @@ func TestInMemoryGraphStore_DeleteNode(t *testing.T) {
 
 	node := Node{ID: "test-1", Kind: "behavior"}
 	s.AddNode(ctx, node)
-	s.AddEdge(ctx, Edge{Source: "test-1", Target: "test-2", Kind: "requires"})
+	s.AddEdge(ctx, Edge{Source: "test-1", Target: "test-2", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	err := s.DeleteNode(ctx, "test-1")
 	if err != nil {
@@ -187,9 +188,9 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 
 	// Add edges
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides"})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires"})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Get outbound edges
 	edges, err := s.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -240,9 +241,9 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 	s.AddNode(ctx, Node{ID: "d", Kind: "behavior"})
 
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires"})
-	s.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: "requires"})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse outbound with maxDepth 2 (should get a, b, c)
 	results, err := s.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)

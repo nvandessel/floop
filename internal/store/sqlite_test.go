@@ -175,7 +175,7 @@ func TestSQLiteGraphStore_DeleteNode(t *testing.T) {
 	store.AddNode(ctx, node)
 
 	// Add an edge involving this node
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires"})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Delete
 	err = store.DeleteNode(ctx, "test-1")
@@ -277,8 +277,8 @@ func TestSQLiteGraphStore_Edges(t *testing.T) {
 		})
 	}
 
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides"})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Test outbound
 	edges, _ := store.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -330,8 +330,8 @@ func TestSQLiteGraphStore_Traverse(t *testing.T) {
 			},
 		})
 	}
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires"})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse from a with depth 2
 	results, _ := store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
@@ -367,7 +367,7 @@ func TestSQLiteGraphStore_Persistence(t *testing.T) {
 			},
 		},
 	})
-	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires"})
+	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Close to persist
 	if err := store1.Close(); err != nil {
@@ -753,7 +753,7 @@ func TestValidateIntegrity_WithData(t *testing.T) {
 			},
 		},
 	})
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires"})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Integrity check should still pass
 	if err := ValidateIntegrity(ctx, store.db); err != nil {
@@ -893,6 +893,99 @@ func TestSQLiteGraphStore_ContentHashSameIDUpdate(t *testing.T) {
 	}
 }
 
+func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	now := time.Now()
+
+	tests := []struct {
+		name    string
+		edge    Edge
+		wantErr bool
+	}{
+		{
+			name: "valid edge with weight 0.75",
+			edge: Edge{
+				Source:    "a",
+				Target:    "b",
+				Kind:      "requires",
+				Weight:    0.75,
+				CreatedAt: now,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid edge with weight 1.0",
+			edge: Edge{
+				Source:    "b",
+				Target:    "c",
+				Kind:      "requires",
+				Weight:    1.0,
+				CreatedAt: now,
+			},
+			wantErr: false,
+		},
+		{
+			name: "reject zero weight",
+			edge: Edge{
+				Source:    "a",
+				Target:    "c",
+				Kind:      "overrides",
+				Weight:    0,
+				CreatedAt: now,
+			},
+			wantErr: true,
+		},
+		{
+			name: "reject negative weight",
+			edge: Edge{
+				Source:    "a",
+				Target:    "d",
+				Kind:      "requires",
+				Weight:    -0.5,
+				CreatedAt: now,
+			},
+			wantErr: true,
+		},
+		{
+			name: "reject weight greater than 1.0",
+			edge: Edge{
+				Source:    "a",
+				Target:    "e",
+				Kind:      "requires",
+				Weight:    1.5,
+				CreatedAt: now,
+			},
+			wantErr: true,
+		},
+		{
+			name: "reject zero CreatedAt",
+			edge: Edge{
+				Source: "a",
+				Target: "f",
+				Kind:   "similar-to",
+				Weight: 0.5,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := store.AddEdge(ctx, tt.edge)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("AddEdge() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSQLiteGraphStore_EdgeWeights(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewSQLiteGraphStore(tmpDir)
@@ -925,31 +1018,6 @@ func TestSQLiteGraphStore_EdgeWeights(t *testing.T) {
 			wantWeight:    0.75,
 			wantCreatedAt: true,
 			wantActivated: true,
-		},
-		{
-			name: "edge with zero weight (caller did not set it)",
-			edge: Edge{
-				Source:    "a",
-				Target:    "c",
-				Kind:      "overrides",
-				Weight:    0,
-				CreatedAt: now,
-			},
-			wantWeight:    0,
-			wantCreatedAt: true,
-			wantActivated: false,
-		},
-		{
-			name: "edge with zero CreatedAt (caller did not set it)",
-			edge: Edge{
-				Source: "a",
-				Target: "d",
-				Kind:   "similar-to",
-				Weight: 0.5,
-			},
-			wantWeight:    0.5,
-			wantCreatedAt: false,
-			wantActivated: false,
 		},
 		{
 			name: "edge with full weight",
@@ -1665,9 +1733,9 @@ func TestSQLiteGraphStore_BatchUpdateEdgeWeights(t *testing.T) {
 	for _, id := range []string{"a", "b", "c"} {
 		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
 	}
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.5})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "co-activated", Weight: 0.3})
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "requires", Weight: 1.0})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.5, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "co-activated", Weight: 0.3, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Batch update co-activated edges
 	updates := []EdgeWeightUpdate{
@@ -1724,10 +1792,10 @@ func TestSQLiteGraphStore_PruneWeakEdges(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d"} {
 		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
 	}
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.005}) // Below threshold
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "co-activated", Weight: 0.01})  // At threshold
-	s.AddEdge(ctx, Edge{Source: "a", Target: "d", Kind: "co-activated", Weight: 0.5})   // Above threshold
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 0.001})     // Different kind
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.005, CreatedAt: time.Now()}) // Below threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "co-activated", Weight: 0.01, CreatedAt: time.Now()})  // At threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "d", Kind: "co-activated", Weight: 0.5, CreatedAt: time.Now()})   // Above threshold
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 0.001, CreatedAt: time.Now()})     // Different kind
 
 	// Prune co-activated edges at or below 0.01
 	n, err := s.PruneWeakEdges(ctx, "co-activated", 0.01)

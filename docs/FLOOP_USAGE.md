@@ -178,7 +178,7 @@ floop graph --format dot | dot -Tpng -o graph.png
 # JSON format
 floop graph --format json
 
-# Connect related behaviors
+# Connect related behaviors (weight must be in (0.0, 1.0])
 floop connect <source> <target> similar-to
 floop connect <source> <target> requires --weight 0.9
 ```

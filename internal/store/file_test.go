@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNewFileGraphStore(t *testing.T) {
@@ -143,7 +144,7 @@ func TestFileGraphStore_DeleteNode(t *testing.T) {
 	store.AddNode(ctx, node)
 
 	// Add an edge involving this node
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires"})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Delete
 	err = store.DeleteNode(ctx, "test-1")
@@ -200,8 +201,8 @@ func TestFileGraphStore_Edges(t *testing.T) {
 	store.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides"})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Test outbound
 	edges, _ := store.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -242,8 +243,8 @@ func TestFileGraphStore_Traverse(t *testing.T) {
 	store.AddNode(ctx, Node{ID: "a", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires"})
-	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires"})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse from a with depth 2
 	results, _ := store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
@@ -269,7 +270,7 @@ func TestFileGraphStore_Persistence(t *testing.T) {
 
 	ctx := context.Background()
 	store1.AddNode(ctx, Node{ID: "persist-1", Kind: "behavior", Content: map[string]interface{}{"name": "Test"}})
-	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires"})
+	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
 
 	// Close to persist
 	if err := store1.Close(); err != nil {
