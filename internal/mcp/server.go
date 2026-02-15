@@ -17,6 +17,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/seed"
 	"github.com/nvandessel/feedback-loop/internal/session"
+	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -56,6 +57,10 @@ type Server struct {
 	// involved this behavior" — a far better usefulness proxy than per-call counting.
 	confirmedSessionMu   sync.Mutex
 	confirmedThisSession map[string]struct{}
+
+	// Hebbian co-activation learning
+	coActivationTracker *coActivationTracker
+	hebbianConfig       spreading.HebbianConfig
 
 	// Shutdown coordination
 	done      chan struct{} // closed on shutdown
@@ -115,6 +120,8 @@ func NewServer(cfg *Config) (*Server, error) {
 		retentionPolicy:      retPolicy,
 		workerPool:           make(chan struct{}, maxBackgroundWorkers),
 		confirmedThisSession: make(map[string]struct{}),
+		coActivationTracker:  newCoActivationTracker(),
+		hebbianConfig:        spreading.DefaultHebbianConfig(),
 		done:                 make(chan struct{}),
 	}
 

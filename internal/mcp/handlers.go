@@ -364,6 +364,21 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 				}
 			}
 		})
+
+		// Background: Hebbian co-activation learning.
+		// Extract co-activated pairs from spread results and update edge weights
+		// via Oja's self-limiting rule. New edges are gated by co-occurrence count.
+		seedIDSet := make(map[string]bool, len(seedIDs))
+		for _, id := range seedIDs {
+			seedIDSet[id] = true
+		}
+		pairs := spreading.ExtractCoActivationPairs(spreadResults, seedIDSet, s.hebbianConfig)
+		if len(pairs) > 0 {
+			s.runBackground("hebbian-update", func() {
+				s.applyHebbianUpdates(context.Background(), pairs, s.hebbianConfig)
+				s.debouncedRefreshPageRank()
+			})
+		}
 	}
 
 	// Resolve conflicts and get final active set

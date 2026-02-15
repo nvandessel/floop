@@ -1648,3 +1648,123 @@ func TestSQLiteStore_RecordOverridden_NotFound(t *testing.T) {
 		t.Error("RecordOverridden() expected error for nonexistent behavior")
 	}
 }
+
+func TestSQLiteGraphStore_BatchUpdateEdgeWeights(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create nodes and edges
+	for _, id := range []string{"a", "b", "c"} {
+		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
+	}
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.5})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "co-activated", Weight: 0.3})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "requires", Weight: 1.0})
+
+	// Batch update co-activated edges
+	updates := []EdgeWeightUpdate{
+		{Source: "a", Target: "b", Kind: "co-activated", NewWeight: 0.7},
+		{Source: "b", Target: "c", Kind: "co-activated", NewWeight: 0.4},
+	}
+	if err := s.BatchUpdateEdgeWeights(ctx, updates); err != nil {
+		t.Fatalf("BatchUpdateEdgeWeights() error = %v", err)
+	}
+
+	// Verify updates
+	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, "co-activated")
+	if len(edges) != 1 || edges[0].Weight != 0.7 {
+		t.Errorf("edge a→b weight = %v, want 0.7", edges)
+	}
+
+	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, "co-activated")
+	if len(edges) != 1 || edges[0].Weight != 0.4 {
+		t.Errorf("edge b→c weight = %v, want 0.4", edges)
+	}
+
+	// Verify requires edge was NOT updated
+	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	if len(edges) != 1 || edges[0].Weight != 1.0 {
+		t.Errorf("requires edge should be unchanged, got %v", edges)
+	}
+}
+
+func TestSQLiteGraphStore_BatchUpdateEdgeWeights_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	// Empty updates should be a no-op
+	if err := s.BatchUpdateEdgeWeights(context.Background(), nil); err != nil {
+		t.Errorf("BatchUpdateEdgeWeights(nil) error = %v", err)
+	}
+}
+
+func TestSQLiteGraphStore_PruneWeakEdges(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create nodes and edges with various weights
+	for _, id := range []string{"a", "b", "c", "d"} {
+		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
+	}
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.005}) // Below threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "co-activated", Weight: 0.01})  // At threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "d", Kind: "co-activated", Weight: 0.5})   // Above threshold
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 0.001})     // Different kind
+
+	// Prune co-activated edges at or below 0.01
+	n, err := s.PruneWeakEdges(ctx, "co-activated", 0.01)
+	if err != nil {
+		t.Fatalf("PruneWeakEdges() error = %v", err)
+	}
+	if n != 2 {
+		t.Errorf("PruneWeakEdges() pruned %d, want 2", n)
+	}
+
+	// Verify only the strong co-activated edge remains
+	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, "co-activated")
+	if len(edges) != 1 {
+		t.Errorf("remaining co-activated edges = %d, want 1", len(edges))
+	}
+	if len(edges) == 1 && edges[0].Target != "d" {
+		t.Errorf("remaining edge target = %s, want d", edges[0].Target)
+	}
+
+	// Verify requires edge was NOT pruned (different kind)
+	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, "requires")
+	if len(edges) != 1 {
+		t.Errorf("requires edge should still exist, got %d", len(edges))
+	}
+}
+
+func TestSQLiteGraphStore_PruneWeakEdges_NoneToRemove(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	n, err := s.PruneWeakEdges(context.Background(), "co-activated", 0.01)
+	if err != nil {
+		t.Fatalf("PruneWeakEdges() error = %v", err)
+	}
+	if n != 0 {
+		t.Errorf("PruneWeakEdges() pruned %d, want 0", n)
+	}
+}

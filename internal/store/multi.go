@@ -511,6 +511,52 @@ func (m *MultiGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string) 
 	return nil
 }
 
+// BatchUpdateEdgeWeights delegates to both stores.
+func (m *MultiGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates []EdgeWeightUpdate) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		if err := localStore.BatchUpdateEdgeWeights(ctx, updates); err != nil {
+			return fmt.Errorf("local BatchUpdateEdgeWeights: %w", err)
+		}
+	}
+
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		if err := globalStore.BatchUpdateEdgeWeights(ctx, updates); err != nil {
+			return fmt.Errorf("global BatchUpdateEdgeWeights: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// PruneWeakEdges delegates to both stores and returns the total count pruned.
+func (m *MultiGraphStore) PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	total := 0
+
+	if localStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		n, err := localStore.PruneWeakEdges(ctx, kind, threshold)
+		if err != nil {
+			return 0, fmt.Errorf("local PruneWeakEdges: %w", err)
+		}
+		total += n
+	}
+
+	if globalStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		n, err := globalStore.PruneWeakEdges(ctx, kind, threshold)
+		if err != nil {
+			return 0, fmt.Errorf("global PruneWeakEdges: %w", err)
+		}
+		total += n
+	}
+
+	return total, nil
+}
+
 // ValidateBehaviorGraph validates both stores and combines errors.
 // Errors from local store are prefixed with "local: " and global with "global: ".
 func (m *MultiGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error) {

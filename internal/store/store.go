@@ -26,6 +26,14 @@ type Edge struct {
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// EdgeWeightUpdate describes a weight update for a specific edge.
+type EdgeWeightUpdate struct {
+	Source    string  // Source behavior ID
+	Target    string  // Target behavior ID
+	Kind      string  // Edge kind (e.g., "co-activated")
+	NewWeight float64 // Updated weight value
+}
+
 // Direction specifies edge traversal direction.
 type Direction string
 

@@ -1311,6 +1311,58 @@ func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string)
 	return nil
 }
 
+// BatchUpdateEdgeWeights updates the weights of multiple edges in a single transaction.
+// Only existing edges matching (source, target, kind) are updated.
+func (s *SQLiteGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates []EdgeWeightUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin batch edge weight update: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		UPDATE edges SET weight = ? WHERE source = ? AND target = ? AND kind = ?
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare batch edge weight update: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, u := range updates {
+		if _, err := stmt.ExecContext(ctx, u.NewWeight, u.Source, u.Target, u.Kind); err != nil {
+			return fmt.Errorf("update edge weight (%s→%s, %s): %w", u.Source, u.Target, u.Kind, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// PruneWeakEdges removes all edges of the given kind whose weight is at or below the threshold.
+func (s *SQLiteGraphStore) PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM edges WHERE kind = ? AND weight <= ?
+	`, kind, threshold)
+	if err != nil {
+		return 0, fmt.Errorf("prune weak edges: %w", err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("prune weak edges rows affected: %w", err)
+	}
+	return int(n), nil
+}
+
 // Close syncs and closes the store.
 func (s *SQLiteGraphStore) Close() error {
 	if err := s.Sync(context.Background()); err != nil {
