@@ -119,6 +119,12 @@ Co-activated edges aren't created on the first co-occurrence. Instead, floop tra
 
 Seed-to-seed pairs are excluded: if both behaviors activated because they matched the same context predicates (both are seeds), their co-occurrence reflects context matching, not genuine affinity.
 
+### Override Edge Semantics
+
+When the learning pipeline places a new behavior, it evaluates `isMoreSpecific(a, b)` to determine whether one behavior's `when` conditions are a strict superset of another's. If so, it creates an `overrides` edge from the more-specific behavior to the less-specific one.
+
+Behaviors with empty `when` maps (`{}`) are treated as **unscoped** — they apply everywhere and are not considered "less specific" than scoped behaviors. This means no override edges are created from scoped behaviors to unscoped ones. Without this distinction, every scoped behavior would override every unscoped one, producing O(n*m) spurious edges that inflate outDegree denominators and dilute spreading activation.
+
 ## Related Work
 
 - **HippoRAG** ([github.com/OSU-NLP-Group/HippoRAG](https://github.com/OSU-NLP-Group/HippoRAG)) — Episodic memory organization for LLMs inspired by hippocampal indexing

@@ -374,12 +374,12 @@ func TestGraphPlacer_isMoreSpecific(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "empty b",
+			name: "empty b (unscoped, not less specific)",
 			a: map[string]interface{}{
 				"language": "go",
 			},
 			b:    map[string]interface{}{},
-			want: true,
+			want: false,
 		},
 		{
 			name: "both empty",
@@ -396,6 +396,21 @@ func TestGraphPlacer_isMoreSpecific(t *testing.T) {
 				t.Errorf("isMoreSpecific() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsMoreSpecific_EmptyWhen(t *testing.T) {
+	s := store.NewInMemoryGraphStore()
+	placer := NewGraphPlacer(s).(*graphPlacer)
+
+	// A scoped behavior should NOT be considered "more specific" than
+	// an unscoped behavior. Empty when means "unscoped", not "less specific".
+	got := placer.isMoreSpecific(
+		map[string]interface{}{"task": "dev"},
+		map[string]interface{}{},
+	)
+	if got {
+		t.Errorf("isMoreSpecific({task:dev}, {}) = true, want false; empty when is unscoped, not less specific")
 	}
 }
 

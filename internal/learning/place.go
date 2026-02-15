@@ -422,6 +422,12 @@ func (p *graphPlacer) isMoreSpecific(a, b map[string]interface{}) bool {
 		return false
 	}
 
+	// Empty when means "unscoped" (applies everywhere), not "less specific".
+	// A scoped behavior is not a specialization of an unscoped one.
+	if len(b) == 0 {
+		return false
+	}
+
 	for key, valueB := range b {
 		valueA, exists := a[key]
 		if !exists {
