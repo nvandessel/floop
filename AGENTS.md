@@ -16,6 +16,7 @@ Do NOT wait for permission. Capture learnings proactively. The hooks will also a
 **Available MCP tools:**
 - `floop_active` - See currently active behaviors for this context
 - `floop_learn` - Capture a correction (USE PROACTIVELY)
+- `floop_feedback` - Signal whether a behavior was helpful (`confirmed`) or contradicted (`overridden`)
 - `floop_list` - List all stored behaviors
 - `floop_deduplicate` - Merge duplicate behaviors
 

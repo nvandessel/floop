@@ -832,6 +832,7 @@ Creates a semantic edge between two behaviors in the graph for spreading activat
 | `conflicts` | Source and target cannot both be active |
 | `similar-to` | Behaviors are related/similar |
 | `learned-from` | Source was derived from target |
+| `co-activated` | Behaviors frequently activate together (created by Hebbian learning) |
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -1128,6 +1129,7 @@ Starts an MCP server that exposes floop functionality over stdio using JSON-RPC 
 | `floop_restore` | Import graph state from backup (merge or replace) |
 | `floop_connect` | Create edge between two behaviors for spreading activation |
 | `floop_validate` | Validate behavior graph for consistency issues |
+| `floop_feedback` | Provide session feedback on a behavior (confirmed/overridden) |
 | `floop_graph` | Render graph in DOT, JSON, or interactive HTML format |
 
 **Resources:**

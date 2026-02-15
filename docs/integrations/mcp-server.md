@@ -44,6 +44,7 @@ Add floop to your AI tool's MCP server configuration (see tool-specific sections
 Your AI tool can now invoke floop tools:
 - **floop_active** - Get behaviors relevant to current context
 - **floop_learn** - Capture corrections during development
+- **floop_feedback** - Signal whether a behavior was helpful or contradicted
 - **floop_list** - Browse all learned behaviors
 
 ## Tool Reference
@@ -159,6 +160,47 @@ The `scope` field indicates where the behavior was stored. The MCP server automa
 - **`"global"`** — Behavior has universal conditions (language-only, task-only, or no conditions). Stored in `~/.floop/` only.
 
 This prevents duplication across stores. Providing a `file` parameter with a directory path (e.g., `"internal/store/file.go"`) typically produces a local behavior, while omitting `file` or providing a bare filename produces a global one.
+
+---
+
+### floop_feedback
+
+Provide session feedback on a behavior — signal whether it was helpful or contradicted.
+
+**Parameters:**
+- `behavior_id` (string, required): ID of the behavior to provide feedback on
+- `signal` (string, required): `"confirmed"` (behavior was helpful) or `"overridden"` (behavior was contradicted)
+
+**Example Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "floop_feedback",
+    "arguments": {
+      "behavior_id": "behavior-a1b2c3d4",
+      "signal": "confirmed"
+    }
+  },
+  "id": 5
+}
+```
+
+**Example Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "behavior_id": "behavior-a1b2c3d4",
+    "signal": "confirmed",
+    "message": "Recorded 'confirmed' feedback for behavior-a1b2c3d4"
+  },
+  "id": 5
+}
+```
+
+**How it works:** Feedback signals feed into the relevance scoring model's feedback component (15% weight). Behaviors that are consistently confirmed get boosted; those that are consistently overridden get suppressed. This closes the feedback loop — behaviors don't just activate, they adapt based on whether they actually helped.
 
 ---
 
@@ -373,7 +415,7 @@ In `.vscode/settings.json`:
 ### MCP Methods Implemented
 
 - `initialize` - Protocol handshake, version negotiation
-- `tools/list` - Returns available tools (floop_active, floop_learn, floop_list)
+- `tools/list` - Returns available tools
 - `tools/call` - Executes a tool with parameters
 
 ### Data Flow

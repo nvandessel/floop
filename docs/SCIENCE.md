@@ -19,7 +19,7 @@ floop mirrors this architecture:
 | ACT-R Concept | floop Implementation |
 |---|---|
 | Memory chunks | Behaviors (graph nodes) |
-| Base-level activation | Confidence score + recency decay |
+| Base-level activation | ACT-R base-level activation: B_i = ln(n × L^(-d) / (1-d)) |
 | Contextual activation | Spreading activation from seed nodes |
 | Retrieval threshold | Minimum activation cutoff (epsilon) |
 | Partial matching | Fuzzy predicate evaluation on `when` conditions |
@@ -40,6 +40,7 @@ SYNAPSE's architecture maps cleanly to floop:
 | Temporal edges | Edge timestamps + exponential decay |
 | Association edges | `similar-to` edges |
 | Abstraction edges | `learned-from` edges (correction → behavior) |
+| Co-occurrence links | `co-activated` edges (Oja-stabilized Hebbian learning) |
 
 ### Parameters
 
@@ -61,17 +62,34 @@ floop implements lateral inhibition in its activation engine. When a behavior's 
 
 Without inhibition, asking "what behaviors matter for Go testing?" might return everything vaguely related to Go. With inhibition, the strongly activated testing behaviors suppress the weakly activated general Go behaviors, giving you a focused, relevant set.
 
-## Hybrid Scoring
+## Relevance Scoring
 
-Final behavior ranking uses a weighted combination of three signals:
+Final behavior ranking uses a weighted combination of four signals:
 
 ```
-Score = 0.5 × context_relevance + 0.3 × activation_level + 0.2 × PageRank
+Score = 0.35 × context + 0.30 × base_level + 0.15 × feedback + 0.20 × priority
 ```
 
-- **Context relevance** (lambda1 = 0.5) — How well the behavior's `when` predicates match the current context
-- **Activation level** (lambda2 = 0.3) — The behavior's activation after spreading + inhibition
-- **PageRank** (lambda3 = 0.2) — Graph centrality, favoring well-connected behaviors as likely more generally useful
+- **Context** (0.35) — How well the behavior's `when` predicates match the current file, language, and task
+- **Base-level activation** (0.30) — ACT-R base-level activation combining frequency and recency (see below)
+- **Feedback** (0.15) — Quality ratio from session feedback: confirmed vs overridden signals
+- **Priority** (0.20) — User-assigned priority plus kind-based boosts (constraint ×2.0, directive ×1.5, procedure ×1.2)
+
+### ACT-R Base-Level Activation
+
+The base-level score implements Anderson's ACT-R equation:
+
+```
+B_i = ln(n × L^(-d) / (1-d))
+```
+
+Where *n* is the number of activations, *L* is age in hours, and *d* = 0.5 (standard ACT-R decay). Raw activation values (typically -4 to +2) are normalized to [0, 1] via a sigmoid centered at B_i = -1. New behaviors with no activation history receive a neutral score of 0.5.
+
+### Session Feedback
+
+The `floop_feedback` MCP tool allows agents to signal whether a behavior was helpful (`confirmed`) or contradicted (`overridden`) during a session. These signals feed into the feedback score component (15% weight), creating a closed feedback loop where behaviors that consistently help get reinforced and those that mislead get suppressed.
+
+### Sigmoid Squashing
 
 The sigmoid squashing function creates sharp distinction between activated and inactive nodes:
 
@@ -80,6 +98,26 @@ sigmoid(x) = 1 / (1 + e^(-10(x - 0.3)))
 ```
 
 This produces near-binary activation: nodes are either clearly "on" or clearly "off," avoiding the ambiguity of intermediate activation levels.
+
+## Hebbian Co-Activation Learning
+
+When two behaviors consistently activate together in the same context, they likely have an affinity that the graph should capture. floop uses **Oja-stabilized Hebbian learning** to discover and reinforce these relationships automatically.
+
+### Oja's Rule
+
+Edge weight updates follow Oja's rule, a biologically-inspired learning rule with a built-in stabilization mechanism:
+
+```
+ΔW = η × (A_i × A_j − A_j² × W)
+```
+
+Where *η* = 0.05 (learning rate), *A_i* and *A_j* are the activations of the co-occurring behaviors, and *W* is the current edge weight. The *A_j² × W* term is Oja's "forgetting factor" — it prevents unbounded weight growth, keeping the system stable without needing explicit normalization.
+
+### Edge Creation Process
+
+Co-activated edges aren't created on the first co-occurrence. Instead, floop tracks co-activation pairs over a 7-day window and only creates a `co-activated` edge after **3 co-occurrences** — ensuring the relationship is stable, not coincidental. After creation, each subsequent co-activation applies the Oja update. Edges that decay below a minimum weight (0.01) are pruned.
+
+Seed-to-seed pairs are excluded: if both behaviors activated because they matched the same context predicates (both are seeds), their co-occurrence reflects context matching, not genuine affinity.
 
 ## Related Work
 

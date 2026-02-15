@@ -18,6 +18,7 @@ When configured as an MCP server, floop exposes these tools to your AI agent:
 | `floop_learn` | Capture a correction or insight |
 | `floop_list` | List all stored behaviors |
 | `floop_connect` | Create edges between behaviors |
+| `floop_feedback` | Provide session feedback on a behavior (confirmed/overridden) |
 | `floop_deduplicate` | Find and merge duplicate behaviors |
 | `floop_graph` | Render behavior graph (DOT, JSON, or HTML) |
 | `floop_validate` | Check graph consistency |
