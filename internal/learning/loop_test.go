@@ -400,3 +400,78 @@ func TestLearningLoop_NilDecisionLogger_DoesNotPanic(t *testing.T) {
 		t.Fatalf("ProcessCorrection failed: %v", err)
 	}
 }
+
+func TestLearningLoop_ProcessCorrection_EdgeWeightAndCreatedAt(t *testing.T) {
+	s := store.NewInMemoryGraphStore()
+	cfg := &LearningLoopConfig{AutoAcceptThreshold: 0.5}
+	loop := NewLearningLoop(s, cfg)
+	ctx := context.Background()
+
+	// First correction: general Go behavior (when: {language: "go"})
+	correction1 := models.Correction{
+		ID:              "test-edge-init-1",
+		Timestamp:       time.Now(),
+		AgentAction:     "used fmt.Println for logging",
+		CorrectedAction: "use log.Printf for logging in Go",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "go",
+		},
+	}
+
+	result1, err := loop.ProcessCorrection(ctx, correction1)
+	if err != nil {
+		t.Fatalf("ProcessCorrection (1st) failed: %v", err)
+	}
+	if !result1.AutoAccepted {
+		t.Fatalf("expected 1st correction auto-accept, got RequiresReview=%v, reasons=%v",
+			result1.RequiresReview, result1.ReviewReasons)
+	}
+
+	// Second correction: more specific Go behavior (when: {language: "go", task: "testing"})
+	// This should produce an "overrides" edge from the second to the first behavior
+	// because isMoreSpecific(second.When, first.When) == true
+	correction2 := models.Correction{
+		ID:              "test-edge-init-2",
+		Timestamp:       time.Now(),
+		AgentAction:     "used fmt.Println for logging in tests",
+		CorrectedAction: "use t.Logf for logging in Go tests",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "go",
+			Task:         "testing",
+		},
+	}
+
+	result2, err := loop.ProcessCorrection(ctx, correction2)
+	if err != nil {
+		t.Fatalf("ProcessCorrection (2nd) failed: %v", err)
+	}
+	if !result2.AutoAccepted {
+		t.Fatalf("expected 2nd correction auto-accept, got RequiresReview=%v, reasons=%v",
+			result2.RequiresReview, result2.ReviewReasons)
+	}
+
+	behaviorID := result2.CandidateBehavior.ID
+
+	// Get outbound edges from the second behavior
+	edges, err := s.GetEdges(ctx, behaviorID, store.DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges failed: %v", err)
+	}
+
+	if len(edges) == 0 {
+		t.Fatal("expected at least one edge from the second behavior, got none")
+	}
+
+	for _, edge := range edges {
+		if edge.Weight <= 0 {
+			t.Errorf("edge %s->%s (%s) has Weight=%f, want > 0",
+				edge.Source, edge.Target, edge.Kind, edge.Weight)
+		}
+		if edge.CreatedAt.IsZero() {
+			t.Errorf("edge %s->%s (%s) has zero CreatedAt, want non-zero",
+				edge.Source, edge.Target, edge.Kind)
+		}
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
@@ -381,9 +382,11 @@ func (l *learningLoop) commitBehavior(ctx context.Context, behavior *models.Beha
 	// Add edges
 	for _, e := range placement.ProposedEdges {
 		edge := store.Edge{
-			Source: e.From,
-			Target: e.To,
-			Kind:   e.Kind,
+			Source:    e.From,
+			Target:    e.To,
+			Kind:      e.Kind,
+			Weight:    1.0,
+			CreatedAt: time.Now(),
 		}
 		if err := l.store.AddEdge(ctx, edge); err != nil {
 			return scope, err
