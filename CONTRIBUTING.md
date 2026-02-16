@@ -77,8 +77,9 @@ Releases are automated using GoReleaser and GitHub Actions. Only maintainers can
    ```bash
    gh workflow run version-bump.yml -f bump=<patch|minor|major>
    ```
-4. Monitor the release workflow: `gh run watch`
-5. Verify the release on GitHub: `gh release view <version>`
+3. Monitor the release workflow: `gh run watch`
+4. Verify the release on GitHub: `gh release view <version>`
+5. Confirm `CHANGELOG.md` was auto-updated by the workflow commit for that release
 
 **Version semantics:**
 - `patch` (0.0.X) — Bug fixes, minor improvements

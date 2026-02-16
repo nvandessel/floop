@@ -6,9 +6,10 @@ This document describes the automated release process for feedback-loop using Go
 
 The release pipeline is fully automated:
 1. Maintainer triggers version bump workflow
-2. Workflow creates and pushes a new git tag
-3. Tag push triggers GoReleaser release workflow
-4. GoReleaser builds binaries, generates release notes, and publishes to GitHub
+2. Workflow calculates the next version and auto-generates `CHANGELOG.md`
+3. Workflow commits changelog updates and creates/pushes a new git tag
+4. Same workflow runs GoReleaser on the new tag
+5. GoReleaser builds binaries and publishes to GitHub Releases with auto-generated notes
 
 ## Prerequisites
 
@@ -77,7 +78,12 @@ Determine the appropriate version bump based on the changes:
 - Use `patch` for bug fixes
 - Reserve `major` for when ready to commit to API stability (1.0.0)
 
-### 4. Trigger Version Bump
+### Notes on CHANGELOG.md
+
+GitHub release notes are generated automatically by GoReleaser from commit history.
+`CHANGELOG.md` is now also generated automatically during `version-bump.yml` and committed before tagging.
+
+### 3. Trigger Version Bump
 
 Trigger the version bump workflow using GitHub CLI:
 
@@ -283,20 +289,13 @@ gh workflow run version-bump.yml -f bump=patch
 **Steps:**
 1. Checkout with full history
 2. Calculate next version from latest tag
-3. Create annotated tag
-4. Push tag (triggers release workflow)
-
-### release.yml
-
-**Trigger:** Tag push (`v*`)
-**Permissions:** `contents: write`
-**Purpose:** Build and publish release
-
-**Steps:**
-1. Checkout with full history (for changelog)
-2. Setup Go from `go.mod`
-3. Run GoReleaser with `--clean` flag
-4. Publish to GitHub Releases
+3. Generate `CHANGELOG.md` entry from commits since previous tag
+4. Commit and push `CHANGELOG.md`
+5. Create annotated tag
+6. Push tag
+7. Checkout the new tag
+8. Run GoReleaser with `release --clean`
+9. Publish GitHub release artifacts and notes
 
 ### test-release.yml
 
@@ -306,9 +305,10 @@ gh workflow run version-bump.yml -f bump=patch
 
 **Steps:**
 1. Checkout code
-2. Run GoReleaser in snapshot mode
-3. Verify binaries work
-4. Check for expected builds
+2. Validate changelog generator script syntax
+3. Run GoReleaser in snapshot mode
+4. Verify binaries work
+5. Check for expected builds
 
 ## Configuration Files
 
