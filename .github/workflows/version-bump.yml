@@ -15,6 +15,9 @@ on:
 permissions:
   contents: write
 
+env:
+  GORELEASER_VERSION: v2.8.0
+
 jobs:
   bump:
     name: Bump Version
@@ -119,7 +122,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          version: ${{ env.GORELEASER_VERSION }}
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

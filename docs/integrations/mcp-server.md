@@ -154,12 +154,12 @@ Capture a correction and extract a reusable behavior.
 
 **Scope Classification:**
 
-The `scope` field indicates where the behavior was stored. The MCP server automatically classifies behaviors based on their activation conditions:
+The `scope` field indicates where the behavior was stored. Behaviors are automatically routed to the correct store based on their activation conditions:
 
 - **`"local"`** — Behavior has project-specific conditions (`file_path` or `environment` in its When predicate). Stored in `./.floop/` only.
 - **`"global"`** — Behavior has universal conditions (language-only, task-only, or no conditions). Stored in `~/.floop/` only.
 
-This prevents duplication across stores. Providing a `file` parameter with a directory path (e.g., `"internal/store/file.go"`) typically produces a local behavior, while omitting `file` or providing a bare filename produces a global one.
+Each behavior goes to exactly one store — no duplication. Providing a `file` parameter with a directory path (e.g., `"internal/store/file.go"`) typically produces a local behavior, while omitting `file` or providing a bare filename produces a global one.
 
 ---
 

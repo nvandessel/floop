@@ -10,7 +10,9 @@ const (
 	// ScopeGlobal indicates the behavior applies across all projects
 	ScopeGlobal Scope = "global"
 
-	// ScopeBoth indicates the operation should consider both scopes
+	// ScopeBoth indicates the operation should consider both scopes.
+	// Used for read/query operations (dedup --scope both, validate --scope both).
+	// Not a valid write scope — each behavior belongs to exactly one store.
 	ScopeBoth Scope = "both"
 )
 

@@ -43,7 +43,7 @@ func (s *SQLiteGraphStore) ImportNodesFromJSONL(ctx context.Context, path string
 		}
 
 		// Add the node (uses INSERT OR REPLACE)
-		if node.Kind == "behavior" || node.Kind == "forgotten-behavior" {
+		if isBehaviorKind(node.Kind) {
 			if _, err := s.addBehavior(ctx, node); err != nil {
 				return fmt.Errorf("failed to import node %s: %w", node.ID, err)
 			}

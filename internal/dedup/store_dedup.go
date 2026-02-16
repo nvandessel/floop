@@ -9,11 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
+
+// scopedWriter is implemented by stores that support writing to a specific scope.
+type scopedWriter interface {
+	AddNodeToScope(ctx context.Context, node store.Node, scope constants.Scope) (string, error)
+}
 
 // StoreDeduplicator implements the Deduplicator interface for a single store.
 // It provides methods for finding and merging duplicate behaviors within a store.
@@ -193,10 +199,17 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 			report.MergesPerformed++
 			report.MergedBehaviors = append(report.MergedBehaviors, merged)
 
-			// Update the store with the merged behavior
+			// Update the store with the merged behavior, routing to correct scope
 			node := BehaviorToNode(merged)
-			if _, err := s.AddNode(ctx, node); err != nil {
-				report.Errors = append(report.Errors, fmt.Sprintf("failed to save merged behavior %s: %v", merged.ID, err))
+			if sw, ok := s.(scopedWriter); ok {
+				scope := models.ClassifyScope(merged)
+				if _, err := sw.AddNodeToScope(ctx, node, scope); err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("failed to save merged behavior %s: %v", merged.ID, err))
+				}
+			} else {
+				if _, err := s.AddNode(ctx, node); err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("failed to save merged behavior %s: %v", merged.ID, err))
+				}
 			}
 		}
 	}

@@ -173,7 +173,7 @@ Examples:
 			}
 
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeLocal)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				if jsonOut {
 					json.NewEncoder(os.Stdout).Encode(map[string]interface{}{

@@ -92,11 +92,12 @@ floop learn \
 # With auto-merge to consolidate similar behaviors
 floop learn --wrong "..." --right "..." --auto-merge
 
-# Specify scope (local or global)
+# Override auto-classification (default: auto-classify based on When conditions)
 floop learn --wrong "..." --right "..." --scope local
+floop learn --wrong "..." --right "..." --scope global
 
-# Note: Via MCP, scope is automatically classified based on the behavior's
-# activation conditions. The --scope flag is only needed for CLI usage.
+# Note: Scope is automatically classified based on the behavior's activation
+# conditions. The --scope flag overrides auto-classification when set.
 ```
 
 ### Querying Behaviors

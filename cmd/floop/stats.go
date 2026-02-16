@@ -7,7 +7,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -34,17 +33,10 @@ Examples:
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			topN, _ := cmd.Flags().GetInt("top")
 			sortBy, _ := cmd.Flags().GetString("sort")
-			scope, _ := cmd.Flags().GetString("scope")
 			budget, _ := cmd.Flags().GetInt("budget")
 
-			// Parse scope
-			storeScope := constants.Scope(scope)
-			if !storeScope.Valid() {
-				storeScope = constants.ScopeLocal
-			}
-
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, storeScope)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}

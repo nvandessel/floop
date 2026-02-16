@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -473,5 +474,76 @@ func TestLearningLoop_ProcessCorrection_EdgeWeightAndCreatedAt(t *testing.T) {
 			t.Errorf("edge %s->%s (%s) has zero CreatedAt, want non-zero",
 				edge.Source, edge.Target, edge.Kind)
 		}
+	}
+}
+
+func TestLearningLoop_ScopeOverride(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Correction with file_path → would normally classify as local
+	correction := models.Correction{
+		ID:              "scope-override-test",
+		Timestamp:       time.Now(),
+		AgentAction:     "used fmt.Println in handler",
+		CorrectedAction: "use structured logging in handler",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "go",
+			FilePath:     "internal/mcp/handlers.go",
+		},
+	}
+
+	// Override to global despite file_path being present
+	globalScope := constants.ScopeGlobal
+	cfg := &LearningLoopConfig{
+		AutoAcceptThreshold: 0.5,
+		ScopeOverride:       &globalScope,
+	}
+	loop := NewLearningLoop(s, cfg)
+
+	result, err := loop.ProcessCorrection(ctx, correction)
+	if err != nil {
+		t.Fatalf("ProcessCorrection failed: %v", err)
+	}
+
+	// With override, scope should be global even though file_path is present
+	if result.Scope != constants.ScopeGlobal {
+		t.Errorf("expected scope %q with override, got %q", constants.ScopeGlobal, result.Scope)
+	}
+}
+
+func TestLearningLoop_ScopeOverrideLocal(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Correction without file_path → would normally classify as global
+	correction := models.Correction{
+		ID:              "scope-override-local-test",
+		Timestamp:       time.Now(),
+		AgentAction:     "used fmt.Println",
+		CorrectedAction: "use log.Printf for logging",
+		Context: models.ContextSnapshot{
+			Timestamp:    time.Now(),
+			FileLanguage: "go",
+		},
+	}
+
+	// Override to local despite no file_path
+	localScope := constants.ScopeLocal
+	cfg := &LearningLoopConfig{
+		AutoAcceptThreshold: 0.5,
+		ScopeOverride:       &localScope,
+	}
+	loop := NewLearningLoop(s, cfg)
+
+	result, err := loop.ProcessCorrection(ctx, correction)
+	if err != nil {
+		t.Fatalf("ProcessCorrection failed: %v", err)
+	}
+
+	// With override, scope should be local even though no file_path
+	if result.Scope != constants.ScopeLocal {
+		t.Errorf("expected scope %q with override, got %q", constants.ScopeLocal, result.Scope)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/visualization"
@@ -104,7 +103,7 @@ func newGraphCmd() *cobra.Command {
 
 // openStoreForGraph opens a multi-store for graph visualization.
 func openStoreForGraph(projectRoot string) (store.GraphStore, error) {
-	gs, err := store.NewMultiGraphStore(projectRoot, constants.ScopeLocal)
+	gs, err := store.NewMultiGraphStore(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("open multi-store: %w", err)
 	}

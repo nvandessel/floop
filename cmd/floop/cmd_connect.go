@@ -74,7 +74,7 @@ Examples:
 			}
 
 			ctx := context.Background()
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeBoth)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open store: %w", err)
 			}

@@ -106,7 +106,7 @@ func runSingleStoreValidation(ctx context.Context, root string, scope store.Stor
 
 // runMultiStoreValidation validates both local and global stores.
 func runMultiStoreValidation(ctx context.Context, root string, jsonOut bool) error {
-	multiStore, err := store.NewMultiGraphStore(root, store.ScopeBoth)
+	multiStore, err := store.NewMultiGraphStore(root)
 	if err != nil {
 		return fmt.Errorf("failed to open stores: %w", err)
 	}

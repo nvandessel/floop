@@ -72,8 +72,7 @@ Releases are automated using GoReleaser and GitHub Actions. Only maintainers can
 **To create a new release:**
 
 1. Ensure `main` branch is clean and all tests pass
-2. Update `CHANGELOG.md` with release notes
-3. Trigger the version bump workflow:
+2. Trigger the version bump workflow:
    ```bash
    gh workflow run version-bump.yml -f bump=<patch|minor|major>
    ```

@@ -254,7 +254,7 @@ func loadBehaviorsWithScope(projectRoot string, scope constants.Scope) ([]models
 
 	case constants.ScopeBoth:
 		// Load from both stores using MultiGraphStore
-		graphStore, err = store.NewMultiGraphStore(projectRoot, constants.ScopeLocal)
+		graphStore, err = store.NewMultiGraphStore(projectRoot)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open multi-store: %w", err)
 		}

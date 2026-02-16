@@ -35,39 +35,23 @@ func TestNewMultiGraphStore(t *testing.T) {
 	localRoot, globalRoot, cleanup := setupTestStores(t)
 	defer cleanup()
 
-	// Override global path for testing
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	tests := []struct {
-		name       string
-		writeScope StoreScope
-		wantErr    bool
-	}{
-		{"create with ScopeLocal", ScopeLocal, false},
-		{"create with ScopeGlobal", ScopeGlobal, false},
-		{"create with ScopeBoth", ScopeBoth, false},
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("NewMultiGraphStore() error = %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store, err := NewMultiGraphStore(localRoot, tt.writeScope)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewMultiGraphStore() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && store == nil {
-				t.Error("NewMultiGraphStore() returned nil store")
-			}
-			if store != nil {
-				store.Close()
-			}
-		})
+	if store == nil {
+		t.Error("NewMultiGraphStore() returned nil store")
+	}
+	if store != nil {
+		store.Close()
 	}
 }
 
-func TestMultiGraphStore_AddNode_ScopeLocal(t *testing.T) {
+func TestMultiGraphStore_AddNode_DefaultsToGlobal(t *testing.T) {
 	localRoot, globalRoot, cleanup := setupTestStores(t)
 	defer cleanup()
 
@@ -75,7 +59,7 @@ func TestMultiGraphStore_AddNode_ScopeLocal(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -96,6 +80,59 @@ func TestMultiGraphStore_AddNode_ScopeLocal(t *testing.T) {
 		t.Errorf("AddNode() returned id = %v, want %v", id, node.ID)
 	}
 
+	// Verify node is in global store (default)
+	globalNode, err := store.globalStore.GetNode(ctx, id)
+	if err != nil {
+		t.Fatalf("failed to get from global store: %v", err)
+	}
+	if globalNode == nil {
+		t.Error("node not found in global store")
+	}
+
+	// Verify node is NOT in local store
+	localNode, err := store.localStore.GetNode(ctx, id)
+	if err != nil {
+		t.Fatalf("failed to get from local store: %v", err)
+	}
+	if localNode != nil {
+		t.Error("node should not be in local store")
+	}
+
+	// Verify metadata has scope set to global
+	if globalNode != nil && globalNode.Metadata["scope"] != "global" {
+		t.Errorf("node scope = %v, want global", globalNode.Metadata["scope"])
+	}
+}
+
+func TestMultiGraphStore_AddNodeToScope_Local(t *testing.T) {
+	localRoot, globalRoot, cleanup := setupTestStores(t)
+	defer cleanup()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", globalRoot)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	node := Node{
+		ID:      "scoped-local-node",
+		Kind:    "behavior",
+		Content: map[string]interface{}{"name": "local-only"},
+	}
+
+	ctx := context.Background()
+	id, err := store.AddNodeToScope(ctx, node, ScopeLocal)
+	if err != nil {
+		t.Fatalf("AddNodeToScope(ScopeLocal) failed: %v", err)
+	}
+	if id != node.ID {
+		t.Errorf("returned id = %v, want %v", id, node.ID)
+	}
+
 	// Verify node is in local store
 	localNode, err := store.localStore.GetNode(ctx, id)
 	if err != nil {
@@ -111,7 +148,7 @@ func TestMultiGraphStore_AddNode_ScopeLocal(t *testing.T) {
 		t.Fatalf("failed to get from global store: %v", err)
 	}
 	if globalNode != nil {
-		t.Error("node should not be in global store")
+		t.Error("node should not be in global store when scope is local")
 	}
 
 	// Verify metadata has scope set
@@ -120,7 +157,7 @@ func TestMultiGraphStore_AddNode_ScopeLocal(t *testing.T) {
 	}
 }
 
-func TestMultiGraphStore_AddNode_ScopeGlobal(t *testing.T) {
+func TestMultiGraphStore_AddNodeToScope_Global(t *testing.T) {
 	localRoot, globalRoot, cleanup := setupTestStores(t)
 	defer cleanup()
 
@@ -128,22 +165,25 @@ func TestMultiGraphStore_AddNode_ScopeGlobal(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeGlobal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
 	defer store.Close()
 
 	node := Node{
-		ID:      "test-node-2",
+		ID:      "scoped-global-node",
 		Kind:    "behavior",
-		Content: map[string]interface{}{"name": "test"},
+		Content: map[string]interface{}{"name": "global-only"},
 	}
 
 	ctx := context.Background()
-	id, err := store.AddNode(ctx, node)
+	id, err := store.AddNodeToScope(ctx, node, ScopeGlobal)
 	if err != nil {
-		t.Fatalf("AddNode() failed: %v", err)
+		t.Fatalf("AddNodeToScope(ScopeGlobal) failed: %v", err)
+	}
+	if id != node.ID {
+		t.Errorf("returned id = %v, want %v", id, node.ID)
 	}
 
 	// Verify node is NOT in local store
@@ -152,7 +192,7 @@ func TestMultiGraphStore_AddNode_ScopeGlobal(t *testing.T) {
 		t.Fatalf("failed to get from local store: %v", err)
 	}
 	if localNode != nil {
-		t.Error("node should not be in local store")
+		t.Error("node should not be in local store when scope is global")
 	}
 
 	// Verify node is in global store
@@ -170,7 +210,7 @@ func TestMultiGraphStore_AddNode_ScopeGlobal(t *testing.T) {
 	}
 }
 
-func TestMultiGraphStore_AddNodeToScope_ClampedByWriteScope(t *testing.T) {
+func TestMultiGraphStore_AddNodeToScope_RejectsInvalidScope(t *testing.T) {
 	localRoot, globalRoot, cleanup := setupTestStores(t)
 	defer cleanup()
 
@@ -178,96 +218,30 @@ func TestMultiGraphStore_AddNodeToScope_ClampedByWriteScope(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create with ScopeLocal — requests for ScopeGlobal should be clamped to local
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
 	defer store.Close()
 
 	node := Node{
-		ID:      "clamped-node",
+		ID:      "both-node",
 		Kind:    "behavior",
-		Content: map[string]interface{}{"name": "should-be-clamped-to-local"},
+		Content: map[string]interface{}{"name": "both-scope"},
 	}
 
 	ctx := context.Background()
-	// Request global, but store is configured for local
-	id, err := store.AddNodeToScope(ctx, node, ScopeGlobal)
-	if err != nil {
-		t.Fatalf("AddNodeToScope(ScopeGlobal on ScopeLocal store) failed: %v", err)
-	}
-	if id != node.ID {
-		t.Errorf("returned id = %v, want %v", id, node.ID)
+
+	// ScopeBoth should be rejected for writes
+	_, err = store.AddNodeToScope(ctx, node, ScopeBoth)
+	if err == nil {
+		t.Error("expected error for ScopeBoth write, got nil")
 	}
 
-	// Verify node is in local store (clamped from global to local)
-	localNode, err := store.localStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from local store: %v", err)
-	}
-	if localNode == nil {
-		t.Error("node not found in local store — clamping failed")
-	}
-
-	// Verify node is NOT in global store
-	globalNode, err := store.globalStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from global store: %v", err)
-	}
-	if globalNode != nil {
-		t.Error("node should not be in global store when writeScope is ScopeLocal")
-	}
-
-	// Verify metadata shows local scope (not global)
-	if localNode != nil && localNode.Metadata["scope"] != "local" {
-		t.Errorf("node scope = %v, want local (clamped)", localNode.Metadata["scope"])
-	}
-}
-
-func TestMultiGraphStore_AddNode_ScopeBoth(t *testing.T) {
-	localRoot, globalRoot, cleanup := setupTestStores(t)
-	defer cleanup()
-
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", globalRoot)
-	defer os.Setenv("HOME", originalHome)
-
-	store, err := NewMultiGraphStore(localRoot, ScopeBoth)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer store.Close()
-
-	node := Node{
-		ID:      "test-node-3",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"name": "test"},
-	}
-
-	ctx := context.Background()
-	id, err := store.AddNode(ctx, node)
-	if err != nil {
-		t.Fatalf("AddNode() failed: %v", err)
-	}
-
-	// Verify node is in both stores
-	localNode, err := store.localStore.GetNode(ctx, id)
-	if err != nil || localNode == nil {
-		t.Error("node not found in local store")
-	}
-
-	globalNode, err := store.globalStore.GetNode(ctx, id)
-	if err != nil || globalNode == nil {
-		t.Error("node not found in global store")
-	}
-
-	// Verify metadata has scope set
-	if localNode != nil && localNode.Metadata["scope"] != "both" {
-		t.Errorf("local node scope = %v, want both", localNode.Metadata["scope"])
-	}
-	if globalNode != nil && globalNode.Metadata["scope"] != "both" {
-		t.Errorf("global node scope = %v, want both", globalNode.Metadata["scope"])
+	// Invalid scope should also be rejected
+	_, err = store.AddNodeToScope(ctx, node, "invalid")
+	if err == nil {
+		t.Error("expected error for invalid scope, got nil")
 	}
 }
 
@@ -279,7 +253,7 @@ func TestMultiGraphStore_GetNode_PreferLocal(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -339,7 +313,7 @@ func TestMultiGraphStore_QueryNodes_LocalWins(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -399,7 +373,7 @@ func TestMultiGraphStore_UpdateNode_FindsCorrectStore(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -455,7 +429,7 @@ func TestMultiGraphStore_DeleteNode(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeBoth)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -463,9 +437,10 @@ func TestMultiGraphStore_DeleteNode(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add node to both stores
+	// Add node to both stores directly
 	node := Node{ID: "delete-me", Kind: "behavior"}
-	store.AddNode(ctx, node)
+	store.localStore.AddNode(ctx, node)
+	store.globalStore.AddNode(ctx, node)
 
 	// Delete the node
 	err = store.DeleteNode(ctx, "delete-me")
@@ -493,7 +468,7 @@ func TestMultiGraphStore_Sync_BothStores(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeBoth)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -501,7 +476,7 @@ func TestMultiGraphStore_Sync_BothStores(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add node
+	// Add a node (goes to global by default)
 	node := Node{ID: "sync-test", Kind: "behavior"}
 	store.AddNode(ctx, node)
 
@@ -511,13 +486,8 @@ func TestMultiGraphStore_Sync_BothStores(t *testing.T) {
 		t.Fatalf("Sync() failed: %v", err)
 	}
 
-	// Verify files exist
-	localNodesFile := filepath.Join(localRoot, ".floop", "nodes.jsonl")
+	// Verify global nodes file exists
 	globalNodesFile := filepath.Join(globalRoot, ".floop", "nodes.jsonl")
-
-	if _, err := os.Stat(localNodesFile); os.IsNotExist(err) {
-		t.Error("local nodes file not created")
-	}
 	if _, err := os.Stat(globalNodesFile); os.IsNotExist(err) {
 		t.Error("global nodes file not created")
 	}
@@ -531,7 +501,7 @@ func TestMultiGraphStore_AddEdge(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -539,7 +509,7 @@ func TestMultiGraphStore_AddEdge(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add nodes with proper structure
+	// Add nodes with proper structure to local store
 	store.localStore.AddNode(ctx, Node{
 		ID:   "node-a",
 		Kind: "behavior",
@@ -663,7 +633,7 @@ func TestMultiGraphStore_GlobalStore(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	ms, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	ms, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -709,7 +679,7 @@ func TestMultiGraphStore_ValidateBehaviorGraph(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -734,7 +704,8 @@ func TestMultiGraphStore_ValidateBehaviorGraph(t *testing.T) {
 		},
 	}
 
-	if _, err := store.AddNode(ctx, behaviorWithDangling); err != nil {
+	// Add directly to local store via AddNodeToScope
+	if _, err := store.AddNodeToScope(ctx, behaviorWithDangling, ScopeLocal); err != nil {
 		t.Fatalf("failed to add behavior: %v", err)
 	}
 
@@ -771,7 +742,7 @@ func TestMultiGraphStore_ValidateBehaviorGraph_Valid(t *testing.T) {
 	os.Setenv("HOME", globalRoot)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewMultiGraphStore(localRoot, ScopeLocal)
+	store, err := NewMultiGraphStore(localRoot)
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
@@ -779,7 +750,7 @@ func TestMultiGraphStore_ValidateBehaviorGraph_Valid(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Add valid behaviors with proper relationships
+	// Add valid behaviors with proper relationships to local store
 	behaviorA := Node{
 		ID:   "behavior-a",
 		Kind: "behavior",
@@ -804,10 +775,10 @@ func TestMultiGraphStore_ValidateBehaviorGraph_Valid(t *testing.T) {
 		},
 	}
 
-	if _, err := store.AddNode(ctx, behaviorA); err != nil {
+	if _, err := store.AddNodeToScope(ctx, behaviorA, ScopeLocal); err != nil {
 		t.Fatalf("failed to add behavior A: %v", err)
 	}
-	if _, err := store.AddNode(ctx, behaviorB); err != nil {
+	if _, err := store.AddNodeToScope(ctx, behaviorB, ScopeLocal); err != nil {
 		t.Fatalf("failed to add behavior B: %v", err)
 	}
 
@@ -819,113 +790,5 @@ func TestMultiGraphStore_ValidateBehaviorGraph_Valid(t *testing.T) {
 
 	if len(errors) != 0 {
 		t.Errorf("expected no validation errors, got %d: %v", len(errors), errors)
-	}
-}
-
-func TestMultiGraphStore_AddNodeToScope_Local(t *testing.T) {
-	localRoot, globalRoot, cleanup := setupTestStores(t)
-	defer cleanup()
-
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", globalRoot)
-	defer os.Setenv("HOME", originalHome)
-
-	// Create with ScopeBoth as the default — AddNodeToScope should override
-	store, err := NewMultiGraphStore(localRoot, ScopeBoth)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer store.Close()
-
-	node := Node{
-		ID:      "scoped-local-node",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"name": "local-only"},
-	}
-
-	ctx := context.Background()
-	id, err := store.AddNodeToScope(ctx, node, ScopeLocal)
-	if err != nil {
-		t.Fatalf("AddNodeToScope(ScopeLocal) failed: %v", err)
-	}
-	if id != node.ID {
-		t.Errorf("returned id = %v, want %v", id, node.ID)
-	}
-
-	// Verify node is in local store
-	localNode, err := store.localStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from local store: %v", err)
-	}
-	if localNode == nil {
-		t.Error("node not found in local store")
-	}
-
-	// Verify node is NOT in global store
-	globalNode, err := store.globalStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from global store: %v", err)
-	}
-	if globalNode != nil {
-		t.Error("node should not be in global store when scope is local")
-	}
-
-	// Verify metadata has scope set
-	if localNode != nil && localNode.Metadata["scope"] != "local" {
-		t.Errorf("node scope = %v, want local", localNode.Metadata["scope"])
-	}
-}
-
-func TestMultiGraphStore_AddNodeToScope_Global(t *testing.T) {
-	localRoot, globalRoot, cleanup := setupTestStores(t)
-	defer cleanup()
-
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", globalRoot)
-	defer os.Setenv("HOME", originalHome)
-
-	// Create with ScopeBoth as the default — AddNodeToScope should override
-	store, err := NewMultiGraphStore(localRoot, ScopeBoth)
-	if err != nil {
-		t.Fatalf("failed to create store: %v", err)
-	}
-	defer store.Close()
-
-	node := Node{
-		ID:      "scoped-global-node",
-		Kind:    "behavior",
-		Content: map[string]interface{}{"name": "global-only"},
-	}
-
-	ctx := context.Background()
-	id, err := store.AddNodeToScope(ctx, node, ScopeGlobal)
-	if err != nil {
-		t.Fatalf("AddNodeToScope(ScopeGlobal) failed: %v", err)
-	}
-	if id != node.ID {
-		t.Errorf("returned id = %v, want %v", id, node.ID)
-	}
-
-	// Verify node is NOT in local store
-	localNode, err := store.localStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from local store: %v", err)
-	}
-	if localNode != nil {
-		t.Error("node should not be in local store when scope is global")
-	}
-
-	// Verify node is in global store
-	globalNode, err := store.globalStore.GetNode(ctx, id)
-	if err != nil {
-		t.Fatalf("failed to get from global store: %v", err)
-	}
-	if globalNode == nil {
-		t.Error("node not found in global store")
-	}
-
-	// Verify metadata has scope set
-	if globalNode != nil && globalNode.Metadata["scope"] != "global" {
-		t.Errorf("node scope = %v, want global", globalNode.Metadata["scope"])
 	}
 }

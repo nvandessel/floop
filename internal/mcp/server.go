@@ -77,7 +77,7 @@ type Config struct {
 // NewServer creates a new MCP server with floop tools.
 func NewServer(cfg *Config) (*Server, error) {
 	// Create multi-graph store (local + global)
-	graphStore, err := store.NewMultiGraphStore(cfg.Root, store.ScopeBoth)
+	graphStore, err := store.NewMultiGraphStore(cfg.Root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graph store: %w", err)
 	}
