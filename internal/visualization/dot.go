@@ -206,7 +206,7 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 			}
 		}
 
-		scope := "unknown"
+		scope := "local"
 		if s, ok := node.Metadata["scope"].(string); ok {
 			scope = s
 		}
@@ -230,14 +230,10 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 		jsonNodes = append(jsonNodes, entry)
 	}
 
-	// Build node scope map for edge scope derivation
-	nodeScope := make(map[string]string, len(nodes))
-	for _, node := range nodes {
-		s := "unknown"
-		if v, ok := node.Metadata["scope"].(string); ok {
-			s = v
-		}
-		nodeScope[node.ID] = s
+	// Build node scope map for edge scope derivation (reuse already-extracted scope)
+	nodeScope := make(map[string]string, len(jsonNodes))
+	for _, entry := range jsonNodes {
+		nodeScope[entry["id"].(string)] = entry["scope"].(string)
 	}
 
 	// Collect edges

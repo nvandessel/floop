@@ -511,8 +511,10 @@
 
     html += section('Kind', node.kind || 'unknown');
 
-    var scopeClass = 'scope-' + (node.scope || 'unknown');
-    html += '<div class="dp-section"><div class="dp-label">Scope</div><div class="dp-value"><span class="dp-scope-badge ' + scopeClass + '">' + esc(node.scope || 'unknown') + '</span></div></div>';
+    var scopeVal = node.scope || 'unknown';
+    var validScopes = { 'local': true, 'global': true, 'both': true, 'unknown': true };
+    var scopeClass = 'scope-' + (validScopes[scopeVal] ? scopeVal : 'unknown');
+    html += '<div class="dp-section"><div class="dp-label">Scope</div><div class="dp-value"><span class="dp-scope-badge ' + scopeClass + '">' + esc(scopeVal) + '</span></div></div>';
 
     html += barSection('Confidence', node.confidence || 0, kindColors[node.kind] || defaultColor);
 
