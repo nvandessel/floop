@@ -61,3 +61,5 @@ jobs:
         with:
           go-version-file: "go.mod"
       - run: make build
+      - name: Cross-compile for Windows
+        run: GOOS=windows GOARCH=amd64 go build -o floop.exe ./cmd/floop

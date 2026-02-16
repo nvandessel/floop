@@ -118,6 +118,8 @@ context-aware behavior activation for consistent agent operation.`,
 		newUpgradeCmd(),
 		// Tag management commands
 		newTagsCmd(),
+		// Native hook commands (replacing shell scripts)
+		newHookCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

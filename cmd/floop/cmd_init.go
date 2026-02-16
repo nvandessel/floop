@@ -169,19 +169,8 @@ func initScope(scope constants.Scope, projectRoot string, hooksMode string, toke
 		fmt.Printf("Created %s\n", floopDir)
 	}
 
-	// 2. Extract hook scripts
-	hookDir := filepath.Join(configRoot, ".claude", "hooks")
-	extracted, err := hooks.ExtractScripts(hookDir, version, tokenBudget)
-	if err != nil {
-		return nil, fmt.Errorf("extracting hook scripts: %w", err)
-	}
-	result["hook_scripts"] = len(extracted)
-
-	if !jsonOut {
-		fmt.Printf("Extracted %d hook script(s) to %s\n", len(extracted), hookDir)
-	}
-
-	// 3. Configure Claude Code settings.json
+	// 2. Configure Claude Code settings.json
+	// (Hook scripts are no longer extracted — native Go subcommands are used instead)
 	if hooksMode != "" {
 		p := hooks.NewClaudePlatform()
 
@@ -190,7 +179,7 @@ func initScope(scope constants.Scope, projectRoot string, hooksMode string, toke
 			return nil, fmt.Errorf("creating .claude directory: %w", err)
 		}
 
-		configResult := hooks.ConfigurePlatform(p, configRoot, hookScope, hookDir)
+		configResult := hooks.ConfigurePlatform(p, configRoot, hookScope, "")
 		if configResult.Error != nil {
 			return nil, fmt.Errorf("configuring hooks: %w", configResult.Error)
 		}
@@ -206,7 +195,7 @@ func initScope(scope constants.Scope, projectRoot string, hooksMode string, toke
 		}
 	}
 
-	// 4. Seed meta-behaviors (global only)
+	// 3. Seed meta-behaviors (global only)
 	if scope == constants.ScopeGlobal {
 		homeDir, _ := os.UserHomeDir()
 		globalStore, err := store.NewSQLiteGraphStore(homeDir)

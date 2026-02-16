@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/hooks"
@@ -11,33 +11,32 @@ import (
 
 func TestUpgradeScopeNoInstallation(t *testing.T) {
 	dir := t.TempDir()
-	hookDir := filepath.Join(dir, ".claude", "hooks")
 
-	result, err := upgradeScope("test", hookDir, dir, hooks.ScopeProject, false, 2000, true)
+	result, err := upgradeScope("test", dir, hooks.ScopeProject, false, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result != nil {
-		t.Error("expected nil result when no scripts installed")
+		t.Error("expected nil result when no hooks installed")
 	}
 }
 
-func TestUpgradeScopeUpToDate(t *testing.T) {
+func TestUpgradeScopeNativeUpToDate(t *testing.T) {
 	dir := t.TempDir()
-	hookDir := filepath.Join(dir, ".claude", "hooks")
 
-	// Extract scripts with current version
-	_, err := hooks.ExtractScripts(hookDir, version, 2000)
-	if err != nil {
-		t.Fatalf("failed to extract scripts: %v", err)
-	}
-
-	// Also create settings.json so ConfigurePlatform works
-	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0700); err != nil {
+	// Create settings.json with native floop hook commands
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := upgradeScope("test", hookDir, dir, hooks.ScopeProject, false, 2000, true)
+	p := hooks.NewClaudePlatform()
+	config, _ := p.GenerateHookConfig(nil, hooks.ScopeProject, "")
+	if err := p.WriteConfig(dir, config); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := upgradeScope("test", dir, hooks.ScopeProject, false, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,96 +48,77 @@ func TestUpgradeScopeUpToDate(t *testing.T) {
 	}
 }
 
-func TestUpgradeScopeStale(t *testing.T) {
+func TestUpgradeScopeMigratesOldScripts(t *testing.T) {
 	dir := t.TempDir()
 	hookDir := filepath.Join(dir, ".claude", "hooks")
 
-	// Extract scripts with an old version
-	_, err := hooks.ExtractScripts(hookDir, "0.0.1", 2000)
-	if err != nil {
-		t.Fatalf("failed to extract scripts: %v", err)
-	}
-
-	// Create .claude dir for settings
-	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0700); err != nil {
+	// Create old-style .sh scripts to simulate a pre-migration installation
+	if err := os.MkdirAll(hookDir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	for _, name := range []string{"floop-session-start.sh", "floop-first-prompt.sh", "floop-detect-correction.sh", "floop-dynamic-context.sh"} {
+		content := "#!/bin/bash\n# version: 0.0.1\nexit 0\n"
+		if err := os.WriteFile(filepath.Join(hookDir, name), []byte(content), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
 
-	result, err := upgradeScope("test", hookDir, dir, hooks.ScopeProject, false, 2000, true)
+	// Upgrade should migrate
+	result, err := upgradeScope("test", dir, hooks.ScopeProject, false, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result["status"] != "upgraded" {
-		t.Errorf("expected status=upgraded, got %v", result["status"])
+	if result["status"] != "migrated" {
+		t.Errorf("expected status=migrated, got %v", result["status"])
 	}
 
-	// Verify scripts now have current version
+	// Verify old .sh scripts were removed
 	installed, _ := hooks.InstalledScripts(hookDir)
-	for _, script := range installed {
-		ver, _ := hooks.ScriptVersion(script)
-		if ver != version {
-			t.Errorf("script %s has version %s, expected %s", filepath.Base(script), ver, version)
-		}
+	if len(installed) != 0 {
+		t.Errorf("expected 0 remaining .sh scripts, got %d", len(installed))
+	}
+
+	// Verify settings.json now has native commands
+	p := hooks.NewClaudePlatform()
+	config, err := p.ReadConfig(dir)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+
+	configJSON, _ := json.Marshal(config)
+	configStr := string(configJSON)
+	if configStr == "" {
+		t.Fatal("expected non-empty config")
+	}
+
+	has, _ := p.HasFloopHook(dir)
+	if !has {
+		t.Error("expected HasFloopHook=true after migration")
 	}
 }
 
 func TestUpgradeScopeForce(t *testing.T) {
 	dir := t.TempDir()
-	hookDir := filepath.Join(dir, ".claude", "hooks")
 
-	// Extract scripts with current version
-	_, err := hooks.ExtractScripts(hookDir, version, 2000)
-	if err != nil {
-		t.Fatalf("failed to extract scripts: %v", err)
-	}
-
-	// Create .claude dir for settings
-	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0700); err != nil {
+	// Create settings.json with native floop hooks
+	p := hooks.NewClaudePlatform()
+	config, _ := p.GenerateHookConfig(nil, hooks.ScopeProject, "")
+	if err := p.WriteConfig(dir, config); err != nil {
 		t.Fatal(err)
 	}
 
-	// Force should upgrade even when versions match
-	result, err := upgradeScope("test", hookDir, dir, hooks.ScopeProject, true, 2000, true)
+	// Force should reconfigure even when native hooks exist
+	result, err := upgradeScope("test", dir, hooks.ScopeProject, true, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result["status"] != "upgraded" {
-		t.Errorf("expected status=upgraded with --force, got %v", result["status"])
-	}
-}
-
-func TestUpgradeScopeTokenBudget(t *testing.T) {
-	dir := t.TempDir()
-	hookDir := filepath.Join(dir, ".claude", "hooks")
-
-	// Extract with old budget
-	_, err := hooks.ExtractScripts(hookDir, "0.0.1", 1000)
-	if err != nil {
-		t.Fatalf("failed to extract scripts: %v", err)
-	}
-
-	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0700); err != nil {
-		t.Fatal(err)
-	}
-
-	// Upgrade with new budget
-	_, err = upgradeScope("test", hookDir, dir, hooks.ScopeProject, false, 3000, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify new budget in script
-	content, err := os.ReadFile(filepath.Join(hookDir, "floop-session-start.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(content), "--token-budget 3000") {
-		t.Error("expected token budget 3000 in upgraded script")
+	if result["status"] != "reconfigured" {
+		t.Errorf("expected status=reconfigured with --force, got %v", result["status"])
 	}
 }

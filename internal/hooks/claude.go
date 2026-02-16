@@ -75,6 +75,10 @@ func (c *ClaudePlatform) ReadConfig(projectRoot string) (map[string]interface{},
 // GenerateHookConfig merges floop hooks into existing config, generating entries
 // for all 3 event types (SessionStart, UserPromptSubmit, PreToolUse).
 // It removes any existing floop entries first (idempotent merge).
+//
+// Hook commands are native Go subcommands ("floop hook <name>") that read
+// JSON from stdin and call internal packages directly — no bash/jq required.
+// The hookDir parameter is unused (retained for interface compatibility).
 func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{}, scope HookScope, hookDir string) (map[string]interface{}, error) {
 	config := existingConfig
 	if config == nil {
@@ -90,21 +94,12 @@ func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{
 	// Remove existing floop entries for idempotent merge
 	hooksSection = removeFloopEntries(hooksSection)
 
-	// Build script path prefix based on scope
-	scriptPath := func(name string) string {
-		if scope == ScopeGlobal {
-			return filepath.Join(hookDir, name)
-		}
-		// Project scope: use $CLAUDE_PROJECT_DIR-relative path
-		return fmt.Sprintf(`"$CLAUDE_PROJECT_DIR"/.claude/hooks/%s`, name)
-	}
-
 	// SessionStart: inject behaviors at session start
 	sessionStartEntry := map[string]interface{}{
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
-				"command": scriptPath("floop-session-start.sh"),
+				"command": "floop hook session-start",
 			},
 		},
 	}
@@ -116,11 +111,11 @@ func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
-				"command": scriptPath("floop-first-prompt.sh"),
+				"command": "floop hook first-prompt",
 			},
 			map[string]interface{}{
 				"type":    "command",
-				"command": scriptPath("floop-detect-correction.sh"),
+				"command": "floop hook detect-correction",
 			},
 		},
 	}
@@ -128,13 +123,12 @@ func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{
 	hooksSection["UserPromptSubmit"] = append(userPrompt, userPromptEntry)
 
 	// PreToolUse: dynamic context injection for Read and Bash
-	dynamicScript := scriptPath("floop-dynamic-context.sh")
 	readMatcher := map[string]interface{}{
 		"matcher": "Read",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
-				"command": dynamicScript,
+				"command": "floop hook dynamic-context",
 			},
 		},
 	}
@@ -143,7 +137,7 @@ func (c *ClaudePlatform) GenerateHookConfig(existingConfig map[string]interface{
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
-				"command": dynamicScript,
+				"command": "floop hook dynamic-context",
 			},
 		},
 	}

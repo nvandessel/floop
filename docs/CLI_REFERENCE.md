@@ -19,17 +19,17 @@ These flags are available on every command.
 
 ## Core
 
-Commands for initializing floop, capturing corrections, and managing hook scripts.
+Commands for initializing floop, capturing corrections, and managing hooks.
 
 ### init
 
-Initialize floop with hook scripts and behavior learning.
+Initialize floop with hooks and behavior learning.
 
 ```
 floop init [flags]
 ```
 
-Extracts embedded hook scripts, configures Claude Code settings, seeds meta-behaviors, and creates the `.floop/` data directory.
+Configures Claude Code hook settings to use native `floop hook` subcommands, seeds meta-behaviors, and creates the `.floop/` data directory.
 
 **Interactive mode** (no flags): Prompts for installation scope, hooks, and token budget.
 **Non-interactive mode** (any flag provided): Uses flag values with sensible defaults. Suitable for scripts and agents.
@@ -156,30 +156,29 @@ floop version --json
 
 ### upgrade
 
-Upgrade floop hook scripts to match the current binary version.
+Upgrade floop hook configuration to native Go subcommands.
 
 ```
 floop upgrade [flags]
 ```
 
-Detects hook installations in global (`~/.claude/`) and project (`.claude/`) scopes, compares script versions against the binary version, and re-extracts scripts that are out of date.
+Detects hook installations in global (`~/.claude/`) and project (`.claude/`) scopes. Migrates old shell script installations (`.sh` files) to native `floop hook` subcommands, and reports already-native configurations as up to date.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--force` | bool | `false` | Re-extract all scripts regardless of version |
-| `--token-budget` | int | `2000` | Token budget for behavior injection |
+| `--force` | bool | `false` | Re-configure hooks even if already native |
 
 **Examples:**
 
 ```bash
-# Upgrade stale scripts
+# Upgrade (migrate old scripts or verify native hooks)
 floop upgrade
 
-# Force re-extract all scripts
+# Force re-configure hooks
 floop upgrade --force
 
-# Upgrade with a custom token budget
-floop upgrade --token-budget 1500 --json
+# JSON output
+floop upgrade --json
 ```
 
 **See also:** [init](#init)
@@ -1029,7 +1028,72 @@ floop restore-backup backup.json.gz --json
 
 ## Hooks
 
-Commands used internally by Claude Code hook scripts for automatic correction detection and dynamic context injection.
+Commands called by Claude Code hooks for automatic behavior injection, correction detection, and dynamic context. These are native Go subcommands that replace the old shell script approach, enabling Windows support.
+
+### hook
+
+Parent command for native Claude Code hook subcommands.
+
+```
+floop hook <subcommand>
+```
+
+These subcommands are called directly by Claude Code's hook system. They read JSON input from stdin (provided by Claude Code) and output behavior injection text to stdout.
+
+#### hook session-start
+
+Inject behaviors at the start of a Claude Code session.
+
+```
+floop hook session-start
+```
+
+Called by `SessionStart` hook. Loads behaviors from both local and global stores, evaluates activation conditions, and outputs tiered markdown for injection into Claude's context.
+
+#### hook first-prompt
+
+Inject behaviors on the first user prompt (with dedup).
+
+```
+floop hook first-prompt
+```
+
+Called by `UserPromptSubmit` hook. Reads `{"session_id":"..."}` from stdin. Uses atomic directory creation (`os.Mkdir`) for dedup — only injects on the first prompt per session. Same injection logic as `session-start`.
+
+#### hook dynamic-context
+
+Dynamically inject behaviors based on tool usage.
+
+```
+floop hook dynamic-context
+```
+
+Called by `PreToolUse` hook. Reads `{"tool_name":"...","tool_input":{...},"session_id":"..."}` from stdin. Routes:
+- **Read/Edit/Write tools**: Extracts file path → spreading activation for file-relevant behaviors
+- **Bash tool**: Detects task type from command (testing, building, committing, etc.) → spreading activation for task-relevant behaviors
+- Other tools: silently exits
+
+#### hook detect-correction
+
+Detect corrections in user prompts and capture them as behaviors.
+
+```
+floop hook detect-correction
+```
+
+Called by `UserPromptSubmit` hook. Reads `{"prompt":"..."}` from stdin. Uses `MightBeCorrection()` heuristic for fast screening, then LLM extraction (with 5s timeout) if available.
+
+**Examples:**
+
+```bash
+# These are typically called by Claude Code hooks, not manually:
+echo '{}' | floop hook session-start
+echo '{"session_id":"abc"}' | floop hook first-prompt
+echo '{"tool_name":"Read","tool_input":{"file_path":"main.go"},"session_id":"abc"}' | floop hook dynamic-context
+echo '{"prompt":"No, use fmt.Errorf not errors.New"}' | floop hook detect-correction
+```
+
+---
 
 ### detect-correction
 
@@ -1239,7 +1303,8 @@ floop help completion bash
 | [forget](#forget) | Curation | Soft-delete a behavior from active use |
 | [graph](#graph) | Graph | Visualize the behavior graph |
 | [help](#help) | Built-in | Display help for any command |
-| [init](#init) | Core | Initialize floop with hook scripts and behavior learning |
+| [hook](#hook) | Hooks | Native Claude Code hook subcommands (session-start, first-prompt, dynamic-context, detect-correction) |
+| [init](#init) | Core | Initialize floop with hooks and behavior learning |
 | [learn](#learn) | Core | Capture a correction and extract behavior |
 | [list](#list) | Query | List behaviors or corrections |
 | [merge](#merge) | Curation | Merge two behaviors into one |
@@ -1252,7 +1317,7 @@ floop help completion bash
 | [stats](#stats) | Token Optimization | Show behavior usage statistics |
 | [summarize](#summarize) | Token Optimization | Generate or regenerate summaries for behaviors |
 | [tags](#tags) | Graph | Manage behavior tags |
-| [upgrade](#upgrade) | Core | Upgrade hook scripts to match current binary version |
+| [upgrade](#upgrade) | Core | Upgrade hook configuration to native Go subcommands |
 | [validate](#validate) | Management | Validate the behavior graph for consistency issues |
 | [version](#version) | Core | Print version information |
 | [why](#why) | Query | Explain why a behavior is or isn't active |

@@ -149,16 +149,23 @@ func TestInitCmdCreatesDirectory(t *testing.T) {
 		t.Error("manifest.yaml not created")
 	}
 
-	// Verify hook scripts were extracted
-	hookDir := filepath.Join(tmpDir, ".claude", "hooks")
-	if _, err := os.Stat(filepath.Join(hookDir, "floop-session-start.sh")); os.IsNotExist(err) {
-		t.Error("floop-session-start.sh not extracted")
-	}
-
-	// Verify settings.json was created
+	// Verify settings.json was created with native hook commands
 	settingsPath := filepath.Join(tmpDir, ".claude", "settings.json")
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		t.Error("settings.json not created")
+	}
+
+	// Verify settings.json contains native "floop hook" commands (not .sh scripts)
+	settingsData, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("failed to read settings.json: %v", err)
+	}
+	settingsStr := string(settingsData)
+	if !strings.Contains(settingsStr, "floop hook session-start") {
+		t.Error("expected settings.json to contain 'floop hook session-start'")
+	}
+	if strings.Contains(settingsStr, ".sh") {
+		t.Error("settings.json should not contain .sh references")
 	}
 }
 

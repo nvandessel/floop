@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/nvandessel/feedback-loop/internal/config"
 	"github.com/nvandessel/feedback-loop/internal/hooks"
 	"github.com/spf13/cobra"
 )
@@ -14,28 +13,26 @@ import (
 func newUpgradeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade floop hook scripts to match the current binary version",
-		Long: `Upgrade installed floop hook scripts to the current binary version.
+		Short: "Upgrade floop hooks to native Go subcommands",
+		Long: `Upgrade floop hook configuration to use native Go subcommands.
 
-Detects hook installations in global (~/.claude/) and project (.claude/) scopes,
-compares script versions against the binary version, and re-extracts scripts
-that are out of date.
+Detects old shell script installations and migrates them to native
+"floop hook <name>" commands. Also detects if native hooks are already
+configured and reports them as up to date.
 
 Examples:
-  floop upgrade           # Upgrade stale scripts
-  floop upgrade --force   # Re-extract all scripts regardless of version`,
+  floop upgrade           # Migrate .sh scripts to native commands
+  floop upgrade --force   # Re-configure even if already native`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			jsonOut, _ := cmd.Flags().GetBool("json")
-			tokenBudget, _ := cmd.Flags().GetInt("token-budget")
 
 			results := make(map[string]interface{})
 
 			// Check global installation
 			homeDir, err := os.UserHomeDir()
 			if err == nil {
-				globalHookDir := filepath.Join(homeDir, ".claude", "hooks")
-				globalResult, err := upgradeScope("global", globalHookDir, homeDir, hooks.ScopeGlobal, force, tokenBudget, jsonOut)
+				globalResult, err := upgradeScope("global", homeDir, hooks.ScopeGlobal, force, jsonOut)
 				if err != nil {
 					if !jsonOut {
 						fmt.Fprintf(os.Stderr, "Warning: global upgrade failed: %v\n", err)
@@ -47,8 +44,7 @@ Examples:
 
 			// Check project installation
 			root, _ := cmd.Flags().GetString("root")
-			projectHookDir := filepath.Join(root, ".claude", "hooks")
-			projectResult, err := upgradeScope("project", projectHookDir, root, hooks.ScopeProject, force, tokenBudget, jsonOut)
+			projectResult, err := upgradeScope("project", root, hooks.ScopeProject, force, jsonOut)
 			if err != nil {
 				if !jsonOut {
 					fmt.Fprintf(os.Stderr, "Warning: project upgrade failed: %v\n", err)
@@ -79,73 +75,79 @@ Examples:
 		},
 	}
 
-	cmd.Flags().Bool("force", false, "Re-extract all scripts regardless of version")
-	cmd.Flags().Int("token-budget", config.Default().TokenBudget.Default, "Token budget for behavior injection")
+	cmd.Flags().Bool("force", false, "Re-configure hooks even if already native")
 
 	return cmd
 }
 
-// upgradeScope checks and upgrades scripts in a single scope.
+// upgradeScope checks and upgrades hooks in a single scope.
 // Returns nil result if no installation found.
-func upgradeScope(scopeName, hookDir, configRoot string, scope hooks.HookScope, force bool, tokenBudget int, jsonOut bool) (map[string]interface{}, error) {
-	installed, err := hooks.InstalledScripts(hookDir)
+func upgradeScope(scopeName, configRoot string, scope hooks.HookScope, force bool, jsonOut bool) (map[string]interface{}, error) {
+	p := hooks.NewClaudePlatform()
+
+	// Check if native hooks are already configured
+	hasHook, err := p.HasFloopHook(configRoot)
 	if err != nil {
-		return nil, fmt.Errorf("checking installed scripts: %w", err)
-	}
-	if len(installed) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("checking hook config: %w", err)
 	}
 
-	// Check versions of installed scripts
-	stale := false
-	for _, script := range installed {
-		scriptVer, err := hooks.ScriptVersion(script)
-		if err != nil {
-			return nil, fmt.Errorf("reading version from %s: %w", script, err)
-		}
-		if scriptVer != version {
-			stale = true
-			break
-		}
+	// Check for old .sh scripts that need migration
+	hookDir := filepath.Join(configRoot, ".claude", "hooks")
+	oldScripts, _ := hooks.InstalledScripts(hookDir)
+
+	if !hasHook && len(oldScripts) == 0 {
+		return nil, nil // no installation found
 	}
 
 	result := map[string]interface{}{
 		"scope":           scopeName,
-		"installed_count": len(installed),
 		"current_version": version,
 	}
 
-	if !stale && !force {
+	// If old scripts exist, migrate: remove scripts + reconfigure
+	if len(oldScripts) > 0 {
+		// Remove old .sh scripts
+		for _, script := range oldScripts {
+			if err := os.Remove(script); err != nil && !os.IsNotExist(err) {
+				return nil, fmt.Errorf("removing old script %s: %w", script, err)
+			}
+		}
+
+		// Regenerate config with native commands
+		configResult := hooks.ConfigurePlatform(p, configRoot, scope, "")
+		if configResult.Error != nil {
+			return nil, fmt.Errorf("updating settings.json: %w", configResult.Error)
+		}
+
+		result["status"] = "migrated"
+		result["scripts_removed"] = len(oldScripts)
+
+		if !jsonOut {
+			fmt.Printf("%s: migrated %d shell script(s) to native Go commands\n",
+				scopeName, len(oldScripts))
+		}
+
+		return result, nil
+	}
+
+	// Native hooks already configured
+	if !force {
 		result["status"] = "up_to_date"
 		if !jsonOut {
-			fmt.Printf("%s: hooks are up to date (v%s)\n", scopeName, version)
+			fmt.Printf("%s: hooks are up to date (native commands)\n", scopeName)
 		}
 		return result, nil
 	}
 
-	// Re-extract scripts
-	extracted, err := hooks.ExtractScripts(hookDir, version, tokenBudget)
-	if err != nil {
-		return nil, fmt.Errorf("extracting scripts: %w", err)
-	}
-
-	// Re-configure settings.json
-	p := hooks.NewClaudePlatform()
-	configResult := hooks.ConfigurePlatform(p, configRoot, scope, hookDir)
+	// Force re-configure
+	configResult := hooks.ConfigurePlatform(p, configRoot, scope, "")
 	if configResult.Error != nil {
 		return nil, fmt.Errorf("updating settings.json: %w", configResult.Error)
 	}
 
-	result["status"] = "upgraded"
-	result["scripts_extracted"] = len(extracted)
-
+	result["status"] = "reconfigured"
 	if !jsonOut {
-		reason := "stale"
-		if force {
-			reason = "forced"
-		}
-		fmt.Printf("%s: upgraded %d hook script(s) to v%s (%s)\n",
-			scopeName, len(extracted), version, reason)
+		fmt.Printf("%s: reconfigured hooks (forced)\n", scopeName)
 	}
 
 	return result, nil

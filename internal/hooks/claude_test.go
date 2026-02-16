@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -124,7 +123,7 @@ func TestClaudePlatformGenerateHookConfigProject(t *testing.T) {
 		t.Fatal("expected hooks to be a map")
 	}
 
-	// Verify SessionStart
+	// Verify SessionStart uses native Go command
 	sessionStart, ok := hooks["SessionStart"].([]interface{})
 	if !ok {
 		t.Fatal("expected SessionStart to be an array")
@@ -135,11 +134,8 @@ func TestClaudePlatformGenerateHookConfigProject(t *testing.T) {
 	ssEntry := sessionStart[0].(map[string]interface{})
 	ssHooks := ssEntry["hooks"].([]interface{})
 	ssCmd := ssHooks[0].(map[string]interface{})["command"].(string)
-	if !strings.Contains(ssCmd, "CLAUDE_PROJECT_DIR") {
-		t.Errorf("project scope should use CLAUDE_PROJECT_DIR, got: %s", ssCmd)
-	}
-	if !strings.Contains(ssCmd, "floop-session-start.sh") {
-		t.Errorf("expected floop-session-start.sh in command, got: %s", ssCmd)
+	if ssCmd != "floop hook session-start" {
+		t.Errorf("expected 'floop hook session-start', got: %s", ssCmd)
 	}
 
 	// Verify UserPromptSubmit
@@ -155,6 +151,14 @@ func TestClaudePlatformGenerateHookConfigProject(t *testing.T) {
 	if len(upHooks) != 2 {
 		t.Errorf("expected 2 UserPromptSubmit hooks (first-prompt + detect-correction), got %d", len(upHooks))
 	}
+	fpCmd := upHooks[0].(map[string]interface{})["command"].(string)
+	if fpCmd != "floop hook first-prompt" {
+		t.Errorf("expected 'floop hook first-prompt', got: %s", fpCmd)
+	}
+	dcCmd := upHooks[1].(map[string]interface{})["command"].(string)
+	if dcCmd != "floop hook detect-correction" {
+		t.Errorf("expected 'floop hook detect-correction', got: %s", dcCmd)
+	}
 
 	// Verify PreToolUse
 	preToolUse, ok := hooks["PreToolUse"].([]interface{})
@@ -169,6 +173,12 @@ func TestClaudePlatformGenerateHookConfigProject(t *testing.T) {
 	if readEntry["matcher"] != "Read" {
 		t.Errorf("expected first matcher='Read', got '%v'", readEntry["matcher"])
 	}
+	readHooks := readEntry["hooks"].([]interface{})
+	readCmd := readHooks[0].(map[string]interface{})["command"].(string)
+	if readCmd != "floop hook dynamic-context" {
+		t.Errorf("expected 'floop hook dynamic-context', got: %s", readCmd)
+	}
+
 	bashEntry := preToolUse[1].(map[string]interface{})
 	if bashEntry["matcher"] != "Bash" {
 		t.Errorf("expected second matcher='Bash', got '%v'", bashEntry["matcher"])
@@ -190,12 +200,9 @@ func TestClaudePlatformGenerateHookConfigGlobal(t *testing.T) {
 	ssHooks := ssEntry["hooks"].([]interface{})
 	ssCmd := ssHooks[0].(map[string]interface{})["command"].(string)
 
-	// Global scope should use absolute paths
-	if strings.Contains(ssCmd, "CLAUDE_PROJECT_DIR") {
-		t.Errorf("global scope should NOT use CLAUDE_PROJECT_DIR, got: %s", ssCmd)
-	}
-	if !strings.Contains(ssCmd, "/home/user/.claude/hooks/floop-session-start.sh") {
-		t.Errorf("expected absolute path, got: %s", ssCmd)
+	// Both scopes now use the same native Go commands (no path differences)
+	if ssCmd != "floop hook session-start" {
+		t.Errorf("expected 'floop hook session-start', got: %s", ssCmd)
 	}
 }
 
@@ -402,14 +409,14 @@ func TestClaudePlatformHasFloopHook(t *testing.T) {
 		t.Error("expected true when floop hooks are present in SessionStart")
 	}
 
-	// Config with floop hooks in PreToolUse
+	// Config with native floop hook commands
 	floopConfig2 := `{
 		"hooks": {
 			"PreToolUse": [
 				{
 					"matcher": "Read",
 					"hooks": [
-						{"type": "command", "command": "floop prompt --format markdown"}
+						{"type": "command", "command": "floop hook dynamic-context"}
 					]
 				}
 			]

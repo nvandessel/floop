@@ -5,9 +5,9 @@
 Claude Code has native support for floop through two mechanisms:
 
 1. **MCP Server** - Full bidirectional integration (read behaviors, capture corrections)
-2. **Hooks** - Automatic behavior injection at session start
+2. **Hooks** - Automatic behavior injection via native Go subcommands
 
-This guide covers hook-based integration, which auto-injects learned behaviors into Claude's context. For MCP server setup, see [mcp-server.md](./mcp-server.md).
+This guide covers hook-based integration, which auto-injects learned behaviors into Claude's context using `floop hook` subcommands. No shell scripts or external dependencies (bash, jq) required — works on Linux, macOS, and Windows. For MCP server setup, see [mcp-server.md](./mcp-server.md).
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ cd /path/to/your/project
 floop init
 ```
 
-If Claude Code is detected (`.claude/` directory exists), floop automatically configures a `PreToolUse` hook that injects behaviors when Claude reads files.
+If Claude Code is detected (`.claude/` directory exists), floop automatically configures hooks that inject behaviors at session start, on first prompt, during tool use, and detect corrections from user prompts.
 
 **Example output:**
 ```
@@ -43,13 +43,36 @@ If you prefer manual configuration or `floop init` didn't detect Claude Code:
 ```json
 {
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Read",
         "hooks": [
           {
             "type": "command",
-            "command": "floop prompt --format markdown"
+            "command": "floop hook session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "floop hook first-prompt"
+          },
+          {
+            "type": "command",
+            "command": "floop hook detect-correction"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "floop hook dynamic-context"
           }
         ]
       }
@@ -67,23 +90,25 @@ floop init --hooks=false
 
 ### Hook Mechanism
 
-Claude Code supports hooks that execute at various lifecycle points. The floop hook triggers on `PreToolUse` when Claude uses the `Read` tool (reads a file):
+Claude Code supports hooks that execute at various lifecycle points. floop registers native Go subcommands at four hook points:
 
 ```
 Claude starts session
     │
-    └─→ Claude calls Read tool
-           │
-           └─→ PreToolUse hook fires
-                  │
-                  └─→ floop prompt --format markdown
-                         │
-                         └─→ Behaviors output to stdout → injected into Claude's context
+    └─→ SessionStart hook fires
+    │      └─→ floop hook session-start → injects active behaviors
+    │
+    └─→ User submits first prompt
+    │      └─→ floop hook first-prompt → injects behaviors (deduped per session)
+    │      └─→ floop hook detect-correction → checks for corrections
+    │
+    └─→ Claude calls Read/Edit/Write/Bash tool
+           └─→ floop hook dynamic-context → spreading activation for relevant behaviors
 ```
 
 ### What Gets Injected
 
-The `floop prompt` command outputs context-aware behaviors in markdown format:
+The hook subcommands output context-aware behaviors in markdown format:
 
 ```markdown
 # Learned Behaviors
@@ -135,24 +160,7 @@ You can still use floop's MCP server or CLI commands manually.
 cat .claude/settings.json
 ```
 
-Should show:
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "floop prompt --format markdown"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+Should show hooks with `floop hook session-start`, `floop hook first-prompt`, `floop hook detect-correction`, and `floop hook dynamic-context` commands.
 
 ### Test Behavior Injection
 
@@ -176,7 +184,7 @@ floop prompt --format markdown
 **Solutions**:
 - Verify `.claude/settings.json` exists and has correct syntax
 - Check that `floop` is in your PATH: `which floop`
-- Test the command manually: `floop prompt --format markdown`
+- Test the command manually: `echo '{}' | floop hook session-start`
 - Restart Claude Code to pick up configuration changes
 
 ### Empty Behavior Output
@@ -268,53 +276,21 @@ floop prompt --format markdown
 
 ## Advanced Configuration
 
-### Custom Output Format
+### Standalone Prompt Command
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "floop prompt --format xml --token-budget 1000"
-          }
-        ]
-      }
-    ]
-  }
-}
+For custom integrations outside of Claude Code hooks, you can use the `floop prompt` command directly:
+
+```bash
+# Generate behavior injection text
+floop prompt --format markdown --token-budget 1000
+
+# XML format for other tools
+floop prompt --format xml
 ```
 
 ### Conditional Injection
 
-Inject only for specific file types by using file patterns in behaviors rather than modifying hooks. The `floop prompt` command automatically filters based on context.
-
-### Multiple Hook Commands
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "floop prompt --format markdown"
-          },
-          {
-            "type": "command",
-            "command": "echo '# Project-specific notes...' >> /tmp/context.md"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+Inject only for specific file types by using file patterns in behaviors rather than modifying hooks. The hook subcommands automatically filter based on context (file type, task type, etc.).
 
 ## Comparison: Hooks vs MCP
 
