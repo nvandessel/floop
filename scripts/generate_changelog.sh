@@ -46,7 +46,7 @@ normalize_sentence() {
   echo "${first}${line:1}"
 }
 
-declare -a added fixed changed
+declare -a added=() fixed=() changed=()
 for subject in "${subjects[@]}"; do
   subject_lc="$(echo "$subject" | tr '[:upper:]' '[:lower:]')"
   case "$subject_lc" in
@@ -177,13 +177,17 @@ unreleased_link="[Unreleased]: https://github.com/${repo_slug}/compare/${tag}...
 version_link="[${version}]: https://github.com/${repo_slug}/releases/tag/${tag}"
 
 if grep -qE '^\[Unreleased\]:' "$changelog_file"; then
-  sed -i -E "s|^\[Unreleased\]:.*$|${unreleased_link}|" "$changelog_file"
+  tmp_file="$(mktemp)"
+  sed -E "s|^\[Unreleased\]:.*$|${unreleased_link}|" "$changelog_file" >"$tmp_file"
+  mv "$tmp_file" "$changelog_file"
 else
   echo "$unreleased_link" >>"$changelog_file"
 fi
 
 if grep -qE "^\\[${version//./\\.}\\]:" "$changelog_file"; then
-  sed -i -E "s|^\\[${version//./\\.}\\]:.*$|${version_link}|" "$changelog_file"
+  tmp_file="$(mktemp)"
+  sed -E "s|^\\[${version//./\\.}\\]:.*$|${version_link}|" "$changelog_file" >"$tmp_file"
+  mv "$tmp_file" "$changelog_file"
 else
   echo "$version_link" >>"$changelog_file"
 fi
