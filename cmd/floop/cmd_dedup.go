@@ -67,12 +67,13 @@ Examples:
 
 			ctx := context.Background()
 
-			// Load config to check for LLM settings
+			// Load config and create LLM client once
 			floopCfg, err := config.Load()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
 			}
 			useLLM := floopCfg != nil && floopCfg.LLM.Enabled && floopCfg.LLM.Provider != ""
+			llmClient := createLLMClient(floopCfg)
 
 			// Configure deduplication
 			dedupConfig := dedup.DeduplicatorConfig{
@@ -84,11 +85,11 @@ Examples:
 
 			// Handle cross-store deduplication
 			if storeScope == store.ScopeBoth {
-				return runCrossStoreDedup(ctx, root, dedupConfig, dryRun, jsonOut)
+				return runCrossStoreDedup(ctx, root, dedupConfig, llmClient, dryRun, jsonOut)
 			}
 
 			// Single store deduplication
-			return runSingleStoreDedup(ctx, root, storeScope, dedupConfig, dryRun, jsonOut)
+			return runSingleStoreDedup(ctx, root, storeScope, dedupConfig, llmClient, dryRun, jsonOut)
 		},
 	}
 
@@ -107,7 +108,7 @@ type duplicatePair struct {
 }
 
 // runSingleStoreDedup runs deduplication on a single store.
-func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScope, cfg dedup.DeduplicatorConfig, dryRun, jsonOut bool) error {
+func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScope, cfg dedup.DeduplicatorConfig, llmClient llm.Client, dryRun, jsonOut bool) error {
 	// Open the appropriate store
 	var graphStore store.GraphStore
 	var err error
@@ -148,7 +149,7 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 	}
 
 	// Find duplicate pairs
-	duplicates := findDuplicatePairs(behaviors, cfg)
+	duplicates := findDuplicatePairs(behaviors, cfg, llmClient)
 
 	if len(duplicates) == 0 {
 		if jsonOut {
@@ -194,7 +195,7 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 	}
 
 	// Perform merges
-	mergeCount := mergeDuplicatePairs(ctx, graphStore, duplicates, jsonOut)
+	mergeCount := mergeDuplicatePairs(ctx, graphStore, duplicates, llmClient, jsonOut)
 
 	if err := graphStore.Sync(ctx); err != nil {
 		return fmt.Errorf("failed to sync changes: %w", err)
@@ -216,12 +217,7 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 
 // findDuplicatePairs performs pairwise similarity comparison across all behaviors,
 // returning pairs that exceed the configured similarity threshold.
-func findDuplicatePairs(behaviors []models.Behavior, cfg dedup.DeduplicatorConfig) []duplicatePair {
-	floopCfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
-	}
-	llmClient := createLLMClient(floopCfg)
+func findDuplicatePairs(behaviors []models.Behavior, cfg dedup.DeduplicatorConfig, llmClient llm.Client) []duplicatePair {
 	useLLM := cfg.UseLLM && llmClient != nil
 
 	var duplicates []duplicatePair
@@ -242,15 +238,10 @@ func findDuplicatePairs(behaviors []models.Behavior, cfg dedup.DeduplicatorConfi
 
 // mergeDuplicatePairs merges each duplicate pair, updating the store.
 // Returns the number of successful merges.
-func mergeDuplicatePairs(ctx context.Context, graphStore store.GraphStore, duplicates []duplicatePair, jsonOut bool) int {
+func mergeDuplicatePairs(ctx context.Context, graphStore store.GraphStore, duplicates []duplicatePair, llmClient llm.Client, jsonOut bool) int {
 	mergeCount := 0
 	merged := make(map[string]bool)
 
-	floopCfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
-	}
-	llmClient := createLLMClient(floopCfg)
 	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{
 		UseLLM:    llmClient != nil,
 		LLMClient: llmClient,
@@ -298,7 +289,7 @@ func mergeDuplicatePairs(ctx context.Context, graphStore store.GraphStore, dupli
 }
 
 // runCrossStoreDedup runs deduplication across local and global stores.
-func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.DeduplicatorConfig, dryRun, jsonOut bool) error {
+func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.DeduplicatorConfig, llmClient llm.Client, dryRun, jsonOut bool) error {
 	// Open local store
 	localStore, err := store.NewFileGraphStore(root)
 	if err != nil {
@@ -317,12 +308,7 @@ func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.Deduplicator
 	}
 	defer globalStore.Close()
 
-	// Create merger with LLM client if configured
-	floopCfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
-	}
-	llmClient := createLLMClient(floopCfg)
+	// Create merger with LLM client
 	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{
 		UseLLM:    cfg.UseLLM && llmClient != nil,
 		LLMClient: llmClient,

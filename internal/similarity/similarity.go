@@ -28,9 +28,6 @@ func ComputeWhenOverlap(a, b map[string]interface{}) float64 {
 		}
 	}
 
-	if total == 0 {
-		return 0.0
-	}
 	return float64(matches) / float64(total)
 }
 
