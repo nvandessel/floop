@@ -21,7 +21,7 @@ func createTestStore(behaviors []models.Behavior) store.GraphStore {
 	ctx := context.Background()
 
 	for _, b := range behaviors {
-		node := BehaviorToNode(&b)
+		node := models.BehaviorToNode(&b)
 		s.AddNode(ctx, node)
 	}
 
@@ -472,108 +472,6 @@ func TestStoreDeduplicator_ComputeSimilarity(t *testing.T) {
 	})
 }
 
-func TestStoreDeduplicator_ComputeWhenOverlap(t *testing.T) {
-	dedup := &StoreDeduplicator{}
-
-	tests := []struct {
-		name string
-		a    map[string]interface{}
-		b    map[string]interface{}
-		want float64
-	}{
-		{
-			name: "both empty",
-			a:    map[string]interface{}{},
-			b:    map[string]interface{}{},
-			want: 1.0,
-		},
-		{
-			name: "both nil",
-			a:    nil,
-			b:    nil,
-			want: 1.0,
-		},
-		{
-			name: "a empty",
-			a:    map[string]interface{}{},
-			b:    map[string]interface{}{"key": "value"},
-			want: 0.0,
-		},
-		{
-			name: "identical single key",
-			a:    map[string]interface{}{"language": "python"},
-			b:    map[string]interface{}{"language": "python"},
-			want: 1.0,
-		},
-		{
-			name: "same keys different values",
-			a:    map[string]interface{}{"language": "python"},
-			b:    map[string]interface{}{"language": "go"},
-			want: 0.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := dedup.computeWhenOverlap(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("computeWhenOverlap() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestStoreDeduplicator_ComputeContentSimilarity(t *testing.T) {
-	dedup := &StoreDeduplicator{}
-
-	tests := []struct {
-		name string
-		a    string
-		b    string
-		want float64
-	}{
-		{
-			name: "identical",
-			a:    "use pathlib always",
-			b:    "use pathlib always",
-			want: 1.0,
-		},
-		{
-			name: "case insensitive",
-			a:    "Use Pathlib Always",
-			b:    "use pathlib always",
-			want: 1.0,
-		},
-		{
-			name: "completely different",
-			a:    "hello world",
-			b:    "foo bar baz",
-			want: 0.0,
-		},
-		{
-			name: "both empty",
-			a:    "",
-			b:    "",
-			want: 1.0,
-		},
-		{
-			name: "one empty",
-			a:    "hello",
-			b:    "",
-			want: 0.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := dedup.computeContentSimilarity(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("computeContentSimilarity() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBehaviorToNode(t *testing.T) {
 	behavior := &models.Behavior{
 		ID:         "b1",
@@ -589,7 +487,7 @@ func TestBehaviorToNode(t *testing.T) {
 		},
 	}
 
-	node := BehaviorToNode(behavior)
+	node := models.BehaviorToNode(behavior)
 
 	if node.ID != "b1" {
 		t.Errorf("expected ID b1, got %s", node.ID)

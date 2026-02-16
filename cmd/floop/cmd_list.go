@@ -9,7 +9,6 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/constants"
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
@@ -274,7 +273,7 @@ func loadBehaviorsWithScope(projectRoot string, scope constants.Scope) ([]models
 	// Convert nodes to behaviors
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		b := learning.NodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 		behaviors = append(behaviors, b)
 	}
 

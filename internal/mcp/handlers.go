@@ -133,7 +133,7 @@ func (s *Server) handleBehaviorsResource(ctx context.Context, req *sdk.ReadResou
 	// Convert nodes to behaviors
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		behavior := learning.NodeToBehavior(node)
+		behavior := models.NodeToBehavior(node)
 		behaviors = append(behaviors, behavior)
 	}
 
@@ -225,7 +225,7 @@ func (s *Server) handleBehaviorExpandResource(ctx context.Context, req *sdk.Read
 		return nil, fmt.Errorf("behavior not found: %s", behaviorID)
 	}
 
-	behavior := learning.NodeToBehavior(nodes[0])
+	behavior := models.NodeToBehavior(nodes[0])
 
 	// Format full behavior details
 	var sb strings.Builder
@@ -317,7 +317,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	// Convert nodes to behaviors
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		behavior := learning.NodeToBehavior(node)
+		behavior := models.NodeToBehavior(node)
 		behaviors = append(behaviors, behavior)
 	}
 
@@ -748,7 +748,7 @@ func (s *Server) handleFloopList(ctx context.Context, req *sdk.CallToolRequest, 
 
 	behaviors := make([]BehaviorListItem, 0, len(nodes))
 	for _, node := range nodes {
-		behavior := learning.NodeToBehavior(node)
+		behavior := models.NodeToBehavior(node)
 
 		// Filter by tag if specified
 		if args.Tag != "" {
@@ -839,7 +839,7 @@ func mergeSpreadResults(ctx context.Context, gs store.GraphStore, matches []acti
 		if node.Kind != "behavior" {
 			continue
 		}
-		behavior := learning.NodeToBehavior(*node)
+		behavior := models.NodeToBehavior(*node)
 		matches = append(matches, activation.ActivationResult{
 			Behavior:    behavior,
 			Specificity: 0, // Spread-only: always lower than direct matches in Resolver

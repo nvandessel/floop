@@ -10,7 +10,6 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/config"
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/session"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
@@ -202,7 +201,7 @@ func loadBehaviorMap(ctx context.Context, graphStore store.GraphStore) (map[stri
 
 	bMap := make(map[string]models.Behavior, len(nodes))
 	for _, node := range nodes {
-		b := learning.NodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 		bMap[b.ID] = b
 	}
 	return bMap, nil

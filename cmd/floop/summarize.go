@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
+	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
 	"github.com/spf13/cobra"
@@ -68,7 +68,7 @@ Examples:
 				}
 
 				for _, node := range nodes {
-					behavior := learning.NodeToBehavior(node)
+					behavior := models.NodeToBehavior(node)
 
 					// Skip if missingOnly and summary exists
 					if missingOnly && behavior.Content.Summary != "" {
@@ -154,7 +154,7 @@ func summarizeBehavior(ctx context.Context, graphStore store.GraphStore, summari
 		return summaryResult{BehaviorID: behaviorID, Error: "not found"}, fmt.Errorf("behavior not found: %s", behaviorID)
 	}
 
-	behavior := learning.NodeToBehavior(nodes[0])
+	behavior := models.NodeToBehavior(nodes[0])
 	oldSummary := behavior.Content.Summary
 
 	// Generate summary

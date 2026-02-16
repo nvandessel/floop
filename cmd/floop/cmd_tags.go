@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
+	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/tagging"
 	"github.com/spf13/cobra"
@@ -78,7 +78,7 @@ func runTagsBackfill(graphStore store.GraphStore, dryRun, jsonOut bool) error {
 
 	for _, node := range nodes {
 		output.Total++
-		b := learning.NodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 
 		if len(b.Content.Tags) > 0 {
 			output.Skipped++

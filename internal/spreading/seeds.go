@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -53,7 +52,7 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	// Step 2: Convert nodes to Behavior models.
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		behaviors = append(behaviors, learning.NodeToBehavior(node))
+		behaviors = append(behaviors, models.NodeToBehavior(node))
 	}
 
 	// Step 3: Evaluate which behaviors match the context.

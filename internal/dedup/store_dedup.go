@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/similarity"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -74,7 +74,7 @@ func (d *StoreDeduplicator) FindDuplicates(ctx context.Context, behavior *models
 			continue
 		}
 
-		other := nodeToBehavior(node)
+		other := models.NodeToBehavior(node)
 		sim := d.computeSimilarity(behavior, &other)
 
 		if sim.score >= d.config.SimilarityThreshold {
@@ -148,7 +148,7 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 	// Convert nodes to behaviors
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		behaviors = append(behaviors, nodeToBehavior(node))
+		behaviors = append(behaviors, models.NodeToBehavior(node))
 	}
 
 	// Find and process duplicates
@@ -200,7 +200,7 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 			report.MergedBehaviors = append(report.MergedBehaviors, merged)
 
 			// Update the store with the merged behavior, routing to correct scope
-			node := BehaviorToNode(merged)
+			node := models.BehaviorToNode(merged)
 			if sw, ok := s.(scopedWriter); ok {
 				scope := models.ClassifyScope(merged)
 				if _, err := sw.AddNodeToScope(ctx, node, scope); err != nil {
@@ -289,15 +289,9 @@ func (d *StoreDeduplicator) computeSimilarity(a, b *models.Behavior) similarityR
 	}
 
 	// Fallback: weighted Jaccard similarity
-	score := 0.0
-
-	// Check 'when' overlap (40% weight)
-	whenOverlap := d.computeWhenOverlap(a.When, b.When)
-	score += whenOverlap * 0.4
-
-	// Check content similarity using Jaccard word overlap (60% weight)
-	contentSim := d.computeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
-	score += contentSim * 0.6
+	whenOverlap := similarity.ComputeWhenOverlap(a.When, b.When)
+	contentSim := similarity.ComputeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
+	score := similarity.WeightedScore(whenOverlap, contentSim)
 
 	method := "jaccard"
 	isDup := score >= d.config.SimilarityThreshold
@@ -318,86 +312,4 @@ func (d *StoreDeduplicator) computeSimilarity(a, b *models.Behavior) similarityR
 	}
 
 	return similarityResult{score: score, method: method}
-}
-
-// computeWhenOverlap calculates overlap between two when predicates.
-func (d *StoreDeduplicator) computeWhenOverlap(a, b map[string]interface{}) float64 {
-	if len(a) == 0 && len(b) == 0 {
-		return 1.0 // Both empty = perfect overlap
-	}
-	if len(a) == 0 || len(b) == 0 {
-		return 0.0 // One empty = no overlap
-	}
-
-	matches := 0
-	total := len(a) + len(b)
-
-	for key, valueA := range a {
-		if valueB, exists := b[key]; exists {
-			if valuesEqual(valueA, valueB) {
-				matches += 2 // Count both sides as matched
-			}
-		}
-	}
-
-	if total == 0 {
-		return 0.0
-	}
-	return float64(matches) / float64(total)
-}
-
-// computeContentSimilarity calculates Jaccard similarity between two strings.
-func (d *StoreDeduplicator) computeContentSimilarity(a, b string) float64 {
-	wordsA := tokenize(a)
-	wordsB := tokenize(b)
-
-	if len(wordsA) == 0 && len(wordsB) == 0 {
-		return 1.0
-	}
-	if len(wordsA) == 0 || len(wordsB) == 0 {
-		return 0.0
-	}
-
-	setA := make(map[string]bool)
-	for _, w := range wordsA {
-		setA[strings.ToLower(w)] = true
-	}
-
-	setB := make(map[string]bool)
-	for _, w := range wordsB {
-		setB[strings.ToLower(w)] = true
-	}
-
-	intersection := 0
-	for w := range setA {
-		if setB[w] {
-			intersection++
-		}
-	}
-
-	union := len(setA) + len(setB) - intersection
-	if union == 0 {
-		return 0.0
-	}
-
-	return float64(intersection) / float64(union)
-}
-
-// BehaviorToNode converts a models.Behavior to a store.Node.
-func BehaviorToNode(b *models.Behavior) store.Node {
-	return store.Node{
-		ID:   b.ID,
-		Kind: "behavior",
-		Content: map[string]interface{}{
-			"name":    b.Name,
-			"kind":    string(b.Kind),
-			"when":    b.When,
-			"content": b.Content,
-		},
-		Metadata: map[string]interface{}{
-			"confidence": b.Confidence,
-			"priority":   b.Priority,
-			"provenance": b.Provenance,
-		},
-	}
 }

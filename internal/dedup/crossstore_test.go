@@ -77,7 +77,7 @@ func TestNodeToBehavior(t *testing.T) {
 			},
 		}
 
-		b := nodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 
 		if b.ID != "b1" {
 			t.Errorf("ID = %q, want b1", b.ID)
@@ -112,7 +112,7 @@ func TestNodeToBehavior(t *testing.T) {
 			Metadata: map[string]interface{}{},
 		}
 
-		b := nodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 
 		if b.ID != "b1" {
 			t.Errorf("ID = %q, want b1", b.ID)
@@ -140,7 +140,7 @@ func TestNodeToBehavior(t *testing.T) {
 			},
 		}
 
-		b := nodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 
 		if b.Stats.TimesActivated != 10 {
 			t.Errorf("Stats.TimesActivated = %d, want 10", b.Stats.TimesActivated)
@@ -155,120 +155,6 @@ func TestNodeToBehavior(t *testing.T) {
 			t.Errorf("Stats.TimesOverridden = %d, want 2", b.Stats.TimesOverridden)
 		}
 	})
-}
-
-func TestCrossStoreDeduplicator_ComputeWhenOverlap(t *testing.T) {
-	dedup := &CrossStoreDeduplicator{}
-
-	tests := []struct {
-		name string
-		a    map[string]interface{}
-		b    map[string]interface{}
-		want float64
-	}{
-		{
-			name: "both empty",
-			a:    map[string]interface{}{},
-			b:    map[string]interface{}{},
-			want: 1.0,
-		},
-		{
-			name: "a empty",
-			a:    map[string]interface{}{},
-			b:    map[string]interface{}{"key": "value"},
-			want: 0.0,
-		},
-		{
-			name: "b empty",
-			a:    map[string]interface{}{"key": "value"},
-			b:    map[string]interface{}{},
-			want: 0.0,
-		},
-		{
-			name: "identical",
-			a:    map[string]interface{}{"key": "value"},
-			b:    map[string]interface{}{"key": "value"},
-			want: 1.0,
-		},
-		{
-			name: "no overlap",
-			a:    map[string]interface{}{"key1": "value1"},
-			b:    map[string]interface{}{"key2": "value2"},
-			want: 0.0,
-		},
-		{
-			name: "partial overlap",
-			a:    map[string]interface{}{"key1": "value1", "key2": "value2"},
-			b:    map[string]interface{}{"key1": "value1", "key3": "value3"},
-			want: 0.5, // 2 matches out of 4 total
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := dedup.computeWhenOverlap(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("computeWhenOverlap() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestCrossStoreDeduplicator_ComputeContentSimilarity(t *testing.T) {
-	dedup := &CrossStoreDeduplicator{}
-
-	tests := []struct {
-		name string
-		a    string
-		b    string
-		want float64
-	}{
-		{
-			name: "identical",
-			a:    "hello world",
-			b:    "hello world",
-			want: 1.0,
-		},
-		{
-			name: "both empty",
-			a:    "",
-			b:    "",
-			want: 1.0,
-		},
-		{
-			name: "a empty",
-			a:    "",
-			b:    "hello",
-			want: 0.0,
-		},
-		{
-			name: "no overlap",
-			a:    "hello world",
-			b:    "foo bar",
-			want: 0.0,
-		},
-		{
-			name: "partial overlap",
-			a:    "hello world foo",
-			b:    "hello bar foo",
-			want: 0.5, // 2 common words (hello, foo) out of 4 unique
-		},
-		{
-			name: "case insensitive",
-			a:    "HELLO World",
-			b:    "hello WORLD",
-			want: 1.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := dedup.computeContentSimilarity(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("computeContentSimilarity() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestCrossStoreDeduplicator_ComputeSimilarity(t *testing.T) {
@@ -305,127 +191,6 @@ func TestCrossStoreDeduplicator_ComputeSimilarity(t *testing.T) {
 			t.Errorf("similarity = %v, expected < 0.5 for different behaviors", sim)
 		}
 	})
-}
-
-func TestTokenize(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  []string
-	}{
-		{
-			name:  "simple words",
-			input: "hello world",
-			want:  []string{"hello", "world"},
-		},
-		{
-			name:  "with punctuation",
-			input: "hello, world!",
-			want:  []string{"hello", "world"},
-		},
-		{
-			name:  "with underscores",
-			input: "hello_world foo_bar",
-			want:  []string{"hello_world", "foo_bar"},
-		},
-		{
-			name:  "with numbers",
-			input: "test123 foo456",
-			want:  []string{"test123", "foo456"},
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  []string{},
-		},
-		{
-			name:  "only punctuation",
-			input: ".,!?",
-			want:  []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tokenize(tt.input)
-			if len(got) != len(tt.want) {
-				t.Errorf("tokenize() returned %d tokens, want %d", len(got), len(tt.want))
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("tokenize()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
-		})
-	}
-}
-
-func TestValuesEqual(t *testing.T) {
-	tests := []struct {
-		name string
-		a    interface{}
-		b    interface{}
-		want bool
-	}{
-		{
-			name: "equal strings",
-			a:    "hello",
-			b:    "hello",
-			want: true,
-		},
-		{
-			name: "different strings",
-			a:    "hello",
-			b:    "world",
-			want: false,
-		},
-		{
-			name: "equal integers",
-			a:    42,
-			b:    42,
-			want: true,
-		},
-		{
-			name: "different integers",
-			a:    42,
-			b:    43,
-			want: false,
-		},
-		{
-			name: "interface slices with overlap",
-			a:    []interface{}{"a", "b"},
-			b:    []interface{}{"b", "c"},
-			want: true, // has common element "b"
-		},
-		{
-			name: "interface slices without overlap",
-			a:    []interface{}{"a", "b"},
-			b:    []interface{}{"c", "d"},
-			want: false,
-		},
-		{
-			name: "string slices with overlap",
-			a:    []string{"a", "b"},
-			b:    []string{"b", "c"},
-			want: true,
-		},
-		{
-			name: "string slices without overlap",
-			a:    []string{"a", "b"},
-			b:    []string{"c", "d"},
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := valuesEqual(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("valuesEqual() = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 func TestNewCrossStoreDeduplicatorWithLLM(t *testing.T) {

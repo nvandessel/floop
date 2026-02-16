@@ -6,15 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/config"
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/similarity"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -148,22 +147,18 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 	// Create LLM client for similarity comparison
 	floopCfg, _ := config.Load()
 	llmClient := createLLMClient(floopCfg)
+	useLLM := cfg.UseLLM && llmClient != nil
 
 	var duplicates []duplicatePair
-	deduplicator := &crossStoreHelper{
-		threshold: cfg.SimilarityThreshold,
-		llmClient: llmClient,
-		useLLM:    cfg.UseLLM && llmClient != nil,
-	}
 
 	for i := 0; i < len(behaviors); i++ {
 		for j := i + 1; j < len(behaviors); j++ {
-			similarity := deduplicator.computeSimilarity(&behaviors[i], &behaviors[j])
-			if similarity >= cfg.SimilarityThreshold {
+			sim := computeBehaviorSimilarity(&behaviors[i], &behaviors[j], llmClient, useLLM)
+			if sim >= cfg.SimilarityThreshold {
 				duplicates = append(duplicates, duplicatePair{
 					BehaviorA:  &behaviors[i],
 					BehaviorB:  &behaviors[j],
-					Similarity: similarity,
+					Similarity: sim,
 				})
 			}
 		}
@@ -240,7 +235,7 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 		}
 
 		// Update behavior A with merged content
-		mergedNode := dedup.BehaviorToNode(mergedBehavior)
+		mergedNode := models.BehaviorToNode(mergedBehavior)
 		mergedNode.ID = dup.BehaviorA.ID // Keep original ID
 		if err := graphStore.UpdateNode(ctx, mergedNode); err != nil {
 			if !jsonOut {
@@ -385,126 +380,28 @@ func loadBehaviorsFromStore(ctx context.Context, graphStore store.GraphStore) ([
 
 	behaviors := make([]models.Behavior, 0, len(nodes))
 	for _, node := range nodes {
-		b := learning.NodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 		behaviors = append(behaviors, b)
 	}
 
 	return behaviors, nil
 }
 
-// crossStoreHelper provides similarity computation for deduplication.
-type crossStoreHelper struct {
-	threshold float64
-	llmClient llm.Client
-	useLLM    bool
-}
-
-// computeSimilarity calculates similarity between two behaviors.
+// computeBehaviorSimilarity calculates similarity between two behaviors.
 // Uses LLM-based comparison if available, otherwise falls back to Jaccard.
-func (h *crossStoreHelper) computeSimilarity(a, b *models.Behavior) float64 {
-	// Try LLM-based comparison first
-	if h.useLLM && h.llmClient != nil && h.llmClient.Available() {
+func computeBehaviorSimilarity(a, b *models.Behavior, llmClient llm.Client, useLLM bool) float64 {
+	if useLLM && llmClient != nil && llmClient.Available() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		result, err := h.llmClient.CompareBehaviors(ctx, a, b)
+		result, err := llmClient.CompareBehaviors(ctx, a, b)
 		if err == nil && result != nil {
 			return result.SemanticSimilarity
 		}
 		// Fall through to Jaccard on error
 	}
 
-	// Fallback: weighted Jaccard similarity
-	score := 0.0
-
-	// Check 'when' overlap (40% weight)
-	whenOverlap := h.computeWhenOverlap(a.When, b.When)
-	score += whenOverlap * 0.4
-
-	// Check content similarity using Jaccard word overlap (60% weight)
-	contentSim := h.computeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
-	score += contentSim * 0.6
-
-	return score
-}
-
-// computeWhenOverlap calculates overlap between two when predicates.
-func (h *crossStoreHelper) computeWhenOverlap(a, b map[string]interface{}) float64 {
-	if len(a) == 0 && len(b) == 0 {
-		return 1.0
-	}
-	if len(a) == 0 || len(b) == 0 {
-		return 0.0
-	}
-
-	matches := 0
-	total := len(a) + len(b)
-
-	for key, valueA := range a {
-		if valueB, exists := b[key]; exists {
-			if fmt.Sprintf("%v", valueA) == fmt.Sprintf("%v", valueB) {
-				matches += 2
-			}
-		}
-	}
-
-	if total == 0 {
-		return 0.0
-	}
-	return float64(matches) / float64(total)
-}
-
-// computeContentSimilarity calculates Jaccard similarity between two strings.
-func (h *crossStoreHelper) computeContentSimilarity(a, b string) float64 {
-	wordsA := tokenizeContent(a)
-	wordsB := tokenizeContent(b)
-
-	if len(wordsA) == 0 && len(wordsB) == 0 {
-		return 1.0
-	}
-	if len(wordsA) == 0 || len(wordsB) == 0 {
-		return 0.0
-	}
-
-	setA := make(map[string]bool)
-	for _, w := range wordsA {
-		setA[strings.ToLower(w)] = true
-	}
-
-	setB := make(map[string]bool)
-	for _, w := range wordsB {
-		setB[strings.ToLower(w)] = true
-	}
-
-	intersection := 0
-	for w := range setA {
-		if setB[w] {
-			intersection++
-		}
-	}
-
-	union := len(setA) + len(setB) - intersection
-	if union == 0 {
-		return 0.0
-	}
-
-	return float64(intersection) / float64(union)
-}
-
-// tokenizeContent splits a string into word tokens.
-func tokenizeContent(s string) []string {
-	words := make([]string, 0)
-	current := ""
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-			current += string(r)
-		} else if current != "" {
-			words = append(words, current)
-			current = ""
-		}
-	}
-	if current != "" {
-		words = append(words, current)
-	}
-	return words
+	whenOverlap := similarity.ComputeWhenOverlap(a.When, b.When)
+	contentSim := similarity.ComputeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
+	return similarity.WeightedScore(whenOverlap, contentSim)
 }

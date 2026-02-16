@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
+	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -28,7 +28,7 @@ func (p *StoreTagProvider) GetAllBehaviorTags(ctx context.Context) map[string][]
 
 	tags := make(map[string][]string, len(nodes))
 	for _, node := range nodes {
-		b := learning.NodeToBehavior(node)
+		b := models.NodeToBehavior(node)
 		if len(b.Content.Tags) > 0 {
 			tags[b.ID] = b.Content.Tags
 		}

@@ -513,7 +513,7 @@ func TestNodeToBehavior(t *testing.T) {
 		},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	if b.ID != "test-id" {
 		t.Errorf("nodeToBehavior() ID = %v, want test-id", b.ID)
@@ -556,7 +556,7 @@ func TestNodeToBehavior_StringCreatedAt(t *testing.T) {
 		},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	if b.Provenance.CreatedAt.IsZero() {
 		t.Error("NodeToBehavior() CreatedAt is zero, want parsed time from string")
@@ -580,7 +580,7 @@ func TestNodeToBehavior_Tags(t *testing.T) {
 		Metadata: map[string]interface{}{},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	if len(b.Content.Tags) != 2 {
 		t.Fatalf("NodeToBehavior() Tags len = %d, want 2", len(b.Content.Tags))
@@ -606,7 +606,7 @@ func TestNodeToBehavior_NoTags(t *testing.T) {
 		Metadata: map[string]interface{}{},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	if len(b.Content.Tags) != 0 {
 		t.Errorf("NodeToBehavior() Tags = %v, want empty", b.Content.Tags)
@@ -644,7 +644,7 @@ func TestNodeToBehavior_StatsTimeFields(t *testing.T) {
 		},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	// Counter fields
 	if b.Stats.TimesActivated != 10 {
@@ -707,7 +707,7 @@ func TestNodeToBehavior_StatsNoTimeFields(t *testing.T) {
 		},
 	}
 
-	b := NodeToBehavior(node)
+	b := models.NodeToBehavior(node)
 
 	if b.Stats.TimesActivated != 5 {
 		t.Errorf("TimesActivated = %d, want 5", b.Stats.TimesActivated)
@@ -795,110 +795,6 @@ func TestGraphPlacer_determineEdges(t *testing.T) {
 				if !gotKinds[wantKind] {
 					t.Errorf("determineEdges() missing edge kind %s, got kinds: %v", wantKind, gotKinds)
 				}
-			}
-		})
-	}
-}
-
-func TestTokenize(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  []string
-	}{
-		{
-			name:  "simple words",
-			input: "hello world",
-			want:  []string{"hello", "world"},
-		},
-		{
-			name:  "with punctuation",
-			input: "Use table-driven tests!",
-			want:  []string{"Use", "table", "driven", "tests"},
-		},
-		{
-			name:  "with underscores",
-			input: "use_table_tests",
-			want:  []string{"use_table_tests"},
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  []string{},
-		},
-		{
-			name:  "numbers",
-			input: "go version 1.21",
-			want:  []string{"go", "version", "1", "21"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tokenize(tt.input)
-			if len(got) != len(tt.want) {
-				t.Errorf("tokenize() = %v, want %v", got, tt.want)
-				return
-			}
-			for i, w := range tt.want {
-				if got[i] != w {
-					t.Errorf("tokenize()[%d] = %v, want %v", i, got[i], w)
-				}
-			}
-		})
-	}
-}
-
-func TestValuesEqual(t *testing.T) {
-	tests := []struct {
-		name string
-		a    interface{}
-		b    interface{}
-		want bool
-	}{
-		{
-			name: "equal strings",
-			a:    "go",
-			b:    "go",
-			want: true,
-		},
-		{
-			name: "different strings",
-			a:    "go",
-			b:    "python",
-			want: false,
-		},
-		{
-			name: "equal numbers",
-			a:    42,
-			b:    42,
-			want: true,
-		},
-		{
-			name: "string slices with overlap",
-			a:    []string{"a", "b"},
-			b:    []string{"b", "c"},
-			want: true,
-		},
-		{
-			name: "string slices no overlap",
-			a:    []string{"a", "b"},
-			b:    []string{"c", "d"},
-			want: false,
-		},
-		{
-			name: "interface slices with overlap",
-			a:    []interface{}{"a", "b"},
-			b:    []interface{}{"b", "c"},
-			want: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := valuesEqual(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("valuesEqual() = %v, want %v", got, tt.want)
 			}
 		})
 	}

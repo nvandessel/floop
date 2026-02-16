@@ -7,7 +7,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/tiering"
@@ -85,7 +84,7 @@ Examples:
 			kindCounts := make(map[string]int)
 
 			for _, node := range nodes {
-				behavior := learning.NodeToBehavior(node)
+				behavior := models.NodeToBehavior(node)
 				behaviors = append(behaviors, behavior)
 
 				followRate := 0.0
