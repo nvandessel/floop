@@ -419,6 +419,151 @@ func TestCollectEdges(t *testing.T) {
 	}
 }
 
+func addBehaviorWithScope(t *testing.T, gs store.GraphStore, id, name, kind string, confidence float64, scope string) {
+	t.Helper()
+	ctx := context.Background()
+	node := store.Node{
+		ID:   id,
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": name,
+			"kind": kind,
+			"content": map[string]interface{}{
+				"canonical": "Test: " + name,
+			},
+			"provenance": map[string]interface{}{
+				"source_type": "manual",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": confidence,
+			"priority":   0,
+			"scope":      scope,
+		},
+	}
+	if _, err := gs.AddNode(ctx, node); err != nil {
+		t.Fatalf("add node %s: %v", id, err)
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesNodeScope(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorWithScope(t, gs, "b1", "local-behavior", "directive", 0.8, "local")
+	addBehaviorWithScope(t, gs, "b2", "global-behavior", "constraint", 0.9, "global")
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes, ok := result["nodes"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("expected nodes to be []map[string]interface{}")
+	}
+
+	scopeByID := map[string]string{}
+	for _, node := range nodes {
+		id := node["id"].(string)
+		scope, ok := node["scope"].(string)
+		if !ok {
+			t.Errorf("node %s missing scope field", id)
+			continue
+		}
+		scopeByID[id] = scope
+	}
+
+	if scopeByID["b1"] != "local" {
+		t.Errorf("b1 scope = %q, want %q", scopeByID["b1"], "local")
+	}
+	if scopeByID["b2"] != "global" {
+		t.Errorf("b2 scope = %q, want %q", scopeByID["b2"], "global")
+	}
+}
+
+func TestRenderEnrichedJSON_NodeScopeDefaultsToLocal(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	// Add a node without explicit scope metadata — store defaults to "local"
+	node := store.Node{
+		ID:   "b-noscope",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "no-scope",
+			"kind": "directive",
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.5,
+		},
+	}
+	if _, err := gs.AddNode(ctx, node); err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	scope, ok := nodes[0]["scope"].(string)
+	if !ok {
+		t.Fatal("expected scope field on node")
+	}
+	// SQLite schema defaults scope to "local" when not explicitly set
+	if scope != "local" {
+		t.Errorf("scope = %q, want %q", scope, "local")
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesEdgeScope(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorWithScope(t, gs, "b1", "local-a", "directive", 0.8, "local")
+	addBehaviorWithScope(t, gs, "b2", "local-b", "constraint", 0.9, "local")
+	addBehaviorWithScope(t, gs, "b3", "global-a", "procedure", 0.7, "global")
+
+	// local -> local = "local"
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("add edge: %v", err)
+	}
+	// local -> global = "both"
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b3", Kind: "similar-to", Weight: 0.5, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("add edge: %v", err)
+	}
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	edges := result["edges"].([]map[string]interface{})
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges, got %d", len(edges))
+	}
+
+	edgeScopeByTargets := map[string]string{}
+	for _, e := range edges {
+		target := e["target"].(string)
+		scope, ok := e["scope"].(string)
+		if !ok {
+			t.Errorf("edge to %s missing scope field", target)
+			continue
+		}
+		edgeScopeByTargets[target] = scope
+	}
+
+	if edgeScopeByTargets["b2"] != "local" {
+		t.Errorf("edge to b2 scope = %q, want %q", edgeScopeByTargets["b2"], "local")
+	}
+	if edgeScopeByTargets["b3"] != "both" {
+		t.Errorf("edge to b3 scope = %q, want %q", edgeScopeByTargets["b3"], "both")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string

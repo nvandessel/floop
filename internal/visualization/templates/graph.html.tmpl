@@ -121,6 +121,48 @@
     z-index: 50;
   }
   #stats span { color: var(--text); font-weight: 500; }
+
+  /* Scope filter toggle */
+  #scope-filter {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 8px;
+    overflow: hidden;
+    z-index: 50;
+  }
+  #scope-filter button {
+    background: none;
+    border: none;
+    color: var(--subtext0);
+    font-size: 12px;
+    font-family: inherit;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border-right: 1px solid var(--surface2);
+  }
+  #scope-filter button:last-child { border-right: none; }
+  #scope-filter button:hover { background: var(--surface1); color: var(--text); }
+  #scope-filter button.active { background: var(--blue); color: var(--base); font-weight: 600; }
+
+  /* Scope badge in detail panel */
+  .dp-scope-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .dp-scope-badge.scope-local { background: rgba(166,227,161,0.2); color: var(--green); }
+  .dp-scope-badge.scope-global { background: rgba(137,180,250,0.2); color: var(--blue); }
+  .dp-scope-badge.scope-both { background: rgba(203,166,247,0.2); color: var(--mauve); }
+  .dp-scope-badge.scope-unknown { background: rgba(108,112,134,0.2); color: var(--overlay0); }
 </style>
 </head>
 <body>
@@ -142,6 +184,12 @@
   <span id="stat-nodes">0</span> nodes &middot; <span id="stat-edges">0</span> edges
 </div>
 
+<div id="scope-filter">
+  <button class="active" data-scope="all">All</button>
+  <button data-scope="local">Local</button>
+  <button data-scope="global">Global</button>
+</div>
+
 <div id="legend">
   <h3>Node Types</h3>
   <div class="legend-row"><div class="legend-dot" style="background:#89b4fa"></div><span class="legend-label">directive</span></div>
@@ -155,6 +203,10 @@
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="1" stroke-dasharray="2,2"/></svg><span class="legend-label">similar-to</span></div>
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#6c7086" stroke-width="2"/></svg><span class="legend-label">learned-from</span></div>
   <div class="legend-row"><svg width="20" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#cba6f7" stroke-width="1.5" stroke-dasharray="6,3"/></svg><span class="legend-label">merged-into</span></div>
+  <h3 style="margin-top:10px">Scope (ring)</h3>
+  <div class="legend-row"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#a6e3a1" stroke-width="1.5"/></svg><span class="legend-label">local</span></div>
+  <div class="legend-row"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#89b4fa" stroke-width="1.5"/></svg><span class="legend-label">global</span></div>
+  <div class="legend-row"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#cba6f7" stroke-width="1.5"/></svg><span class="legend-label">both</span></div>
 </div>
 
 <script src="{{.ForceGraphSrc}}"></script>
@@ -197,6 +249,14 @@
     'merged-into': 'rgba(203,166,247,0.4)'
   };
   var defaultEdgeColor = 'rgba(147,153,178,0.45)';
+
+  // Scope ring colors (Catppuccin Mocha)
+  var scopeRingColors = {
+    'local':   '#a6e3a1',
+    'global':  '#89b4fa',
+    'both':    '#cba6f7',
+    'unknown': '#6c7086'
+  };
 
   // Build node ID set and filter dangling edges
   var nodeIds = {};
@@ -245,6 +305,14 @@
     .nodeCanvasObject(function(node, ctx, globalScale) {
       var r = Math.sqrt(node.val || 1) * 2.5;
       var color = kindColors[node.kind] || defaultColor;
+
+      // Scope ring (drawn behind the node fill)
+      var ringColor = scopeRingColors[node.scope] || scopeRingColors['unknown'];
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 1.5, 0, 2 * Math.PI);
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
 
       // Filled circle with subtle stroke
       ctx.beginPath();
@@ -299,6 +367,7 @@
         tt.querySelector('.tt-kind').textContent = node.kind || 'unknown';
         var meta = 'confidence: ' + (node.confidence || 0).toFixed(2);
         if (node.pagerank) meta += '  pagerank: ' + node.pagerank.toFixed(3);
+        meta += '  scope: ' + (node.scope || 'unknown');
         tt.querySelector('.tt-meta').textContent = meta;
         tt.style.display = 'block';
       } else {
@@ -360,12 +429,93 @@
   // Fallback zoom-to-fit in case onEngineStop doesn't fire
   setTimeout(function() { graph.zoomToFit(400, 200); }, 3000);
 
+  // --- Scope filtering ---
+  var activeScope = 'all';
+
+  function filterByScope(scope) {
+    activeScope = scope;
+
+    // Update button states
+    var buttons = document.querySelectorAll('#scope-filter button');
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.toggle('active', buttons[i].getAttribute('data-scope') === scope);
+    }
+
+    // Filter nodes
+    var filteredNodes;
+    if (scope === 'all') {
+      filteredNodes = (graphData.nodes || []).slice();
+    } else {
+      filteredNodes = (graphData.nodes || []).filter(function(n) {
+        return n.scope === scope || n.scope === 'both';
+      });
+    }
+
+    // Build visible node set
+    var visibleIds = {};
+    filteredNodes.forEach(function(n) { visibleIds[n.id] = true; });
+
+    // Filter edges: both endpoints must be visible
+    var allEdges = graphData.edges || [];
+    var filteredEdges = allEdges.filter(function(e) {
+      return visibleIds[e.source] && visibleIds[e.target];
+    });
+
+    // Recompute degree and node sizes for filtered set
+    var filteredDegree = {};
+    filteredNodes.forEach(function(n) { filteredDegree[n.id] = 0; });
+    filteredEdges.forEach(function(e) {
+      filteredDegree[e.source] = (filteredDegree[e.source] || 0) + 1;
+      filteredDegree[e.target] = (filteredDegree[e.target] || 0) + 1;
+    });
+    filteredNodes.forEach(function(n) {
+      var pr = n.pagerank || 0;
+      var deg = filteredDegree[n.id] || 0;
+      n.val = Math.min(10, Math.max(1, pr * 8 + deg * 0.3 + 1));
+    });
+
+    // Update the shared degree map for detail panel
+    degree = filteredDegree;
+
+    // Update stats
+    document.getElementById('stat-nodes').textContent = filteredNodes.length;
+    document.getElementById('stat-edges').textContent = filteredEdges.length;
+
+    // Re-render graph
+    graph.graphData({
+      nodes: filteredNodes,
+      links: filteredEdges.map(function(e) {
+        return { source: e.source, target: e.target, kind: e.kind, weight: e.weight };
+      })
+    });
+
+    // Close detail panel when filter changes
+    closePanel();
+
+    // Re-fit after re-render
+    setTimeout(function() { graph.zoomToFit(400, 80); }, 300);
+  }
+
+  // Bind scope filter buttons
+  var scopeButtons = document.querySelectorAll('#scope-filter button');
+  for (var i = 0; i < scopeButtons.length; i++) {
+    scopeButtons[i].addEventListener('click', (function(btn) {
+      return function() { filterByScope(btn.getAttribute('data-scope')); };
+    })(scopeButtons[i]));
+  }
+
   // Detail panel
   function showDetail(node) {
     document.getElementById('dp-name').textContent = node.name || node.id;
     var html = '';
 
     html += section('Kind', node.kind || 'unknown');
+
+    var scopeVal = node.scope || 'unknown';
+    var validScopes = { 'local': true, 'global': true, 'both': true, 'unknown': true };
+    var scopeClass = 'scope-' + (validScopes[scopeVal] ? scopeVal : 'unknown');
+    html += '<div class="dp-section"><div class="dp-label">Scope</div><div class="dp-value"><span class="dp-scope-badge ' + scopeClass + '">' + esc(scopeVal) + '</span></div></div>';
+
     html += barSection('Confidence', node.confidence || 0, kindColors[node.kind] || defaultColor);
 
     if (node.pagerank != null) {

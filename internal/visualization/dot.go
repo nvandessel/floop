@@ -206,12 +206,18 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 			}
 		}
 
+		scope := "local"
+		if s, ok := node.Metadata["scope"].(string); ok {
+			scope = s
+		}
+
 		entry := map[string]interface{}{
 			"id":         node.ID,
 			"name":       name,
 			"kind":       kind,
 			"confidence": confidence,
 			"canonical":  canonical,
+			"scope":      scope,
 		}
 
 		// Add PageRank if available
@@ -222,6 +228,12 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 		}
 
 		jsonNodes = append(jsonNodes, entry)
+	}
+
+	// Build node scope map for edge scope derivation (reuse already-extracted scope)
+	nodeScope := make(map[string]string, len(jsonNodes))
+	for _, entry := range jsonNodes {
+		nodeScope[entry["id"].(string)] = entry["scope"].(string)
 	}
 
 	// Collect edges
@@ -237,6 +249,7 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 			"target": edge.Target,
 			"kind":   edge.Kind,
 			"weight": edge.Weight,
+			"scope":  deriveEdgeScope(nodeScope[edge.Source], nodeScope[edge.Target]),
 		})
 	}
 
@@ -326,6 +339,15 @@ func CollectEdges(ctx context.Context, gs store.GraphStore, nodes []store.Node) 
 		}
 	}
 	return result, nil
+}
+
+// deriveEdgeScope determines an edge's scope from its endpoint node scopes.
+// If both are the same scope, the edge gets that scope; otherwise "both".
+func deriveEdgeScope(sourceScope, targetScope string) string {
+	if sourceScope == targetScope {
+		return sourceScope
+	}
+	return "both"
 }
 
 // truncate shortens a string to maxLen, adding "..." if truncated.
