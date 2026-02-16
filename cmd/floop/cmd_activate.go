@@ -10,7 +10,6 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
 	"github.com/nvandessel/feedback-loop/internal/config"
-	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/session"
@@ -83,7 +82,7 @@ func runActivate(cmd *cobra.Command, args []string) error {
 	actCtx := ctxBuilder.Build()
 
 	// Open store (both local and global)
-	graphStore, err := store.NewMultiGraphStore(root, constants.ScopeLocal)
+	graphStore, err := store.NewMultiGraphStore(root)
 	if err != nil {
 		return fmt.Errorf("opening store: %w", err)
 	}

@@ -25,17 +25,18 @@ const (
 // MultiGraphStore implements GraphStore by wrapping two SQLiteGraphStore instances:
 // one for local project behaviors (./.floop/) and one for global user behaviors (~/.floop/).
 // Thread-safe through delegation to thread-safe underlying stores.
+//
+// AddNode defaults to the global store. Use AddNodeToScope for explicit routing.
 type MultiGraphStore struct {
 	mu          sync.RWMutex
 	localStore  GraphStore
 	globalStore GraphStore
-	writeScope  StoreScope // Controls where AddNode writes
 }
 
 // NewMultiGraphStore creates a MultiGraphStore with local and global stores.
 // projectRoot is used for the local store path.
-// writeScope controls where new nodes are written (ScopeLocal, ScopeGlobal, or ScopeBoth).
-func NewMultiGraphStore(projectRoot string, writeScope StoreScope) (*MultiGraphStore, error) {
+// AddNode defaults to global; use AddNodeToScope for explicit routing.
+func NewMultiGraphStore(projectRoot string) (*MultiGraphStore, error) {
 	// Create local store (SQLite-backed with JSONL export)
 	localStore, err := NewSQLiteGraphStore(projectRoot)
 	if err != nil {
@@ -56,85 +57,41 @@ func NewMultiGraphStore(projectRoot string, writeScope StoreScope) (*MultiGraphS
 	return &MultiGraphStore{
 		localStore:  localStore,
 		globalStore: globalStore,
-		writeScope:  writeScope,
 	}, nil
 }
 
-// AddNode adds a node to the store(s) based on writeScope.
-// Sets metadata["scope"] to track origin.
+// AddNode adds a node to the global store.
+// Sets metadata["scope"] to "global". Use AddNodeToScope for explicit routing.
 func (m *MultiGraphStore) AddNode(ctx context.Context, node Node) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Ensure metadata map exists
 	if node.Metadata == nil {
 		node.Metadata = make(map[string]interface{})
 	}
-
-	switch m.writeScope {
-	case ScopeLocal:
-		node.Metadata["scope"] = string(constants.ScopeLocal)
-		return m.localStore.AddNode(ctx, node)
-	case ScopeGlobal:
-		node.Metadata["scope"] = string(constants.ScopeGlobal)
-		return m.globalStore.AddNode(ctx, node)
-	case ScopeBoth:
-		node.Metadata["scope"] = string(constants.ScopeBoth)
-		// Write to local first
-		id, err := m.localStore.AddNode(ctx, node)
-		if err != nil {
-			return "", fmt.Errorf("failed to add to local store: %w", err)
-		}
-		// Then write to global
-		if _, err := m.globalStore.AddNode(ctx, node); err != nil {
-			return "", fmt.Errorf("failed to add to global store: %w", err)
-		}
-		return id, nil
-	default:
-		return "", fmt.Errorf("invalid write scope: %s", m.writeScope)
-	}
+	node.Metadata["scope"] = string(constants.ScopeGlobal)
+	return m.globalStore.AddNode(ctx, node)
 }
 
-// AddNodeToScope adds a node to a specific scope, overriding the default writeScope.
-// The requested scope is clamped to the store's writeScope: if writeScope is ScopeLocal
-// or ScopeGlobal, all writes go to that single store regardless of the requested scope.
-// Only when writeScope is ScopeBoth does the requested scope control routing.
-// This is used by the learning pipeline to route behaviors to the correct store
-// based on scope classification, without mutating shared state.
+// AddNodeToScope adds a node to the specified scope (local or global).
+// ScopeBoth is not a valid write scope — each behavior belongs to exactly one store.
 func (m *MultiGraphStore) AddNodeToScope(ctx context.Context, node Node, scope StoreScope) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Clamp: if the store is configured for a single scope, honor that.
-	effectiveScope := scope
-	if m.writeScope == ScopeLocal || m.writeScope == ScopeGlobal {
-		effectiveScope = m.writeScope
-	}
-
-	// Ensure metadata map exists
 	if node.Metadata == nil {
 		node.Metadata = make(map[string]interface{})
 	}
 
-	switch effectiveScope {
+	switch scope {
 	case ScopeLocal:
 		node.Metadata["scope"] = string(constants.ScopeLocal)
 		return m.localStore.AddNode(ctx, node)
 	case ScopeGlobal:
 		node.Metadata["scope"] = string(constants.ScopeGlobal)
 		return m.globalStore.AddNode(ctx, node)
-	case ScopeBoth:
-		node.Metadata["scope"] = string(constants.ScopeBoth)
-		id, err := m.localStore.AddNode(ctx, node)
-		if err != nil {
-			return "", fmt.Errorf("failed to add to local store: %w", err)
-		}
-		if _, err := m.globalStore.AddNode(ctx, node); err != nil {
-			return "", fmt.Errorf("failed to add to global store: %w", err)
-		}
-		return id, nil
 	default:
-		return "", fmt.Errorf("invalid scope: %s", effectiveScope)
+		return "", fmt.Errorf("invalid write scope: %s (use ScopeLocal or ScopeGlobal)", scope)
 	}
 }
 

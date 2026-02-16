@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/summarization"
@@ -32,21 +31,14 @@ Examples:
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			allBehaviors, _ := cmd.Flags().GetBool("all")
 			missingOnly, _ := cmd.Flags().GetBool("missing")
-			scope, _ := cmd.Flags().GetString("scope")
 
 			// Validate flags
 			if len(args) == 0 && !allBehaviors && !missingOnly {
 				return fmt.Errorf("specify a behavior ID or use --all/--missing")
 			}
 
-			// Parse scope
-			storeScope := constants.Scope(scope)
-			if !storeScope.Valid() {
-				storeScope = constants.ScopeLocal
-			}
-
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, storeScope)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -135,7 +127,6 @@ Examples:
 
 	cmd.Flags().Bool("all", false, "Generate summaries for all behaviors")
 	cmd.Flags().Bool("missing", false, "Only generate for behaviors without summaries")
-	cmd.Flags().String("scope", "local", "Scope: local, global, or both")
 
 	return cmd
 }

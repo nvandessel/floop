@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/tagging"
@@ -37,14 +36,7 @@ Use --dry-run to preview changes without modifying the store.`,
 			root, _ := cmd.Flags().GetString("root")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			jsonOut, _ := cmd.Flags().GetBool("json")
-			scope, _ := cmd.Flags().GetString("scope")
-
-			storeScope := constants.Scope(scope)
-			if !storeScope.Valid() {
-				storeScope = constants.ScopeBoth
-			}
-
-			graphStore, err := store.NewMultiGraphStore(root, storeScope)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("opening graph store: %w", err)
 			}

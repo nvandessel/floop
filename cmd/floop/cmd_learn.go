@@ -35,8 +35,6 @@ Example:
 			file, _ := cmd.Flags().GetString("file")
 			task, _ := cmd.Flags().GetString("task")
 			root, _ := cmd.Flags().GetString("root")
-			scope, _ := cmd.Flags().GetString("scope")
-
 			// Validate required parameters
 			if wrong == "" {
 				return fmt.Errorf("--wrong is required and cannot be empty")
@@ -91,14 +89,8 @@ Example:
 				return fmt.Errorf(".floop not initialized. Run 'floop init' first")
 			}
 
-			// Parse scope and convert to StoreScope
-			storeScope := constants.Scope(scope)
-			if !storeScope.Valid() {
-				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
-			}
-
 			// Use persistent graph store with MultiGraphStore
-			graphStore, err := store.NewMultiGraphStore(root, storeScope)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -120,6 +112,20 @@ Example:
 					Deduplicator:        dedup.NewStoreDeduplicator(graphStore, merger, dedupConfig),
 				}
 			}
+
+			// Apply --scope override if explicitly set
+			if cmd.Flags().Changed("scope") {
+				scopeVal, _ := cmd.Flags().GetString("scope")
+				s := constants.Scope(scopeVal)
+				if s != constants.ScopeLocal && s != constants.ScopeGlobal {
+					return fmt.Errorf("--scope must be 'local' or 'global'")
+				}
+				if loopConfig == nil {
+					loopConfig = &learning.LearningLoopConfig{}
+				}
+				loopConfig.ScopeOverride = &s
+			}
+
 			loop := learning.NewLearningLoop(graphStore, loopConfig)
 			ctx := context.Background()
 
@@ -190,7 +196,7 @@ Example:
 	cmd.Flags().String("right", "", "What should have been done (required)")
 	cmd.Flags().String("file", "", "Current file path")
 	cmd.Flags().String("task", "", "Current task type")
-	cmd.Flags().String("scope", "local", "Where to save: local (project), global (user), or both")
+	cmd.Flags().String("scope", "", "Override auto-classification: local (project) or global (user)")
 	cmd.Flags().Bool("auto-merge", true, "Automatically merge similar behaviors (matches MCP behavior)")
 	cmd.MarkFlagRequired("wrong")
 	cmd.MarkFlagRequired("right")
@@ -215,8 +221,6 @@ Example:
 			root, _ := cmd.Flags().GetString("root")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
-			scope, _ := cmd.Flags().GetString("scope")
-
 			floopDir := filepath.Join(root, ".floop")
 			if _, err := os.Stat(floopDir); os.IsNotExist(err) {
 				return fmt.Errorf(".floop not initialized. Run 'floop init' first")
@@ -297,14 +301,8 @@ Example:
 				return nil
 			}
 
-			// Parse scope
-			storeScope := constants.Scope(scope)
-			if !storeScope.Valid() {
-				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
-			}
-
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, storeScope)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -326,6 +324,20 @@ Example:
 					Deduplicator:        dedup.NewStoreDeduplicator(graphStore, merger, dedupConfig),
 				}
 			}
+
+			// Apply --scope override if explicitly set
+			if cmd.Flags().Changed("scope") {
+				scopeVal, _ := cmd.Flags().GetString("scope")
+				s := constants.Scope(scopeVal)
+				if s != constants.ScopeLocal && s != constants.ScopeGlobal {
+					return fmt.Errorf("--scope must be 'local' or 'global'")
+				}
+				if loopConfig == nil {
+					loopConfig = &learning.LearningLoopConfig{}
+				}
+				loopConfig.ScopeOverride = &s
+			}
+
 			loop := learning.NewLearningLoop(graphStore, loopConfig)
 			ctx := context.Background()
 
@@ -412,7 +424,7 @@ Example:
 	}
 
 	cmd.Flags().Bool("dry-run", false, "Show what would be processed without making changes")
-	cmd.Flags().String("scope", "local", "Where to save behaviors: local, global, or both")
+	cmd.Flags().String("scope", "", "Override auto-classification: local or global")
 	cmd.Flags().Bool("auto-merge", true, "Automatically merge similar behaviors (matches MCP behavior)")
 
 	return cmd

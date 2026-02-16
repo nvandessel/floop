@@ -293,7 +293,8 @@ func TestReprocessCmdSanitizesCorrections(t *testing.T) {
 
 			// Verify the behavior stored in the graph has sanitized content.
 			// The correction itself is also rewritten with sanitized values.
-			graphStore, err := store.NewFileGraphStore(tmpDir)
+			// Use MultiGraphStore since behaviors may route to global based on scope classification.
+			graphStore, err := store.NewMultiGraphStore(tmpDir)
 			if err != nil {
 				t.Fatalf("failed to open store: %v", err)
 			}

@@ -81,6 +81,10 @@ type LearningLoopConfig struct {
 	// If nil, auto-merge is disabled regardless of AutoMerge setting.
 	Deduplicator dedup.Deduplicator
 
+	// ScopeOverride, if set, overrides ClassifyScope for all behaviors.
+	// Used by CLI --scope flag to force a specific scope.
+	ScopeOverride *constants.Scope
+
 	// Logger is the optional structured logger for operational output.
 	Logger *slog.Logger
 
@@ -126,6 +130,7 @@ func NewLearningLoop(s store.GraphStore, config *LearningLoopConfig) LearningLoo
 		autoMerge:           cfg.AutoMerge,
 		autoMergeThreshold:  cfg.AutoMergeThreshold,
 		deduplicator:        cfg.Deduplicator,
+		scopeOverride:       cfg.ScopeOverride,
 		logger:              cfg.Logger,
 		decisions:           cfg.DecisionLogger,
 	}
@@ -141,6 +146,7 @@ type learningLoop struct {
 	autoMerge           bool
 	autoMergeThreshold  float64
 	deduplicator        dedup.Deduplicator
+	scopeOverride       *constants.Scope
 	logger              *slog.Logger
 	decisions           *logging.DecisionLogger
 }
@@ -365,8 +371,11 @@ func (l *learningLoop) commitBehavior(ctx context.Context, behavior *models.Beha
 		},
 	}
 
-	// Classify scope based on behavior's When conditions
+	// Classify scope based on behavior's When conditions, with optional override
 	scope := ClassifyScope(behavior)
+	if l.scopeOverride != nil {
+		scope = *l.scopeOverride
+	}
 
 	// Use scoped write if the store supports it; fall back to AddNode for plain stores (tests)
 	if scoped, ok := l.store.(ScopedNodeAdder); ok {

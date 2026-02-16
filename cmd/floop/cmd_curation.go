@@ -41,7 +41,7 @@ Use 'floop restore' to undo this action.`,
 			}
 
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeLocal)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -171,7 +171,7 @@ Use --replacement to link to a newer behavior.`,
 			}
 
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeLocal)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -314,7 +314,7 @@ This undoes 'floop forget' or 'floop deprecate'.`,
 			}
 
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeLocal)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
@@ -455,7 +455,7 @@ This action cannot be undone with restore.`,
 			}
 
 			// Open graph store
-			graphStore, err := store.NewMultiGraphStore(root, store.ScopeLocal)
+			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
 				return fmt.Errorf("failed to open graph store: %w", err)
 			}
