@@ -9,7 +9,7 @@ import (
 
 // BehaviorSpec is a flat builder for constructing behavior nodes in tests.
 // It converts to store.Node via ToNode(), producing the nested Content map
-// that learning.NodeToBehavior expects.
+// that models.NodeToBehavior expects.
 type BehaviorSpec struct {
 	ID         string
 	Name       string
@@ -24,9 +24,9 @@ type BehaviorSpec struct {
 }
 
 // ToNode converts a BehaviorSpec into a store.Node with the nested content
-// structure that learning.NodeToBehavior reads.
+// structure that models.NodeToBehavior reads.
 func (s BehaviorSpec) ToNode() store.Node {
-	// Build nested content map matching learning.NodeToBehavior expectations.
+	// Build nested content map matching models.NodeToBehavior expectations.
 	contentMap := map[string]interface{}{
 		"canonical": s.Canonical,
 	}
@@ -41,7 +41,7 @@ func (s BehaviorSpec) ToNode() store.Node {
 		contentMap["tags"] = tags
 	}
 
-	// Build stats metadata matching learning.NodeToBehavior expectations.
+	// Build stats metadata matching models.NodeToBehavior expectations.
 	statsMap := map[string]interface{}{
 		"times_activated":  s.Stats.TimesActivated,
 		"times_followed":   s.Stats.TimesFollowed,

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -279,7 +278,7 @@ func (r *Runner) loadBehaviors(ctx context.Context, scenario Scenario) map[strin
 		if err != nil {
 			r.t.Fatalf("loadBehaviors: GetNode(%s): %v", bs.ID, err)
 		}
-		b := learning.NodeToBehavior(*node)
+		b := models.NodeToBehavior(*node)
 		behaviors[bs.ID] = &b
 	}
 	return behaviors

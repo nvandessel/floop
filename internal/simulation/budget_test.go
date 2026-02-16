@@ -3,7 +3,6 @@ package simulation_test
 import (
 	"testing"
 
-	"github.com/nvandessel/feedback-loop/internal/learning"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/simulation"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
@@ -104,7 +103,7 @@ func TestTokenBudgetDemotion(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetNode(%s): %v", bs.ID, err)
 		}
-		b := learning.NodeToBehavior(*node)
+		b := models.NodeToBehavior(*node)
 		behaviorMap[bs.ID] = &b
 	}
 
