@@ -69,6 +69,9 @@ func (r *Runner) Run(scenario Scenario) SimulationResult {
 	// Phase 3: Run sessions.
 	sessions := make([]SessionResult, len(scenario.Sessions))
 	for i, sessCtx := range scenario.Sessions {
+		if scenario.BeforeSession != nil {
+			scenario.BeforeSession(i, r.store)
+		}
 		sr := r.runSession(ctx, i, sessCtx, engine, pipeline, hebbianCfg, tierMapper, scenario)
 		sessions[i] = sr
 	}

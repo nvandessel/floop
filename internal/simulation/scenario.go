@@ -24,6 +24,11 @@ type Scenario struct {
 	// seeds directly, bypassing the real SeedSelector. Use this for scenarios
 	// that need deterministic seed control.
 	SeedOverride func(sessionIndex int) []spreading.Seed
+
+	// BeforeSession, when non-nil, is called before each session executes.
+	// Use this to manipulate the store between sessions (e.g., backdating
+	// edge timestamps for temporal decay testing).
+	BeforeSession func(sessionIndex int, s *store.SQLiteGraphStore)
 }
 
 // SessionContext provides the context snapshot for a single activation session.
