@@ -2,7 +2,7 @@
 
 Complete reference for all floop commands. floop manages learned behaviors and conventions for AI coding agents -- it captures corrections, extracts reusable behaviors, and provides context-aware behavior activation for consistent agent operation.
 
-**Version:** 0.2.0-dev
+**Version:** 0.3.0
 
 ---
 

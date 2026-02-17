@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-16
+
+### Added
+
+- **ACT-R base-level activation** — Frequency/recency scoring inspired by the ACT-R cognitive architecture
+- **Hebbian co-activation learning** — Oja-stabilized edge weight strengthening when behaviors fire together
+- **V2 backup format** — Compressed backups with integrity verification and retention policies
+- **Feedback loop closure** — Session-scoped implicit confirmation and explicit feedback signals
+- **Token budget configuration** — `TokenBudgetConfig` wired into config system, MCP server, and CLI
+
+### Fixed
+
+- **Graph store integrity** — 8 fixes: edge weight/timestamp validation, scope classification, JSONL reconciliation, scoped override routing, curation command edges
+- **Store architecture** — Removed `writeScope` from `MultiGraphStore`, route behaviors by scope at call sites
+
 ### Changed
 
-- **Release reliability** — Pin GoReleaser to `v2.8.0` in release workflows and keep `test-release` path triggers aligned with active workflow files
-- **Release docs** — Clarify that GitHub release notes are auto-generated from commits; `CHANGELOG.md` is optional and manually curated
+- **Internals** — Centralized token estimation, consolidated tiering to `ActivationTierMapper`, removed dead code
+- **Documentation** — Token budget docs, Tier 1-3 feature docs, config/env/MCP tool updates, release pipeline docs
+- **Release reliability** — Pin GoReleaser to `v2.8.0`, align `test-release` path triggers
 
 ## [0.2.0] - 2026-02-12
 
@@ -53,6 +69,7 @@ Initial public release.
 - **Integration guides** — Documentation for Claude Code, MCP server, and 6 other AI tools
 - **Self-dogfooding** — 38 behaviors learned from building floop with floop
 
-[Unreleased]: https://github.com/nvandessel/feedback-loop/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nvandessel/feedback-loop/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nvandessel/feedback-loop/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nvandessel/feedback-loop/releases/tag/v0.2.0
 [0.1.0]: https://github.com/nvandessel/feedback-loop/releases/tag/v0.1.0

@@ -1,6 +1,7 @@
 # floop
 
 [![CI](https://github.com/nvandessel/feedback-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/nvandessel/feedback-loop/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nvandessel/feedback-loop)](https://github.com/nvandessel/feedback-loop/releases/latest)
 [![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-blue.svg)](https://go.dev/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
@@ -74,7 +75,20 @@ See [docs/integrations/](docs/integrations/) for setup guides for Cursor, Windsu
 
 ## How It Works
 
+```
+ You correct          floop extracts         Behaviors stored         Spreading activation        Context injected
+ your agent     →     a behavior       →     in a graph         →    finds relevant nodes   →    into next session
+      ↑                                                                                               │
+      └───────────────────────── agent improves, cycle repeats ────────────────────────────────────────┘
+```
+
 When you correct your AI agent, floop captures the correction and extracts a **behavior** — a reusable rule with context conditions. Behaviors are stored as nodes in a graph, connected by typed edges (similar-to, learned-from, requires, conflicts). When you start a session, floop builds a context snapshot (file types, task, project) and uses **spreading activation** to propagate energy through the graph from seed nodes. This doesn't just retrieve direct matches — energy cascades outward through associations, pulling in related behaviors that provide useful context. The result is a focused but rich set of behaviors tuned to your current work, like the brain activating related memories through associative networks.
+
+<p align="center">
+  <img src="docs/images/graph-view.png" alt="floop behavior graph — 55 nodes, 282 edges" width="720">
+  <br>
+  <em>Interactive behavior graph built from real corrections — nodes are behaviors (colored by type), edges are relationships.</em>
+</p>
 
 ## Documentation
 
@@ -89,7 +103,7 @@ When you correct your AI agent, floop captures the correction and extracts a **b
 
 ## Project Status
 
-This is a hobby project I'm building in my free time. It's in early alpha — things work, but the API may change between minor versions and there's plenty left to build. Contributions and feedback are welcome, but please set expectations accordingly.
+floop is a working tool I use daily to build floop itself (160+ learned behaviors and counting). It's a hobby project built in my free time — actively maintained, tested (90%+ coverage on core packages, race-clean), and used in production on my own workflows. The CLI and MCP interfaces are stable; internals may evolve between minor versions. Contributions and feedback are welcome.
 
 ## License
 

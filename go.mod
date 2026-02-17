@@ -1,6 +1,6 @@
 module github.com/nvandessel/feedback-loop
 
-go 1.25.7
+go 1.25
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.3.0
