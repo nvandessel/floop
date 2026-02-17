@@ -60,6 +60,8 @@ jobs:
     name: Auto Patch Release
     needs: check-skip
     if: needs.check-skip.outputs.should_release == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/version-bump.yml
     with:
       bump: patch
