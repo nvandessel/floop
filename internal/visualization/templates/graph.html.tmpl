@@ -265,6 +265,62 @@
     return nodeIds[e.source] && nodeIds[e.target];
   });
 
+  // Focus mode state
+  var focusedNodeId = null;
+  var focusDistances = null; // nodeId -> hop distance from focused node
+
+  // Build bidirectional adjacency map for BFS
+  function buildAdjacencyMap(links) {
+    var adj = {};
+    links.forEach(function(e) {
+      var src = e.source.id || e.source;
+      var tgt = e.target.id || e.target;
+      if (!adj[src]) adj[src] = [];
+      if (!adj[tgt]) adj[tgt] = [];
+      adj[src].push(tgt);
+      adj[tgt].push(src);
+    });
+    return adj;
+  }
+
+  function calculateFocusDistances(focusId, adj) {
+    var distances = {};
+    distances[focusId] = 0;
+    var queue = [focusId];
+    var head = 0;
+    while (head < queue.length) {
+      var cur = queue[head++];
+      var neighbors = adj[cur] || [];
+      for (var i = 0; i < neighbors.length; i++) {
+        if (distances[neighbors[i]] === undefined) {
+          distances[neighbors[i]] = distances[cur] + 1;
+          queue.push(neighbors[i]);
+        }
+      }
+    }
+    return distances;
+  }
+
+  function getNodeOpacity(nodeId) {
+    if (!focusedNodeId || !focusDistances) return 1.0;
+    var d = focusDistances[nodeId];
+    if (d === undefined) return 0.12;
+    if (d <= 1) return 1.0;
+    if (d === 2) return 0.4;
+    return 0.12;
+  }
+
+  function getLinkOpacity(link) {
+    if (!focusedNodeId || !focusDistances) return null; // null = use default
+    var src = link.source.id || link.source;
+    var tgt = link.target.id || link.target;
+    var sd = focusDistances[src], td = focusDistances[tgt];
+    if (sd !== undefined && td !== undefined && sd <= 2 && td <= 2) return null;
+    return 0.08;
+  }
+
+  var adjacencyMap = buildAdjacencyMap(validEdges);
+
   // Build degree map for node sizing
   var degree = {};
   (graphData.nodes || []).forEach(function(n) { degree[n.id] = 0; });
@@ -306,6 +362,9 @@
       var r = Math.sqrt(node.val || 1) * 2.5;
       var color = kindColors[node.kind] || defaultColor;
 
+      // Apply focus mode opacity
+      ctx.globalAlpha = getNodeOpacity(node.id);
+
       // Scope ring (drawn behind the node fill)
       var ringColor = scopeRingColors[node.scope] || scopeRingColors['unknown'];
       ctx.beginPath();
@@ -322,6 +381,18 @@
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 0.6;
       ctx.stroke();
+
+      // Glow ring for focused node
+      if (node.id === focusedNodeId) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r + 3, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'rgba(137,180,250,0.6)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Reset alpha for labels (keep readable)
+      ctx.globalAlpha = 1.0;
 
       // Labels appear when zoomed in
       if (globalScale > 5) {
@@ -344,12 +415,30 @@
     })
     .enableNodeDrag(true)
     .autoPauseRedraw(false)
-    .linkColor(function(l) { return edgeColors[l.kind] || defaultEdgeColor; })
-    .linkWidth(function(l) { return edgeWidth[l.kind] || 1; })
+    .linkColor(function(l) {
+      var base = edgeColors[l.kind] || defaultEdgeColor;
+      var lo = getLinkOpacity(l);
+      if (lo !== null) {
+        return base.replace(/[\d.]+\)$/, lo + ')');
+      }
+      return base;
+    })
+    .linkWidth(function(l) {
+      var w = edgeWidth[l.kind] || 1;
+      if (getLinkOpacity(l) !== null) w *= 0.5;
+      return w;
+    })
     .linkLineDash(function(l) { return edgeDash[l.kind] || null; })
     .linkDirectionalArrowLength(5)
     .linkDirectionalArrowRelPos(0.92)
-    .linkDirectionalArrowColor(function() { return 'rgba(147,153,178,0.6)'; })
+    .linkDirectionalArrowColor(function(l) {
+      var base = 'rgba(147,153,178,0.6)';
+      var lo = getLinkOpacity(l);
+      if (lo !== null) {
+        return base.replace(/[\d.]+\)$/, lo + ')');
+      }
+      return base;
+    })
     .d3AlphaDecay(0.02)
     .d3VelocityDecay(0.4)
     .warmupTicks(300)
@@ -376,11 +465,15 @@
     })
     .onNodeClick(function(node) {
       graph.__nodeClickTime = Date.now();
+      focusedNodeId = node.id;
+      focusDistances = calculateFocusDistances(node.id, adjacencyMap);
       showDetail(node);
     })
     .onBackgroundClick(function() {
       // Ignore if a node was just clicked (force-graph fires both events)
       if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
+      focusedNodeId = null;
+      focusDistances = null;
       closePanel();
     })
     .onEngineStop(function() {
@@ -481,6 +574,11 @@
     document.getElementById('stat-nodes').textContent = filteredNodes.length;
     document.getElementById('stat-edges').textContent = filteredEdges.length;
 
+    // Clear focus when scope changes
+    focusedNodeId = null;
+    focusDistances = null;
+    adjacencyMap = buildAdjacencyMap(filteredEdges);
+
     // Re-render graph
     graph.graphData({
       nodes: filteredNodes,
@@ -555,6 +653,20 @@
     d.textContent = s;
     return d.innerHTML;
   }
+
+  // Test helpers for focus mode
+  window.__getFocusState = function() {
+    return { focusedNodeId: focusedNodeId, distances: focusDistances };
+  };
+  window.__setFocusNode = function(nodeId) {
+    focusedNodeId = nodeId;
+    focusDistances = calculateFocusDistances(nodeId, adjacencyMap);
+    return !!focusDistances;
+  };
+  window.__clearFocus = function() {
+    focusedNodeId = null;
+    focusDistances = null;
+  };
 })();
 </script>
 </body>
