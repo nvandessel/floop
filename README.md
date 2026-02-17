@@ -101,7 +101,7 @@ When you correct your AI agent, floop captures the correction and extracts a **b
 - [Research & theory](docs/SCIENCE.md) — The cognitive science behind spreading activation
 - [Origin story](docs/LORE.md) — How floop came to be
 - [Contributing](CONTRIBUTING.md) — How to contribute
-- [Changelog](CHANGELOG.md) — Release history
+- [Releases](https://github.com/nvandessel/feedback-loop/releases) — Release history
 
 ## Project Status
 

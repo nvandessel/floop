@@ -11,6 +11,16 @@ on:
           - patch
           - minor
           - major
+  workflow_call:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -74,21 +84,6 @@ jobs:
           echo "Previous version: $LATEST_TAG"
           echo "New version: $NEW_VERSION"
 
-      - name: Generate changelog entry
-        run: |
-          bash scripts/generate_changelog.sh "${{ steps.version.outputs.new_version }}"
-
-      - name: Commit and push changelog
-        run: |
-          if git diff --quiet -- CHANGELOG.md; then
-            echo "No CHANGELOG updates detected."
-            exit 0
-          fi
-
-          git add CHANGELOG.md
-          git commit -m "docs: update changelog for ${{ steps.version.outputs.new_version }}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-
       - name: Create and push tag
         run: |
           git tag -a "${{ steps.version.outputs.new_version }}" -m "Release ${{ steps.version.outputs.new_version }}"
@@ -113,6 +108,26 @@ jobs:
       - name: Fetch tags
         run: git fetch --force --tags
 
+      - name: Calculate changelog base tag
+        id: changelog
+        run: |
+          case "${{ inputs.bump }}" in
+            minor)
+              # Find last minor/major tag (patch == 0), excluding the current release
+              BASE_TAG=$(git tag -l "v*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.0$' | grep -v "${{ needs.bump.outputs.new_version }}" | head -n1)
+              ;;
+            major)
+              # Find last major tag (minor == 0, patch == 0), excluding the current release
+              BASE_TAG=$(git tag -l "v*" --sort=-v:refname | grep -E '^v[0-9]+\.0\.0$' | grep -v "${{ needs.bump.outputs.new_version }}" | head -n1)
+              ;;
+          esac
+          if [ -n "${BASE_TAG:-}" ]; then
+            echo "previous_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "Changelog base: $BASE_TAG (override for ${{ inputs.bump }} release)"
+          else
+            echo "Changelog base: default (GoReleaser auto-detect)"
+          fi
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
@@ -126,6 +141,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_PREVIOUS_TAG: ${{ steps.changelog.outputs.previous_tag }}
 
       - name: Summary
         run: |

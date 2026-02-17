@@ -5,18 +5,36 @@ This document describes the automated release process for feedback-loop using Go
 ## Overview
 
 The release pipeline is fully automated:
-1. Maintainer triggers version bump workflow
-2. Workflow creates and pushes a new git tag
-3. Same workflow runs GoReleaser on the new tag
+1. Code merges to `main` trigger an automatic patch release
+2. The auto-release checks skip conditions (bot actor, `[skip release]`, `skip-release` label)
+3. If not skipped, it calls the version-bump workflow to create a tag and publish
 4. GoReleaser builds binaries and publishes to GitHub Releases with auto-generated notes
 
-## Prerequisites
+For minor or major releases, maintainers trigger the version-bump workflow manually.
 
-- Maintainer access to the repository
-- GitHub CLI installed (`gh`) for convenience
-- Clean `main` branch with all changes committed
+## Auto-Release
 
-## Release Steps
+Every push to `main` that changes code files triggers `auto-release.yml`. Documentation-only changes (`.md`, `docs/`, `.beads/`, `.floop/`, `LICENSE`) are ignored via `paths-ignore`.
+
+### Skip Mechanisms
+
+| Method | Use Case |
+|--------|----------|
+| `github-actions[bot]` actor | Automatic — prevents version-bump commits from re-triggering |
+| `[skip release]` in commit message | Batch multiple PRs before releasing |
+| `skip-release` label on PR | Mark a PR as not release-worthy before merging |
+
+### Example: Batching Changes
+
+When you want to merge several PRs before cutting a release:
+
+1. Add the `skip-release` label to each PR (or include `[skip release]` in merge commits)
+2. Merge the PRs
+3. On the last PR, remove the label (or omit the skip marker) — the auto-release triggers
+
+## Manual Release (Minor/Major)
+
+Release notes for minor and major releases automatically span back to the last tag of the same level — a minor release includes all commits since the previous `vX.Y.0`, and a major release since the previous `vX.0.0`. This means auto-patches between minor/major releases don't cause empty changelogs.
 
 ### 1. Prepare for Release
 
@@ -39,32 +57,20 @@ git status
 
 ### 2. Choose Version Bump Type
 
-Determine the appropriate version bump based on the changes:
-
 | Bump Type | When to Use | Example |
 |-----------|-------------|---------|
-| **patch** | Bug fixes, documentation updates, minor improvements that don't change functionality | 0.1.0 → 0.1.1 |
-| **minor** | New features, backwards-compatible API additions, significant improvements | 0.1.0 → 0.2.0 |
-| **major** | Breaking changes, major architectural changes, API removals or incompatible changes | 0.1.0 → 1.0.0 |
+| **patch** | Bug fixes, minor improvements (usually auto-released) | 0.1.0 → 0.1.1 |
+| **minor** | New features, backwards-compatible API additions | 0.1.0 → 0.2.0 |
+| **major** | Breaking changes, major architectural changes | 0.1.0 → 1.0.0 |
 
 **Current versioning stage**: Pre-1.0 (0.x.x)
 - Use `minor` for new features or significant changes
 - Use `patch` for bug fixes
 - Reserve `major` for when ready to commit to API stability (1.0.0)
 
-### Notes on CHANGELOG.md
-
-GitHub release notes are generated automatically by GoReleaser from commit history.
-`CHANGELOG.md` is now also generated automatically during `version-bump.yml` and committed before tagging.
-
 ### 3. Trigger Version Bump
 
-Trigger the version bump workflow using GitHub CLI:
-
 ```bash
-# For a patch release (0.1.0 → 0.1.1)
-gh workflow run version-bump.yml -f bump=patch
-
 # For a minor release (0.1.0 → 0.2.0)
 gh workflow run version-bump.yml -f bump=minor
 
@@ -74,17 +80,15 @@ gh workflow run version-bump.yml -f bump=major
 
 Alternatively, use the GitHub web UI:
 1. Go to **Actions** tab
-2. Select **Version Bump** workflow
+2. Select **Version Bump and Release** workflow
 3. Click **Run workflow**
 4. Choose bump type from dropdown
 5. Click **Run workflow**
 
 ### 4. Monitor Release
 
-Watch the workflows:
-
 ```bash
-# Watch the combined tag + release workflow
+# Watch the workflow
 gh run watch --workflow=version-bump.yml
 
 # Or list recent runs
@@ -92,8 +96,6 @@ gh run list --workflow=version-bump.yml
 ```
 
 ### 5. Verify Release
-
-Once complete, verify the release:
 
 ```bash
 # View the release
@@ -132,7 +134,6 @@ Archives include:
 - `floop` binary
 - `LICENSE`
 - `README.md`
-- `CHANGELOG.md`
 - `docs/` directory
 
 ## Local Testing
@@ -244,31 +245,38 @@ git push origin hotfix/critical-bug
 # Create PR to main
 gh pr create --base main --title "fix: critical bug" --body "Emergency hotfix for v0.2.0"
 
-# After PR merge, trigger patch release
-gh workflow run version-bump.yml -f bump=patch
+# After PR merge, auto-release creates the patch automatically
 ```
 
 ## CI/CD Workflows
 
+### auto-release.yml
+
+**Trigger:** Push to `main` (code changes only, docs excluded)
+**Purpose:** Automatically release patches when code merges
+
+**Jobs:**
+1. `check-skip` — Evaluate skip conditions (bot actor, commit message, PR label)
+2. `release` — If not skipped, call `version-bump.yml` with `bump: patch`
+
 ### version-bump.yml
 
-**Trigger:** Manual workflow dispatch
+**Trigger:** Manual `workflow_dispatch` or `workflow_call` from auto-release
 **Permissions:** `contents: write`
 **Purpose:** Calculate next version, create tag, and publish release
 
 **Inputs:**
-- `bump`: choice of `patch`, `minor`, or `major`
+- `bump`: `patch`, `minor`, or `major`
 
 **Steps:**
 1. Checkout with full history
 2. Calculate next version from latest tag
-3. Generate `CHANGELOG.md` entry from commits since previous tag
-4. Commit and push `CHANGELOG.md`
-5. Create annotated tag
-6. Push tag
-7. Checkout the new tag
-8. Run GoReleaser with `release --clean`
-9. Publish GitHub release artifacts and notes
+3. Create annotated tag
+4. Push tag
+5. Checkout the new tag
+6. Calculate changelog base tag (for minor/major, overrides GoReleaser's default)
+7. Run GoReleaser with `release --clean`
+8. Publish GitHub release artifacts and notes
 
 ### test-release.yml
 
@@ -278,17 +286,17 @@ gh workflow run version-bump.yml -f bump=patch
 
 **Steps:**
 1. Checkout code
-2. Validate changelog generator script syntax
-3. Run GoReleaser in snapshot mode
-4. Verify binaries work
-5. Check for expected builds
+2. Run GoReleaser in snapshot mode
+3. Verify binaries work
+4. Check for expected builds
 
 ## Configuration Files
 
 | File | Purpose |
 |------|---------|
 | `.goreleaser.yml` | GoReleaser configuration (builds, archives, changelog) |
-| `.github/workflows/version-bump.yml` | Version tagging workflow |
+| `.github/workflows/auto-release.yml` | Auto-patch on merge to main |
+| `.github/workflows/version-bump.yml` | Version tagging and release workflow |
 | `.github/workflows/test-release.yml` | PR validation workflow |
 | `Makefile` | Local build with version injection |
 
