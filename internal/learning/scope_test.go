@@ -64,23 +64,23 @@ func TestClassifyScope(t *testing.T) {
 			want: constants.ScopeLocal,
 		},
 		{
-			name: "environment present is local",
+			name: "environment only is global",
 			when: map[string]interface{}{
 				"environment": "production",
 			},
-			want: constants.ScopeLocal,
+			want: constants.ScopeGlobal,
 		},
 		{
-			name: "environment with other keys is local",
+			name: "environment with other non-file keys is global",
 			when: map[string]interface{}{
 				"language":    "python",
 				"task":        "deployment",
 				"environment": "staging",
 			},
-			want: constants.ScopeLocal,
+			want: constants.ScopeGlobal,
 		},
 		{
-			name: "both file_path and environment is local",
+			name: "file_path with environment is local",
 			when: map[string]interface{}{
 				"file_path":   "src/**",
 				"environment": "dev",

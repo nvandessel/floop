@@ -5,8 +5,10 @@ import (
 )
 
 // localScopeKeys are When condition keys that indicate project-specific behaviors.
-// file_path implies project directory structure; environment implies deployment config.
-var localScopeKeys = []string{"file_path", "environment"}
+// Only file_path triggers local scope since it implies project directory structure.
+// Environment was removed because "environment: development" is universal, not project-specific,
+// and caused 95%+ of behaviors to be mis-routed to local scope.
+var localScopeKeys = []string{"file_path"}
 
 // ClassifyScope determines whether a behavior should be stored locally or globally
 // based on its When conditions. Behaviors with project-specific conditions (file_path
