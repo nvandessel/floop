@@ -67,23 +67,11 @@ Use [conventional commits](https://www.conventionalcommits.org/):
 
 ## Release Process
 
-Releases are automated using GoReleaser and GitHub Actions. Only maintainers can trigger releases.
+Releases are automated using GoReleaser and GitHub Actions.
 
-**To create a new release:**
-
-1. Ensure `main` branch is clean and all tests pass
-2. Trigger the version bump workflow:
-   ```bash
-   gh workflow run version-bump.yml -f bump=<patch|minor|major>
-   ```
-3. Monitor the release workflow: `gh run watch`
-4. Verify the release on GitHub: `gh release view <version>`
-5. Confirm `CHANGELOG.md` was auto-updated by the workflow commit for that release
-
-**Version semantics:**
-- `patch` (0.0.X) — Bug fixes, minor improvements
-- `minor` (0.X.0) — New features, backwards-compatible changes
-- `major` (X.0.0) — Breaking changes, major architectural shifts
+- **Patches auto-release** when code changes merge to `main`
+- **Skip auto-release** with `[skip release]` in the commit message or a `skip-release` label on the PR
+- **Minor/major releases** are manual: `gh workflow run version-bump.yml -f bump=<minor|major>`
 
 For detailed instructions, see [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md).
 

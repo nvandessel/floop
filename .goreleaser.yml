@@ -35,7 +35,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - CHANGELOG.md
       - docs/**/*
 
 checksum:

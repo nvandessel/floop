@@ -11,6 +11,16 @@ on:
           - patch
           - minor
           - major
+  workflow_call:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -73,21 +83,6 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "Previous version: $LATEST_TAG"
           echo "New version: $NEW_VERSION"
-
-      - name: Generate changelog entry
-        run: |
-          bash scripts/generate_changelog.sh "${{ steps.version.outputs.new_version }}"
-
-      - name: Commit and push changelog
-        run: |
-          if git diff --quiet -- CHANGELOG.md; then
-            echo "No CHANGELOG updates detected."
-            exit 0
-          fi
-
-          git add CHANGELOG.md
-          git commit -m "docs: update changelog for ${{ steps.version.outputs.new_version }}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Create and push tag
         run: |

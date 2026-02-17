@@ -5,8 +5,8 @@ on:
     paths:
       - '.goreleaser.yml'
       - '.github/workflows/version-bump.yml'
+      - '.github/workflows/auto-release.yml'
       - '.github/workflows/test-release.yml'
-      - 'scripts/generate_changelog.sh'
       - 'Makefile'
       - 'cmd/floop/main.go'
       - 'cmd/floop/cmd_version.go'
@@ -31,9 +31,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-
-      - name: Validate changelog generator script
-        run: bash -n scripts/generate_changelog.sh
 
       - name: Run GoReleaser in snapshot mode
         uses: goreleaser/goreleaser-action@v6
