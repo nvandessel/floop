@@ -285,3 +285,108 @@ func MaxWeight(result SimulationResult, src, tgt, kind string) float64 {
 	}
 	return max
 }
+
+// AssertBehaviorIsSeed asserts that a behavior appears as a seed (distance=0)
+// in the given session result.
+func AssertBehaviorIsSeed(t *testing.T, sr SessionResult, behaviorID string) {
+	t.Helper()
+	for _, r := range sr.Results {
+		if r.BehaviorID == behaviorID && r.Distance == 0 {
+			return
+		}
+	}
+	t.Errorf("AssertBehaviorIsSeed: session %d: behavior %s is not a seed (distance=0)", sr.Index, behaviorID)
+}
+
+// AssertBehaviorNotInResults asserts that a behavior does NOT appear in the
+// given session result at any distance.
+func AssertBehaviorNotInResults(t *testing.T, sr SessionResult, behaviorID string) {
+	t.Helper()
+	for _, r := range sr.Results {
+		if r.BehaviorID == behaviorID {
+			t.Errorf("AssertBehaviorNotInResults: session %d: behavior %s unexpectedly present (activation=%.4f, distance=%d)",
+				sr.Index, behaviorID, r.Activation, r.Distance)
+			return
+		}
+	}
+}
+
+// AssertInhibitionGap asserts that the activation gap between winner and loser
+// groups exceeds minGap. Winners must have higher mean activation than losers,
+// and the gap between the groups must be at least minGap.
+func AssertInhibitionGap(t *testing.T, sr SessionResult, winners, losers []string, minGap float64) {
+	t.Helper()
+
+	activations := make(map[string]float64)
+	for _, r := range sr.Results {
+		activations[r.BehaviorID] = r.Activation
+	}
+
+	winnerSum, winnerCount := 0.0, 0
+	for _, id := range winners {
+		if act, ok := activations[id]; ok {
+			winnerSum += act
+			winnerCount++
+		}
+	}
+
+	loserSum, loserCount := 0.0, 0
+	for _, id := range losers {
+		if act, ok := activations[id]; ok {
+			loserSum += act
+			loserCount++
+		}
+	}
+
+	if winnerCount == 0 {
+		t.Errorf("AssertInhibitionGap: session %d: no winners found in results", sr.Index)
+		return
+	}
+	if loserCount == 0 {
+		t.Errorf("AssertInhibitionGap: session %d: no losers found in results", sr.Index)
+		return
+	}
+
+	winnerMean := winnerSum / float64(winnerCount)
+	loserMean := loserSum / float64(loserCount)
+	gap := winnerMean - loserMean
+
+	if gap < minGap {
+		t.Errorf("AssertInhibitionGap: session %d: gap %.4f < minGap %.4f (winner mean=%.4f, loser mean=%.4f)",
+			sr.Index, gap, minGap, winnerMean, loserMean)
+	}
+}
+
+// AssertEdgeAbsentAtSession asserts that no co-activated edge exists between
+// two behaviors at a specific session index.
+func AssertEdgeAbsentAtSession(t *testing.T, result SimulationResult, behaviorA, behaviorB string, sessionIdx int) {
+	t.Helper()
+	if sessionIdx >= len(result.Sessions) {
+		t.Fatalf("AssertEdgeAbsentAtSession: session %d out of range (have %d)", sessionIdx, len(result.Sessions))
+	}
+	sr := result.Sessions[sessionIdx]
+	keyAB := EdgeKey(behaviorA, behaviorB, "co-activated")
+	keyBA := EdgeKey(behaviorB, behaviorA, "co-activated")
+	_, okAB := sr.EdgeWeights[keyAB]
+	_, okBA := sr.EdgeWeights[keyBA]
+	if okAB || okBA {
+		t.Errorf("AssertEdgeAbsentAtSession: session %d: unexpected co-activated edge between %s and %s", sessionIdx, behaviorA, behaviorB)
+	}
+}
+
+// AssertEdgePresentAtSession asserts that a co-activated edge exists between
+// two behaviors at a specific session index.
+func AssertEdgePresentAtSession(t *testing.T, result SimulationResult, behaviorA, behaviorB string, sessionIdx int) {
+	t.Helper()
+	if sessionIdx >= len(result.Sessions) {
+		t.Fatalf("AssertEdgePresentAtSession: session %d out of range (have %d)", sessionIdx, len(result.Sessions))
+	}
+	sr := result.Sessions[sessionIdx]
+	keyAB := EdgeKey(behaviorA, behaviorB, "co-activated")
+	keyBA := EdgeKey(behaviorB, behaviorA, "co-activated")
+	_, okAB := sr.EdgeWeights[keyAB]
+	_, okBA := sr.EdgeWeights[keyBA]
+	if !okAB && !okBA {
+		t.Errorf("AssertEdgePresentAtSession: session %d: no co-activated edge between %s and %s", sessionIdx, behaviorA, behaviorB)
+	}
+}
