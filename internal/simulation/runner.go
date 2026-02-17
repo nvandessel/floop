@@ -16,6 +16,12 @@ import (
 type Runner struct {
 	t     *testing.T
 	store *store.SQLiteGraphStore
+
+	// coActivationCounts tracks how many times each behavior pair has
+	// co-activated. Used to enforce HebbianConfig.CreationGate — edges
+	// are only created after the pair co-activates CreationGate times.
+	// Key format: "behaviorA:behaviorB" (canonical sorted order).
+	coActivationCounts map[string]int
 }
 
 // NewRunner creates a simulation runner with an isolated SQLite store
@@ -65,7 +71,10 @@ func (r *Runner) Run(scenario Scenario) SimulationResult {
 		pipeline = spreading.NewPipeline(r.store, spreadCfg)
 	}
 
-	// Phase 3: Run sessions.
+	// Phase 3: Initialize co-activation counter for creation gate.
+	r.coActivationCounts = make(map[string]int)
+
+	// Phase 4: Run sessions.
 	sessions := make([]SessionResult, len(scenario.Sessions))
 	for i, sessCtx := range scenario.Sessions {
 		if scenario.BeforeSession != nil {
@@ -189,9 +198,19 @@ func (r *Runner) runSession(
 	}
 }
 
+// coActivationKey builds a canonical key for a behavior pair (sorted order).
+func coActivationKey(a, b string) string {
+	if a > b {
+		a, b = b, a
+	}
+	return a + ":" + b
+}
+
 // applyHebbian applies Oja updates for each co-activation pair.
 // When createEdges is true, new co-activated edges are created for pairs
-// that don't yet have one. When false, only existing edges are updated.
+// that don't yet have one, but only after the pair has co-activated at least
+// CreationGate times (tracked in r.coActivationCounts).
+// When false, only existing edges are updated.
 func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivationPair, cfg spreading.HebbianConfig, createEdges bool) {
 	r.t.Helper()
 
@@ -203,7 +222,13 @@ func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivatio
 			if !createEdges {
 				continue
 			}
-			// Create a new co-activated edge at MinWeight so Oja can strengthen it.
+			// Track co-occurrence count and enforce creation gate.
+			key := coActivationKey(pair.BehaviorA, pair.BehaviorB)
+			r.coActivationCounts[key]++
+			if r.coActivationCounts[key] < cfg.CreationGate {
+				continue
+			}
+			// Gate met — create a new co-activated edge at MinWeight.
 			edge := store.Edge{
 				Source:    pair.BehaviorA,
 				Target:    pair.BehaviorB,
@@ -232,6 +257,17 @@ func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivatio
 			r.t.Fatalf("applyHebbian: BatchUpdateEdgeWeights: %v", err)
 		}
 	}
+}
+
+// CoActivationCounts returns the runner's co-activation counter map.
+// Useful for test assertions that need to inspect gate state.
+func (r *Runner) CoActivationCounts() map[string]int {
+	return r.coActivationCounts
+}
+
+// CoActivationKeyFor is a test-accessible wrapper around coActivationKey.
+func CoActivationKeyFor(a, b string) string {
+	return coActivationKey(a, b)
 }
 
 // getEdgeWeight returns the weight of an edge, or -1 if the edge doesn't exist.
