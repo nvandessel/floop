@@ -1,4 +1,6 @@
-# floop
+<img width="1600" height="560" alt="img-floop-logo" src="https://github.com/user-attachments/assets/bc695966-8c2b-4956-9b8b-e711333588e4" />
+
+# f(eedback)loop
 
 [![CI](https://github.com/nvandessel/feedback-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/nvandessel/feedback-loop/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/nvandessel/feedback-loop)](https://github.com/nvandessel/feedback-loop/releases/latest)
