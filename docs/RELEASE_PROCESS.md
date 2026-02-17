@@ -14,7 +14,9 @@ For minor or major releases, maintainers trigger the version-bump workflow manua
 
 ## Auto-Release
 
-Every push to `main` that changes code files triggers `auto-release.yml`. Documentation-only changes (`.md`, `docs/`, `.beads/`, `.floop/`, `LICENSE`) are ignored via `paths-ignore`.
+Every push to `main` that changes code files triggers `auto-release.yml`. Documentation-only changes (`.md`, `docs/`, `.beads/`, `.floop/`, `LICENSE`) and workflow changes (`.github/`) are ignored via `paths-ignore`.
+
+Before releasing, auto-release waits for the CI workflow to complete on the same commit. If CI fails, the release is skipped. If no CI run is found (e.g., the commit only touched paths ignored by CI), the release proceeds.
 
 ### Skip Mechanisms
 
@@ -256,8 +258,8 @@ gh pr create --base main --title "fix: critical bug" --body "Emergency hotfix fo
 **Purpose:** Automatically release patches when code merges
 
 **Jobs:**
-1. `check-skip` — Evaluate skip conditions (bot actor, commit message, PR label)
-2. `release` — If not skipped, call `version-bump.yml` with `bump: patch`
+1. `check-skip` — Evaluate skip conditions (bot actor, commit message, PR label), then wait for CI to pass
+2. `release` — If not skipped and CI passed, call `version-bump.yml` with `bump: patch`
 
 ### version-bump.yml
 

@@ -1,4 +1,4 @@
-# GoReleaser configuration for feedback-loop
+# GoReleaser configuration for floop
 # Documentation: https://goreleaser.com
 
 version: 2
@@ -70,12 +70,12 @@ changelog:
 release:
   github:
     owner: nvandessel
-    name: feedback-loop
+    name: floop
   draft: false
   prerelease: auto
   mode: replace
   header: |
-    ## feedback-loop {{ .Tag }}
+    ## floop {{ .Tag }}
 
     Release artifacts for version {{ .Tag }}.
   footer: |
@@ -83,7 +83,7 @@ release:
 
     Download the appropriate archive for your platform, extract it, and move the `floop` binary to your PATH.
 
-    **Full changelog**: https://github.com/nvandessel/feedback-loop/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full changelog**: https://github.com/nvandessel/floop/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 # Disable features we're not using yet
 dockers: []

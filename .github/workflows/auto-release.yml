@@ -8,11 +8,13 @@ on:
       - "docs/**"
       - ".beads/**"
       - ".floop/**"
+      - ".github/**"
       - "LICENSE"
 
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 concurrency:
   group: release
@@ -23,7 +25,7 @@ jobs:
     name: Check Skip Conditions
     runs-on: ubuntu-latest
     outputs:
-      should_release: ${{ steps.check.outputs.should_release }}
+      should_release: ${{ steps.ci-gate.outputs.should_release }}
     steps:
       - name: Check skip conditions
         id: check
@@ -55,6 +57,47 @@ jobs:
           fi
 
           echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for CI to pass
+        id: ci-gate
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHOULD_RELEASE: ${{ steps.check.outputs.should_release }}
+        run: |
+          # Pass through skip decisions from previous step
+          if [ "$SHOULD_RELEASE" != "true" ]; then
+            echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Waiting for CI workflow on commit ${{ github.sha }}..."
+
+          # Find the CI run for this commit (may take a moment to start)
+          for i in 1 2 3 4 5; do
+            RUN_ID=$(gh run list --workflow=ci.yml --commit="${{ github.sha }}" \
+              --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            echo "CI run not found yet, waiting 10s... (attempt $i/5)"
+            sleep 10
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "No CI run found for this commit — CI may have been skipped by paths-ignore"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Found CI run $RUN_ID, waiting for completion..."
+          if gh run watch "$RUN_ID" --exit-status; then
+            echo "CI passed — proceeding with release"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "CI failed — skipping release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
 
   release:
     name: Auto Patch Release
