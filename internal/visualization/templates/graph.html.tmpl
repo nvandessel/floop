@@ -319,6 +319,13 @@
     return 0.08;
   }
 
+  // Replace the alpha channel in an rgba() color string
+  function withAlpha(rgbaStr, alpha) {
+    return rgbaStr.replace(/,\s*[\d.]+\)$/, ',' + alpha + ')');
+  }
+
+  // adjacencyMap stays in sync with the graph because filterByScope is the
+  // only path that changes links, and it rebuilds adjacencyMap afterwards.
   var adjacencyMap = buildAdjacencyMap(validEdges);
 
   // Build degree map for node sizing
@@ -391,9 +398,7 @@
         ctx.stroke();
       }
 
-      // Reset alpha for labels (keep readable)
-      ctx.globalAlpha = 1.0;
-
+      // Match label opacity to node (dimmed labels on dimmed nodes)
       // Labels appear when zoomed in
       if (globalScale > 5) {
         var label = node.name || node.id;
@@ -405,6 +410,9 @@
         ctx.fillStyle = 'rgba(205,214,244,0.7)';
         ctx.fillText(label, node.x, node.y + r + 2);
       }
+
+      // Reset alpha so it doesn't leak into the next node's draw
+      ctx.globalAlpha = 1.0;
     })
     .nodePointerAreaPaint(function(node, color, ctx) {
       var r = Math.sqrt(node.val || 1) * 2.5;
@@ -418,10 +426,7 @@
     .linkColor(function(l) {
       var base = edgeColors[l.kind] || defaultEdgeColor;
       var lo = getLinkOpacity(l);
-      if (lo !== null) {
-        return base.replace(/[\d.]+\)$/, lo + ')');
-      }
-      return base;
+      return lo !== null ? withAlpha(base, lo) : base;
     })
     .linkWidth(function(l) {
       var w = edgeWidth[l.kind] || 1;
@@ -434,10 +439,7 @@
     .linkDirectionalArrowColor(function(l) {
       var base = 'rgba(147,153,178,0.6)';
       var lo = getLinkOpacity(l);
-      if (lo !== null) {
-        return base.replace(/[\d.]+\)$/, lo + ')');
-      }
-      return base;
+      return lo !== null ? withAlpha(base, lo) : base;
     })
     .d3AlphaDecay(0.02)
     .d3VelocityDecay(0.4)
@@ -472,9 +474,7 @@
     .onBackgroundClick(function() {
       // Ignore if a node was just clicked (force-graph fires both events)
       if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
-      focusedNodeId = null;
-      focusDistances = null;
-      closePanel();
+      closePanel(); // also clears focus state
     })
     .onEngineStop(function() {
       // Auto-fit once when simulation first settles, capped at zoom=1
@@ -636,6 +636,8 @@
 
   window.closePanel = function() {
     panel.classList.remove('open');
+    focusedNodeId = null;
+    focusDistances = null;
   };
 
   function section(label, value) {
@@ -659,13 +661,19 @@
     return { focusedNodeId: focusedNodeId, distances: focusDistances };
   };
   window.__setFocusNode = function(nodeId) {
+    var gd = graph.graphData();
+    var found = gd.nodes.some(function(n) { return n.id === nodeId; });
+    if (!found) return false;
     focusedNodeId = nodeId;
     focusDistances = calculateFocusDistances(nodeId, adjacencyMap);
-    return !!focusDistances;
+    return true;
   };
   window.__clearFocus = function() {
     focusedNodeId = null;
     focusDistances = null;
+  };
+  window.__getNodeOpacity = function(nodeId) {
+    return getNodeOpacity(nodeId);
   };
 })();
 </script>
