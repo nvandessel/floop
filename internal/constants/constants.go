@@ -54,6 +54,14 @@ const (
 	SimilarToUpperBound = 0.9
 )
 
+// Partial match constants control behavior matching with absent conditions.
+const (
+	// AbsentFloorActivation is the minimum seed activation for behaviors whose
+	// when-conditions are all absent (none confirmed, none contradicted).
+	// This ensures they still participate in spreading activation at low priority.
+	AbsentFloorActivation = 0.15
+)
+
 // Activation tier thresholds determine which injection tier a behavior receives
 // based on its spreading activation level.
 const (

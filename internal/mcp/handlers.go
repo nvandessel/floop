@@ -813,7 +813,7 @@ func matchesToSeeds(matches []activation.ActivationResult) []spreading.Seed {
 	for i, m := range matches {
 		seeds[i] = spreading.Seed{
 			BehaviorID: m.Behavior.ID,
-			Activation: spreading.SpecificityToActivation(m.Specificity),
+			Activation: spreading.MatchScoreToActivation(len(m.Behavior.When), m.MatchScore),
 			Source:     spreading.BuildSourceLabel(m.MatchedConditions),
 		}
 	}
@@ -891,7 +891,7 @@ func buildSpreadIndex(seeds []spreading.Seed, matches []activation.ActivationRes
 	for _, m := range matches {
 		if _, ok := index[m.Behavior.ID]; !ok {
 			index[m.Behavior.ID] = spreadMeta{
-				activation: spreading.SpecificityToActivation(m.Specificity),
+				activation: spreading.MatchScoreToActivation(len(m.Behavior.When), m.MatchScore),
 				distance:   0,
 				seedSource: "direct",
 			}

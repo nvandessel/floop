@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -297,6 +298,33 @@ func TestSeedSelector_SortedByActivation(t *testing.T) {
 			t.Errorf("seeds not sorted: index %d (%f) > index %d (%f)",
 				i, seeds[i].Activation, i-1, seeds[i-1].Activation)
 		}
+	}
+}
+
+func TestMatchScoreToActivation(t *testing.T) {
+	tests := []struct {
+		name            string
+		totalConditions int
+		score           float64
+		want            float64
+	}{
+		{"zero conditions (always-active)", 0, 0.0, 0.3},
+		{"one condition, full match", 1, 1.0, SpecificityToActivation(1)},
+		{"one condition, all absent", 1, 0.0, constants.AbsentFloorActivation},
+		{"two conditions, full match", 2, 1.0, SpecificityToActivation(2)},
+		{"two conditions, half match", 2, 0.5, constants.AbsentFloorActivation + 0.5*(SpecificityToActivation(2)-constants.AbsentFloorActivation)},
+		{"two conditions, all absent", 2, 0.0, constants.AbsentFloorActivation},
+		{"three conditions, full match", 3, 1.0, SpecificityToActivation(3)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MatchScoreToActivation(tt.totalConditions, tt.score)
+			if got != tt.want {
+				t.Errorf("MatchScoreToActivation(%d, %f) = %f, want %f",
+					tt.totalConditions, tt.score, got, tt.want)
+			}
+		})
 	}
 }
 
