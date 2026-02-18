@@ -169,7 +169,7 @@ func sanitizeToolParams(toolName string, params map[string]interface{}) map[stri
 		"tag":           true,
 		"corrections":   true,
 		"signal":        true,
-		"language":       true,
+		"language":      true,
 	}
 
 	// Parameters whose existence is safe to log but whose values may contain
