@@ -824,6 +824,60 @@ func TestRenderEnrichedJSON_ZeroPriorityOmitted(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_ElectricModeMarkers(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	enrichment := &EnrichmentData{
+		PageRank: map[string]float64{"b1": 0.5},
+	}
+
+	html, err := RenderHTML(ctx, gs, enrichment)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Static mode (no API base URL) should have electric toolbar hidden by default
+	if !strings.Contains(htmlStr, "electric-toolbar") {
+		t.Error("expected electric-toolbar element in HTML")
+	}
+	if !strings.Contains(htmlStr, "electricActivate") {
+		t.Error("expected electricActivate function in HTML")
+	}
+	if !strings.Contains(htmlStr, "__electricSim") {
+		t.Error("expected __electricSim test helper in HTML")
+	}
+}
+
+func TestRenderHTMLForServer_HasAPIBaseURL(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	enrichment := &EnrichmentData{
+		PageRank: map[string]float64{"b1": 0.5},
+	}
+
+	html, err := RenderHTMLForServer(ctx, gs, enrichment, "http://localhost:9999")
+	if err != nil {
+		t.Fatalf("RenderHTMLForServer: %v", err)
+	}
+	htmlStr := string(html)
+
+	// html/template JS-escapes the URL; check for key parts
+	if !strings.Contains(htmlStr, "localhost") || !strings.Contains(htmlStr, "9999") {
+		t.Error("expected API base URL components (localhost, 9999) in server-mode HTML")
+	}
+	// Electric mode should be enabled (toolbar not hidden)
+	if !strings.Contains(htmlStr, "electric-toolbar") {
+		t.Error("expected electric-toolbar in server-mode HTML")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string

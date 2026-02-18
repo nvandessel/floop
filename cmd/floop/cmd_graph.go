@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/store"
@@ -62,27 +64,69 @@ func newGraphCmd() *cobra.Command {
 					PageRank: pageRank,
 				}
 
-				htmlBytes, err := visualization.RenderHTML(ctx, gs, enrichment)
-				if err != nil {
-					return fmt.Errorf("render HTML: %w", err)
-				}
+				if output != "" {
+					// Static export mode: write self-contained HTML file (no server, no electric mode)
+					htmlBytes, err := visualization.RenderHTML(ctx, gs, enrichment)
+					if err != nil {
+						return fmt.Errorf("render HTML: %w", err)
+					}
 
-				// Determine output path
-				outPath := output
-				if outPath == "" {
-					tmpDir := os.TempDir()
-					outPath = filepath.Join(tmpDir, "floop-graph.html")
-				}
+					if err := os.WriteFile(output, htmlBytes, 0644); err != nil {
+						return fmt.Errorf("write HTML file: %w", err)
+					}
 
-				if err := os.WriteFile(outPath, htmlBytes, 0644); err != nil {
-					return fmt.Errorf("write HTML file: %w", err)
-				}
+					fmt.Fprintf(cmd.OutOrStdout(), "Graph written to %s\n", output)
 
-				fmt.Fprintf(cmd.OutOrStdout(), "Graph written to %s\n", outPath)
+					if !noOpen {
+						if err := visualization.OpenBrowser(output); err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "Could not open browser: %v\nOpen %s manually.\n", err, output)
+						}
+					}
+				} else {
+					// Server mode: start HTTP server with electric activation
+					srv := visualization.NewServer(gs, enrichment)
 
-				if !noOpen {
-					if err := visualization.OpenBrowser(outPath); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "Could not open browser: %v\nOpen %s manually.\n", err, outPath)
+					srvCtx, srvCancel := context.WithCancel(ctx)
+					defer srvCancel()
+
+					// Handle SIGINT/SIGTERM for graceful shutdown
+					sigCh := make(chan os.Signal, 1)
+					signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+					go func() {
+						<-sigCh
+						srvCancel()
+					}()
+
+					errCh := make(chan error, 1)
+					go func() { errCh <- srv.ListenAndServe(srvCtx) }()
+
+					// Wait for server to start
+					deadline := time.Now().Add(3 * time.Second)
+					for time.Now().Before(deadline) {
+						if srv.Addr() != "" {
+							break
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+
+					addr := srv.Addr()
+					if addr == "" {
+						return fmt.Errorf("server failed to start")
+					}
+
+					url := "http://" + addr
+					fmt.Fprintf(cmd.OutOrStdout(), "Graph server running at %s\n", url)
+					fmt.Fprintf(cmd.OutOrStdout(), "Press Ctrl-C to stop.\n")
+
+					if !noOpen {
+						if err := visualization.OpenBrowser(url); err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "Could not open browser: %v\nOpen %s manually.\n", err, url)
+						}
+					}
+
+					// Block until server exits
+					if err := <-errCh; err != nil {
+						return fmt.Errorf("server error: %w", err)
 					}
 				}
 

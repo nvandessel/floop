@@ -94,6 +94,143 @@ func NewEngine(s store.GraphStore, config Config) *Engine {
 	}
 }
 
+// StepSnapshot captures the activation state at a single point during propagation.
+type StepSnapshot struct {
+	// Step is the propagation step number. 0 = initial seed state,
+	// 1-N = after each propagation step, final = post-inhibition/sigmoid.
+	Step int `json:"step"`
+
+	// Activation maps nodeID to activation level at this step.
+	Activation map[string]float64 `json:"activation"`
+
+	// Final is true for the last snapshot (post-inhibition + sigmoid applied).
+	Final bool `json:"final"`
+}
+
+// ActivateWithSteps performs spreading activation and returns per-step snapshots.
+// It returns MaxSteps+2 snapshots: initial seed state, one after each propagation
+// step, and a final post-processed snapshot with inhibition and sigmoid applied.
+func (e *Engine) ActivateWithSteps(ctx context.Context, seeds []Seed) ([]StepSnapshot, error) {
+	if len(seeds) == 0 {
+		return []StepSnapshot{}, nil
+	}
+
+	// Step 1: Initialize maps from seeds.
+	activation := make(map[string]float64)
+	for _, s := range seeds {
+		activation[s.BehaviorID] = s.Activation
+	}
+
+	// Capture initial seed state (step 0).
+	snapshots := make([]StepSnapshot, 0, e.config.MaxSteps+2)
+	snapshots = append(snapshots, StepSnapshot{
+		Step:       0,
+		Activation: copyActivation(activation),
+	})
+
+	// Pre-load all behavior tags for feature affinity.
+	var allTags map[string][]string
+	affinityEnabled := e.config.Affinity != nil && e.config.Affinity.Enabled && e.config.TagProvider != nil
+	if affinityEnabled {
+		allTags = e.config.TagProvider.GetAllBehaviorTags(ctx)
+	}
+
+	// Step 2: Propagation loop — same as Activate but captures snapshots.
+	for step := 0; step < e.config.MaxSteps; step++ {
+		newActivation := make(map[string]float64, len(activation))
+		for id, act := range activation {
+			newActivation[id] = act
+		}
+
+		for nodeID, nodeAct := range activation {
+			if nodeAct < e.config.MinActivation {
+				continue
+			}
+
+			edges, err := e.store.GetEdges(ctx, nodeID, store.DirectionBoth, "")
+			if err != nil {
+				return nil, fmt.Errorf("spreading activation: get edges for %s: %w", nodeID, err)
+			}
+
+			if affinityEnabled && allTags != nil {
+				if nodeTags, ok := allTags[nodeID]; ok && len(nodeTags) > 0 {
+					edges = append(edges, virtualAffinityEdges(nodeID, nodeTags, allTags, *e.config.Affinity)...)
+				}
+			}
+
+			if len(edges) == 0 {
+				continue
+			}
+
+			outDegree := float64(len(edges))
+
+			for _, edge := range edges {
+				neighbor := neighborID(nodeID, edge)
+				effectiveWeight := ranking.EdgeDecay(edge.Weight, edgeLastActivated(edge), e.config.TemporalDecayRate)
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / outDegree
+				energy *= e.config.DecayFactor
+
+				if edge.Kind == "conflicts" {
+					newActivation[neighbor] -= energy
+					if newActivation[neighbor] < 0 {
+						newActivation[neighbor] = 0
+					}
+				} else {
+					if energy > newActivation[neighbor] {
+						newActivation[neighbor] = energy
+					}
+				}
+			}
+		}
+
+		activation = newActivation
+
+		// Capture snapshot after this propagation step.
+		snapshots = append(snapshots, StepSnapshot{
+			Step:       step + 1,
+			Activation: copyActivation(activation),
+		})
+	}
+
+	// Step 3: Final snapshot — apply inhibition + sigmoid.
+	finalActivation := make(map[string]float64, len(activation))
+	for id, act := range activation {
+		finalActivation[id] = act
+	}
+
+	if e.config.Inhibition != nil {
+		finalActivation = ApplyInhibition(finalActivation, *e.config.Inhibition)
+	}
+
+	for id, act := range finalActivation {
+		finalActivation[id] = sigmoid(act)
+	}
+
+	// Filter by MinActivation.
+	for id, act := range finalActivation {
+		if act < e.config.MinActivation {
+			delete(finalActivation, id)
+		}
+	}
+
+	snapshots = append(snapshots, StepSnapshot{
+		Step:       e.config.MaxSteps + 1,
+		Activation: finalActivation,
+		Final:      true,
+	})
+
+	return snapshots, nil
+}
+
+// copyActivation returns an independent copy of an activation map.
+func copyActivation(m map[string]float64) map[string]float64 {
+	c := make(map[string]float64, len(m))
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
 // Activate performs spreading activation from the given seeds.
 // It returns all behaviors with activation above MinActivation,
 // sorted by activation descending.

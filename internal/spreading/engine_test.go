@@ -737,3 +737,145 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 		}
 	})
 }
+
+// --- ActivateWithSteps tests ---
+
+func TestActivateWithSteps_LinearChain(t *testing.T) {
+	// A -> B -> C with MaxSteps=3
+	// Step 0 (initial): only A has activation
+	// Step 1: B gets activation from A
+	// Step 2: C gets activation from B
+	// Step 3: further propagation
+	// Final: post-inhibition + sigmoid
+	s := store.NewInMemoryGraphStore()
+	addNode(t, s, "A")
+	addNode(t, s, "B")
+	addNode(t, s, "C")
+
+	now := time.Now()
+	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "B", "C", "requires", 1.0, timePtr(now))
+
+	cfg := DefaultConfig()
+	cfg.MaxSteps = 3
+	eng := NewEngine(s, cfg)
+	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
+
+	steps, err := eng.ActivateWithSteps(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should return MaxSteps + 1 snapshots (initial + 3 propagation steps)
+	// plus 1 final snapshot = MaxSteps + 2 total
+	wantLen := cfg.MaxSteps + 2
+	if len(steps) != wantLen {
+		t.Fatalf("expected %d snapshots, got %d", wantLen, len(steps))
+	}
+
+	// Step 0 (initial seed): only A is active
+	if steps[0].Step != 0 {
+		t.Errorf("step 0: expected Step=0, got %d", steps[0].Step)
+	}
+	if steps[0].Final {
+		t.Error("step 0: should not be final")
+	}
+	if act, ok := steps[0].Activation["A"]; !ok || act != 1.0 {
+		t.Errorf("step 0: expected A=1.0, got %v", steps[0].Activation["A"])
+	}
+	if _, ok := steps[0].Activation["B"]; ok {
+		t.Error("step 0: B should not have activation yet")
+	}
+
+	// Step 1: B should now have activation
+	if steps[1].Step != 1 {
+		t.Errorf("step 1: expected Step=1, got %d", steps[1].Step)
+	}
+	if _, ok := steps[1].Activation["B"]; !ok {
+		t.Error("step 1: expected B to have activation")
+	}
+
+	// Step 2: C should now have activation
+	if _, ok := steps[2].Activation["C"]; !ok {
+		t.Error("step 2: expected C to have activation")
+	}
+
+	// Final snapshot should be marked Final
+	last := steps[len(steps)-1]
+	if !last.Final {
+		t.Error("last snapshot should be marked Final")
+	}
+}
+
+func TestActivateWithSteps_SnapshotCopiesAreIndependent(t *testing.T) {
+	// Verify that mutating one snapshot's activation map doesn't affect others
+	s := store.NewInMemoryGraphStore()
+	addNode(t, s, "A")
+	addNode(t, s, "B")
+
+	now := time.Now()
+	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
+
+	eng := NewEngine(s, DefaultConfig())
+	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
+
+	steps, err := eng.ActivateWithSteps(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(steps) < 2 {
+		t.Fatalf("expected at least 2 snapshots, got %d", len(steps))
+	}
+
+	// Mutate step 0's activation map
+	origA := steps[1].Activation["A"]
+	steps[0].Activation["A"] = 999.0
+
+	// Step 1 should be unaffected
+	if steps[1].Activation["A"] != origA {
+		t.Errorf("mutation leaked between snapshots: step 1 A changed from %f to %f",
+			origA, steps[1].Activation["A"])
+	}
+}
+
+func TestActivateWithSteps_FinalSnapshotHasSigmoid(t *testing.T) {
+	// Final snapshot should have sigmoid applied (values mapped to [0,1] range)
+	s := store.NewInMemoryGraphStore()
+	addNode(t, s, "A")
+
+	eng := NewEngine(s, DefaultConfig())
+	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
+
+	steps, err := eng.ActivateWithSteps(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	last := steps[len(steps)-1]
+	if !last.Final {
+		t.Fatal("last snapshot should be Final")
+	}
+
+	// Seed with activation 1.0 -> after sigmoid should be very close to 1.0
+	actA := last.Activation["A"]
+	if actA < 0.99 {
+		t.Errorf("expected final A activation near 1.0 (sigmoid of 1.0), got %f", actA)
+	}
+}
+
+func TestActivateWithSteps_EmptySeeds(t *testing.T) {
+	s := store.NewInMemoryGraphStore()
+	eng := NewEngine(s, DefaultConfig())
+
+	steps, err := eng.ActivateWithSteps(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(steps) != 0 {
+		t.Errorf("expected empty steps for nil seeds, got %d", len(steps))
+	}
+	if steps == nil {
+		t.Error("expected non-nil empty slice, got nil")
+	}
+}

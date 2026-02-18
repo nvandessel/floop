@@ -199,6 +199,55 @@
   .source-learned { background: rgba(166,227,161,0.2); color: var(--green); }
   .source-manual { background: rgba(137,180,250,0.2); color: var(--blue); }
   .source-imported { background: rgba(249,226,175,0.2); color: var(--yellow); }
+
+  /* Electric mode toolbar */
+  #electric-toolbar {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 12px;
+    z-index: 300;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+    transition: bottom 0.3s ease;
+  }
+  #electric-toolbar.visible { bottom: 16px; }
+  #electric-toolbar button {
+    background: var(--surface1);
+    border: 1px solid var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #electric-toolbar button:hover { background: var(--surface2); }
+  #electric-toolbar button.active { background: var(--blue); color: var(--base); }
+  #electric-toolbar .et-label { color: var(--subtext0); font-size: 11px; }
+  #electric-toolbar .et-step { color: var(--text); font-weight: 500; min-width: 60px; text-align: center; }
+  #electric-toolbar input[type="range"] {
+    width: 80px;
+    accent-color: var(--blue);
+    cursor: pointer;
+  }
+  #electric-toolbar .et-close {
+    background: none;
+    border: none;
+    color: var(--subtext0);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  #electric-toolbar .et-close:hover { color: var(--red); }
 </style>
 </head>
 <body>
@@ -245,6 +294,16 @@
   <div class="legend-row"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#cba6f7" stroke-width="1.5"/></svg><span class="legend-label">both</span></div>
 </div>
 
+<div id="electric-toolbar">
+  <button id="et-play" title="Play/Pause">&#9654;</button>
+  <button id="et-prev" title="Previous step">&#9664;&#9664;</button>
+  <button id="et-next" title="Next step">&#9654;&#9654;</button>
+  <span class="et-label">Speed</span>
+  <input type="range" id="et-speed" min="0.5" max="3" step="0.25" value="1">
+  <span class="et-step" id="et-step-label">Step 0/0</span>
+  <button class="et-close" id="et-clear" title="Exit electric mode">&times;</button>
+</div>
+
 <script src="{{.ForceGraphSrc}}"></script>
 <script>
 (function() {
@@ -252,6 +311,7 @@
 
   // Graph data injected by Go template
   var graphData = {{.GraphJSON}};
+  var apiBaseURL = '{{.APIBaseURL}}';
 
   // Color palette (Catppuccin Mocha)
   var kindColors = {
@@ -434,6 +494,31 @@
         ctx.stroke();
       }
 
+      // Electric mode glow
+      if (electricState.active && electricState.steps) {
+        var eAct = getElectricActivation(node.id);
+        if (eAct > 0.01) {
+          ctx.save();
+          ctx.shadowColor = node.id === electricState.seedNodeId ? '#f9e2af' : '#89b4fa';
+          ctx.shadowBlur = eAct * 15;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 1, 0, 2 * Math.PI);
+          ctx.strokeStyle = ctx.shadowColor;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+        // Seed node pulse
+        if (node.id === electricState.seedNodeId) {
+          var pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r + 4 + pulse * 3, 0, 2 * Math.PI);
+          ctx.strokeStyle = 'rgba(249,226,175,' + (0.3 + pulse * 0.4) + ')';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+
       // Match label opacity to node (dimmed labels on dimmed nodes)
       // Labels appear when zoomed in
       if (globalScale > 5) {
@@ -566,8 +651,11 @@
 
   // --- Scope filtering ---
   var activeScope = 'all';
+  // Hook called before scope filter runs (electric mode uses this to deactivate)
+  var beforeScopeFilter = null;
 
   function filterByScope(scope) {
+    if (beforeScopeFilter) beforeScopeFilter();
     activeScope = scope;
 
     // Update button states
@@ -787,6 +875,253 @@
   };
   window.__getNodeOpacity = function(nodeId) {
     return getNodeOpacity(nodeId);
+  };
+
+  // --- Electric mode (spreading activation visualization) ---
+  var electricState = {
+    active: false,
+    seedNodeId: null,
+    steps: null,
+    currentStep: 0,
+    playing: false,
+    speed: 1.0,
+    animFrameId: null,
+    lastStepTime: 0,
+    savedFocus: null // {focusedNodeId, focusDistances} saved before electric mode
+  };
+
+  var electricToolbar = document.getElementById('electric-toolbar');
+
+  function electricEnabled() {
+    return apiBaseURL !== '';
+  }
+
+  function showElectricToolbar() {
+    electricToolbar.classList.add('visible');
+  }
+
+  function hideElectricToolbar() {
+    electricToolbar.classList.remove('visible');
+  }
+
+  function updateElectricUI() {
+    if (!electricState.steps) return;
+    var total = electricState.steps.length - 1;
+    document.getElementById('et-step-label').textContent = 'Step ' + electricState.currentStep + '/' + total;
+    var playBtn = document.getElementById('et-play');
+    playBtn.innerHTML = electricState.playing ? '&#9646;&#9646;' : '&#9654;';
+    playBtn.classList.toggle('active', electricState.playing);
+  }
+
+  function getElectricActivation(nodeId) {
+    if (!electricState.active || !electricState.steps) return 0;
+    var snap = electricState.steps[electricState.currentStep];
+    if (!snap || !snap.activation) return 0;
+    return snap.activation[nodeId] || 0;
+  }
+
+  function updateElectricParticles() {
+    if (!electricState.active || !electricState.steps) {
+      graph.linkDirectionalParticles(0);
+      return;
+    }
+    var snap = electricState.steps[electricState.currentStep];
+    if (!snap) return;
+    var act = snap.activation || {};
+
+    graph
+      .linkDirectionalParticles(function(link) {
+        var src = link.source.id || link.source;
+        var tgt = link.target.id || link.target;
+        var srcAct = act[src] || 0;
+        var tgtAct = act[tgt] || 0;
+        var energy = Math.max(srcAct, tgtAct);
+        if (energy < 0.01) return 0;
+        return Math.min(4, Math.ceil(energy * 4));
+      })
+      .linkDirectionalParticleSpeed(function() {
+        return 0.006 * electricState.speed;
+      })
+      .linkDirectionalParticleWidth(function(link) {
+        var src = link.source.id || link.source;
+        var tgt = link.target.id || link.target;
+        var act_ = electricState.steps[electricState.currentStep].activation || {};
+        var energy = Math.max(act_[src] || 0, act_[tgt] || 0);
+        return Math.max(1, energy * 4);
+      })
+      .linkDirectionalParticleColor(function(link) {
+        return link.kind === 'conflicts' ? '#f38ba8' : '#89b4fa';
+      });
+  }
+
+  function electricActivate(nodeId) {
+    if (!electricEnabled()) return;
+    var url = apiBaseURL + '/api/activate?seed=' + encodeURIComponent(nodeId);
+    return fetch(url)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Activation failed: ' + r.status);
+        return r.json();
+      })
+      .then(function(steps) {
+        // Save current focus state
+        electricState.savedFocus = {
+          focusedNodeId: focusedNodeId,
+          focusDistances: focusDistances
+        };
+
+        electricState.steps = steps;
+        electricState.seedNodeId = nodeId;
+        electricState.currentStep = 0;
+        electricState.active = true;
+        electricState.playing = false;
+
+        // Clear focus mode (electric replaces it)
+        focusedNodeId = null;
+        focusDistances = null;
+
+        updateElectricParticles();
+        updateElectricUI();
+        showElectricToolbar();
+        return steps;
+      });
+  }
+
+  function electricDeactivate() {
+    electricState.active = false;
+    electricState.steps = null;
+    electricState.seedNodeId = null;
+    electricState.currentStep = 0;
+
+    if (electricState.playing) {
+      electricState.playing = false;
+      if (electricState.animFrameId) {
+        cancelAnimationFrame(electricState.animFrameId);
+        electricState.animFrameId = null;
+      }
+    }
+
+    // Restore focus state
+    if (electricState.savedFocus) {
+      focusedNodeId = electricState.savedFocus.focusedNodeId;
+      focusDistances = electricState.savedFocus.focusDistances;
+      electricState.savedFocus = null;
+    }
+
+    // Clear particles
+    graph.linkDirectionalParticles(0);
+    hideElectricToolbar();
+  }
+
+  function electricSetStep(step) {
+    if (!electricState.steps) return;
+    electricState.currentStep = Math.max(0, Math.min(step, electricState.steps.length - 1));
+    updateElectricParticles();
+    updateElectricUI();
+  }
+
+  function electricPlayLoop(timestamp) {
+    if (!electricState.playing || !electricState.steps) return;
+    var interval = 1500 / electricState.speed;
+    if (timestamp - electricState.lastStepTime >= interval) {
+      electricState.lastStepTime = timestamp;
+      var next = electricState.currentStep + 1;
+      if (next >= electricState.steps.length) next = 0;
+      electricSetStep(next);
+    }
+    electricState.animFrameId = requestAnimationFrame(electricPlayLoop);
+  }
+
+  function electricTogglePlay() {
+    if (!electricState.active) return;
+    electricState.playing = !electricState.playing;
+    if (electricState.playing) {
+      electricState.lastStepTime = performance.now();
+      electricState.animFrameId = requestAnimationFrame(electricPlayLoop);
+    } else {
+      if (electricState.animFrameId) {
+        cancelAnimationFrame(electricState.animFrameId);
+        electricState.animFrameId = null;
+      }
+    }
+    updateElectricUI();
+  }
+
+  // Toolbar button bindings
+  document.getElementById('et-play').addEventListener('click', electricTogglePlay);
+  document.getElementById('et-prev').addEventListener('click', function() {
+    electricSetStep(electricState.currentStep - 1);
+  });
+  document.getElementById('et-next').addEventListener('click', function() {
+    electricSetStep(electricState.currentStep + 1);
+  });
+  document.getElementById('et-speed').addEventListener('input', function(e) {
+    electricState.speed = parseFloat(e.target.value);
+  });
+  document.getElementById('et-clear').addEventListener('click', function() {
+    electricDeactivate();
+  });
+
+  // Override nodeCanvasObject to include electric mode glow
+  var origGetNodeOpacity = getNodeOpacity;
+  getNodeOpacity = function(nodeId) {
+    if (electricState.active && electricState.steps) {
+      var act = getElectricActivation(nodeId);
+      if (nodeId === electricState.seedNodeId) return 1.0;
+      return Math.max(0.08, act);
+    }
+    return origGetNodeOpacity(nodeId);
+  };
+
+  // Integrate with node click
+  var origOnNodeClick = graph.onNodeClick();
+  graph.onNodeClick(function(node) {
+    graph.__nodeClickTime = Date.now();
+    if (electricEnabled()) {
+      electricActivate(node.id);
+    } else {
+      focusedNodeId = node.id;
+      focusDistances = calculateFocusDistances(node.id, adjacencyMap);
+    }
+    showDetail(node);
+  });
+
+  // Integrate with background click
+  graph.onBackgroundClick(function() {
+    if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
+    if (electricState.active) {
+      electricDeactivate();
+    }
+    closePanel();
+  });
+
+  // Integrate with scope filter — deactivate electric mode first
+  beforeScopeFilter = function() {
+    if (electricState.active) {
+      electricDeactivate();
+    }
+  };
+
+  // Test helpers for electric mode
+  window.__electricSim = function(nodeId) {
+    return electricActivate(nodeId);
+  };
+  window.__electricActivate = function(nodeId) {
+    return electricActivate(nodeId);
+  };
+  window.__electricDeactivate = function() {
+    electricDeactivate();
+  };
+  window.__electricGetStep = function() {
+    return electricState.currentStep;
+  };
+  window.__electricSetStep = function(step) {
+    electricSetStep(step);
+  };
+  window.__electricIsActive = function() {
+    return electricState.active;
+  };
+  window.__electricGetActivation = function(nodeId) {
+    return getElectricActivation(nodeId);
   };
 })();
 </script>
