@@ -452,10 +452,11 @@ func TestSanitizeToolParams(t *testing.T) {
 
 	t.Run("sensitive values are redacted", func(t *testing.T) {
 		params := map[string]interface{}{
-			"wrong": "user said something private",
-			"right": "should do something else",
-			"file":  "/home/user/secret.go",
-			"task":  "development",
+			"wrong":    "user said something private",
+			"right":    "should do something else",
+			"file":     "/home/user/secret.go",
+			"task":     "development",
+			"language": "go",
 		}
 		result := sanitizeToolParams("floop_learn", params)
 		if result["wrong"] != "(set)" {
@@ -469,6 +470,9 @@ func TestSanitizeToolParams(t *testing.T) {
 		}
 		if result["task"] != "(set)" {
 			t.Errorf("task = %q, want (set)", result["task"])
+		}
+		if result["language"] != "go" {
+			t.Errorf("language = %q, want go (safe-value param)", result["language"])
 		}
 	})
 
