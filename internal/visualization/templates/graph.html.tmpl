@@ -163,6 +163,42 @@
   .dp-scope-badge.scope-global { background: rgba(137,180,250,0.2); color: var(--blue); }
   .dp-scope-badge.scope-both { background: rgba(203,166,247,0.2); color: var(--mauve); }
   .dp-scope-badge.scope-unknown { background: rgba(108,112,134,0.2); color: var(--overlay0); }
+
+  /* Tags */
+  .dp-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .dp-tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--surface1);
+    color: var(--subtext1);
+  }
+
+  /* Stats grid */
+  .dp-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+  .dp-stat-item { background: var(--surface1); border-radius: 4px; padding: 6px 8px; }
+  .dp-stat-item .dp-stat-val { font-size: 16px; font-weight: 600; color: var(--text); }
+  .dp-stat-item .dp-stat-lbl { font-size: 10px; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.3px; }
+
+  /* Activation conditions */
+  .dp-when-list { margin-top: 4px; }
+  .dp-when-row { display: flex; gap: 6px; margin-bottom: 3px; font-size: 12px; }
+  .dp-when-key { color: var(--subtext0); min-width: 80px; flex-shrink: 0; }
+  .dp-when-val { color: var(--text); word-break: break-word; }
+
+  /* Provenance badge */
+  .dp-provenance-source {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .source-learned { background: rgba(166,227,161,0.2); color: var(--green); }
+  .source-manual { background: rgba(137,180,250,0.2); color: var(--blue); }
+  .source-imported { background: rgba(249,226,175,0.2); color: var(--yellow); }
 </style>
 </head>
 <body>
@@ -459,6 +495,12 @@
         var meta = 'confidence: ' + (node.confidence || 0).toFixed(2);
         if (node.pagerank) meta += '  pagerank: ' + node.pagerank.toFixed(3);
         meta += '  scope: ' + (node.scope || 'unknown');
+        var tags = node.tags || [];
+        if (tags.length > 0) {
+          var shown = tags.slice(0, 3).join(', ');
+          if (tags.length > 3) shown += ' +' + (tags.length - 3);
+          meta += '\ntags: ' + shown;
+        }
         tt.querySelector('.tt-meta').textContent = meta;
         tt.style.display = 'block';
       } else {
@@ -614,14 +656,72 @@
     var scopeClass = 'scope-' + (validScopes[scopeVal] ? scopeVal : 'unknown');
     html += '<div class="dp-section"><div class="dp-label">Scope</div><div class="dp-value"><span class="dp-scope-badge ' + scopeClass + '">' + esc(scopeVal) + '</span></div></div>';
 
+    // Tags
+    var tags = node.tags || [];
+    if (tags.length > 0) {
+      html += '<div class="dp-section"><div class="dp-label">Tags</div><div class="dp-tags">';
+      for (var i = 0; i < tags.length; i++) {
+        html += '<span class="dp-tag">' + esc(String(tags[i])) + '</span>';
+      }
+      html += '</div></div>';
+    }
+
     html += barSection('Confidence', node.confidence || 0, kindColors[node.kind] || defaultColor);
 
     if (node.pagerank != null) {
       html += barSection('PageRank', node.pagerank, '#cba6f7');
     }
 
+    // Priority
+    if (node.priority && node.priority > 0) {
+      html += section('Priority', node.priority);
+    }
+
     var deg = degree[node.id] || 0;
     html += section('Connections', deg);
+
+    // Usage stats (only show if any counter is non-zero)
+    var stats = node.stats;
+    if (stats && ((stats.times_activated || 0) + (stats.times_confirmed || 0) + (stats.times_overridden || 0) + (stats.times_followed || 0) > 0)) {
+      html += '<div class="dp-section"><div class="dp-label">Usage Stats</div><div class="dp-stats-grid">';
+      html += statItem(stats.times_activated || 0, 'Activated');
+      html += statItem(stats.times_confirmed || 0, 'Confirmed');
+      html += statItem(stats.times_overridden || 0, 'Overridden');
+      html += statItem(stats.times_followed || 0, 'Followed');
+      html += '</div>';
+      if (stats.last_activated) {
+        html += '<div style="font-size:11px;color:var(--subtext0);margin-top:4px">Last activated: ' + formatTime(stats.last_activated) + '</div>';
+      }
+      if (stats.last_confirmed) {
+        html += '<div style="font-size:11px;color:var(--subtext0)">Last confirmed: ' + formatTime(stats.last_confirmed) + '</div>';
+      }
+      html += '</div>';
+    }
+
+    // Activation conditions
+    var when = node.when;
+    if (when && Object.keys(when).length > 0) {
+      html += '<div class="dp-section"><div class="dp-label">Activation Conditions</div><div class="dp-when-list">';
+      var keys = Object.keys(when);
+      for (var i = 0; i < keys.length; i++) {
+        html += '<div class="dp-when-row"><span class="dp-when-key">' + esc(keys[i]) + '</span><span class="dp-when-val">' + esc(String(when[keys[i]])) + '</span></div>';
+      }
+      html += '</div></div>';
+    }
+
+    // Provenance
+    var prov = node.provenance;
+    if (prov) {
+      var srcType = prov.source_type || 'unknown';
+      var srcClasses = { 'learned': 'source-learned', 'manual': 'source-manual', 'imported': 'source-imported' };
+      var srcClass = srcClasses[srcType] || 'source-manual';
+      html += '<div class="dp-section"><div class="dp-label">Provenance</div><div class="dp-value">';
+      html += '<span class="dp-provenance-source ' + srcClass + '">' + esc(srcType) + '</span>';
+      if (prov.created_at) {
+        html += '<span style="margin-left:8px;font-size:11px;color:var(--subtext0)">' + formatTime(prov.created_at) + '</span>';
+      }
+      html += '</div></div>';
+    }
 
     // Show canonical content (the actual learning)
     if (node.canonical) {
@@ -654,6 +754,19 @@
     var d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+  }
+
+  function statItem(val, label) {
+    return '<div class="dp-stat-item"><div class="dp-stat-val">' + esc(String(val)) + '</div><div class="dp-stat-lbl">' + esc(label) + '</div></div>';
+  }
+
+  function formatTime(t) {
+    if (!t) return '';
+    try {
+      var d = new Date(t);
+      if (isNaN(d.getTime())) return esc(String(t));
+      return esc(d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }));
+    } catch(e) { return esc(String(t)); }
   }
 
   // Test helpers for focus mode

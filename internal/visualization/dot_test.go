@@ -564,6 +564,266 @@ func TestRenderEnrichedJSON_IncludesEdgeScope(t *testing.T) {
 	}
 }
 
+func addBehaviorFull(t *testing.T, gs store.GraphStore, id, name, kind string, confidence float64, opts struct {
+	tags     []string
+	stats    map[string]interface{}
+	when     map[string]interface{}
+	priority int
+}) {
+	t.Helper()
+	ctx := context.Background()
+	content := map[string]interface{}{
+		"name": name,
+		"kind": kind,
+		"content": map[string]interface{}{
+			"canonical": "Test: " + name,
+		},
+		"provenance": map[string]interface{}{
+			"source_type": "learned",
+			"created_at":  "2025-06-15T10:30:00Z",
+		},
+	}
+	if opts.tags != nil {
+		content["content"].(map[string]interface{})["tags"] = opts.tags
+	}
+	if opts.when != nil {
+		content["when"] = opts.when
+	}
+
+	metadata := map[string]interface{}{
+		"confidence": confidence,
+		"priority":   float64(opts.priority),
+		"scope":      "local",
+	}
+	if opts.stats != nil {
+		metadata["stats"] = opts.stats
+	}
+
+	node := store.Node{
+		ID:       id,
+		Kind:     "behavior",
+		Content:  content,
+		Metadata: metadata,
+	}
+	if _, err := gs.AddNode(ctx, node); err != nil {
+		t.Fatalf("add node %s: %v", id, err)
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesTags(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorFull(t, gs, "b1", "tagged-behavior", "directive", 0.8, struct {
+		tags     []string
+		stats    map[string]interface{}
+		when     map[string]interface{}
+		priority int
+	}{
+		tags: []string{"security", "auth", "api"},
+	})
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+
+	tags, ok := nodes[0]["tags"].([]interface{})
+	if !ok {
+		t.Fatal("expected tags field to be []interface{}")
+	}
+	if len(tags) != 3 {
+		t.Errorf("expected 3 tags, got %d", len(tags))
+	}
+	if tags[0] != "security" {
+		t.Errorf("first tag = %v, want %q", tags[0], "security")
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesStats(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorFull(t, gs, "b1", "stats-behavior", "constraint", 0.9, struct {
+		tags     []string
+		stats    map[string]interface{}
+		when     map[string]interface{}
+		priority int
+	}{
+		stats: map[string]interface{}{
+			"times_activated":  5,
+			"times_confirmed":  3,
+			"times_overridden": 1,
+			"times_followed":   4,
+			"last_activated":   "2025-06-15T10:30:00Z",
+		},
+	})
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	stats, ok := nodes[0]["stats"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected stats field to be map[string]interface{}")
+	}
+	// Verify expected stats keys are present (values managed by store's behavior_stats table)
+	expectedKeys := []string{"times_activated", "times_confirmed", "times_overridden", "times_followed"}
+	for _, key := range expectedKeys {
+		if _, exists := stats[key]; !exists {
+			t.Errorf("expected stats key %q to exist", key)
+		}
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesProvenance(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorFull(t, gs, "b1", "prov-behavior", "procedure", 0.7, struct {
+		tags     []string
+		stats    map[string]interface{}
+		when     map[string]interface{}
+		priority int
+	}{})
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	prov, ok := nodes[0]["provenance"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected provenance field to be map[string]interface{}")
+	}
+	if prov["source_type"] != "learned" {
+		t.Errorf("source_type = %v, want %q", prov["source_type"], "learned")
+	}
+	// created_at may be string or time.Time depending on store round-trip
+	if prov["created_at"] == nil {
+		t.Error("expected created_at field in provenance")
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesWhen(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorFull(t, gs, "b1", "when-behavior", "directive", 0.8, struct {
+		tags     []string
+		stats    map[string]interface{}
+		when     map[string]interface{}
+		priority int
+	}{
+		when: map[string]interface{}{
+			"file_pattern": "*.go",
+			"task":         "development",
+		},
+	})
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	when, ok := nodes[0]["when"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected when field to be map[string]interface{}")
+	}
+	if when["file_pattern"] != "*.go" {
+		t.Errorf("file_pattern = %v, want %q", when["file_pattern"], "*.go")
+	}
+}
+
+func TestRenderEnrichedJSON_EmptyTagsDefaultsToEmptyArray(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "no-tags", "directive", 0.8)
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	tags, ok := nodes[0]["tags"].([]interface{})
+	if !ok {
+		t.Fatal("expected tags field to be []interface{} (empty array), got nil or wrong type")
+	}
+	if len(tags) != 0 {
+		t.Errorf("expected empty tags array, got %d items", len(tags))
+	}
+}
+
+func TestRenderEnrichedJSON_IncludesPriority(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehaviorFull(t, gs, "b1", "priority-behavior", "constraint", 0.9, struct {
+		tags     []string
+		stats    map[string]interface{}
+		when     map[string]interface{}
+		priority int
+	}{
+		priority: 3,
+	})
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+
+	// Priority > 0 should be included
+	pri, ok := nodes[0]["priority"]
+	if !ok {
+		t.Fatal("expected priority field on node with priority=3")
+	}
+	switch v := pri.(type) {
+	case int:
+		if v != 3 {
+			t.Errorf("priority = %d, want 3", v)
+		}
+	case float64:
+		if v != 3 {
+			t.Errorf("priority = %v, want 3", v)
+		}
+	default:
+		t.Fatalf("priority unexpected type %T", pri)
+	}
+}
+
+func TestRenderEnrichedJSON_ZeroPriorityOmitted(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "no-priority", "directive", 0.8)
+
+	result, err := RenderEnrichedJSON(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderEnrichedJSON: %v", err)
+	}
+
+	nodes := result["nodes"].([]map[string]interface{})
+	if _, exists := nodes[0]["priority"]; exists {
+		t.Error("expected priority to be omitted when value is 0")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string

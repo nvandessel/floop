@@ -198,17 +198,50 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 			confidence = meta
 		}
 
-		// Extract canonical content for detail panel
+		// Extract canonical content and tags from the nested content map
 		canonical := ""
+		var tags []interface{}
 		if content, ok := node.Content["content"].(map[string]interface{}); ok {
 			if c, ok := content["canonical"].(string); ok {
 				canonical = c
 			}
+			if t, ok := content["tags"].([]interface{}); ok {
+				tags = t
+			}
+		}
+		if tags == nil {
+			tags = []interface{}{}
 		}
 
 		scope := "local"
 		if s, ok := node.Metadata["scope"].(string); ok {
 			scope = s
+		}
+
+		// Extract stats from metadata
+		var stats map[string]interface{}
+		if s, ok := node.Metadata["stats"].(map[string]interface{}); ok {
+			stats = s
+		}
+
+		// Extract provenance
+		var provenance map[string]interface{}
+		if p, ok := node.Content["provenance"].(map[string]interface{}); ok {
+			provenance = p
+		}
+
+		// Extract priority
+		priority := 0
+		if p, ok := node.Metadata["priority"].(int); ok {
+			priority = p
+		} else if p, ok := node.Metadata["priority"].(float64); ok {
+			priority = int(p)
+		}
+
+		// Extract activation conditions
+		var when map[string]interface{}
+		if w, ok := node.Content["when"].(map[string]interface{}); ok && len(w) > 0 {
+			when = w
 		}
 
 		entry := map[string]interface{}{
@@ -218,6 +251,20 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 			"confidence": confidence,
 			"canonical":  canonical,
 			"scope":      scope,
+			"tags":       tags,
+		}
+
+		if stats != nil {
+			entry["stats"] = stats
+		}
+		if provenance != nil {
+			entry["provenance"] = provenance
+		}
+		if priority > 0 {
+			entry["priority"] = priority
+		}
+		if when != nil {
+			entry["when"] = when
 		}
 
 		// Add PageRank if available
