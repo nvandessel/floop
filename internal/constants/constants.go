@@ -47,6 +47,9 @@ const (
 	// SimilarToThreshold is the minimum score for creating similar-to edges.
 	SimilarToThreshold = 0.5
 
+	// SpecializeThreshold is the minimum score for considering specialization edges.
+	SpecializeThreshold = 0.7
+
 	// SimilarToUpperBound is the upper bound; above this, behaviors are potential duplicates.
 	SimilarToUpperBound = 0.9
 )

@@ -139,7 +139,7 @@ func (p *graphPlacer) Place(ctx context.Context, behavior *models.Behavior) (*Pl
 		decision.Action = "merge"
 		decision.TargetID = mostSimilar.ID
 		decision.Confidence = 0.5 // Lower confidence for merges (needs review)
-	} else if highestSimilarity > 0.7 && mostSimilar != nil {
+	} else if highestSimilarity > constants.SpecializeThreshold && mostSimilar != nil {
 		// High similarity but not duplicate - check if we should specialize
 		if p.isMoreSpecific(behavior.When, mostSimilar.When) {
 			decision.Action = "specialize"
