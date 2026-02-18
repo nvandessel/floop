@@ -54,6 +54,12 @@ func TestComputeWhenOverlap(t *testing.T) {
 			want: 0.5, // 2 matches out of 4 total
 		},
 		{
+			name: "mixed keys shared and orthogonal",
+			a:    map[string]interface{}{"language": "go", "file_path": "store/*"},
+			b:    map[string]interface{}{"language": "go", "task": "refactor"},
+			want: 0.5, // shared key matches, orthogonal keys dilute total
+		},
+		{
 			name: "multiple matching keys",
 			a:    map[string]interface{}{"language": "go", "task": "refactor"},
 			b:    map[string]interface{}{"language": "go", "task": "refactor"},
