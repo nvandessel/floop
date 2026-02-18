@@ -358,14 +358,21 @@ func renderHTMLInternal(ctx context.Context, gs store.GraphStore, enrichment *En
 		return nil, fmt.Errorf("parse HTML template: %w", err)
 	}
 
+	// Escape graph JSON for safe inline <script> embedding.
+	// json.HTMLEscape converts <, >, & to unicode escapes (\u003c etc.),
+	// preventing </script> breakout from user-controlled behavior content.
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, graphJSON)
 
 	var buf bytes.Buffer
 	data := htmlTemplateData{
+		// ForceGraphSrc: trusted embedded asset, base64-encoded — no user input.
 		ForceGraphSrc: template.URL("data:text/javascript;base64," + base64.StdEncoding.EncodeToString(jsBytes)), // #nosec G203
-		GraphJSON:     template.JS(escaped.String()),                                                             // #nosec G203
-		APIBaseURL:    apiBaseURL,
+		// GraphJSON: pre-sanitized via json.HTMLEscape — </script> breakout impossible.
+		GraphJSON: template.JS(escaped.String()), // #nosec G203
+		// APIBaseURL: constructed from localhost:PORT in server mode, empty in static mode.
+		// html/template JS-escapes this in the <script> context.
+		APIBaseURL: apiBaseURL,
 	}
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("execute HTML template: %w", err)

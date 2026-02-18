@@ -21,10 +21,10 @@ func TestServer_ServesHTML(t *testing.T) {
 
 	srv := NewServer(gs, enrichment)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	t.Cleanup(func() { cancel(); <-errCh })
 
 	// Wait for server to start
 	waitForServer(t, srv, 2*time.Second)
@@ -45,11 +45,10 @@ func TestServer_ServesHTML(t *testing.T) {
 
 func TestServer_ActivateEndpoint(t *testing.T) {
 	gs := setupTestStore(t)
-	ctx := context.Background()
 
 	addBehavior(t, gs, "b1", "behavior-a", "directive", 0.8)
 	addBehavior(t, gs, "b2", "behavior-b", "constraint", 0.9)
-	if err := gs.AddEdge(ctx, store.Edge{
+	if err := gs.AddEdge(context.Background(), store.Edge{
 		Source: "b1", Target: "b2", Kind: "requires",
 		Weight: 0.8, CreatedAt: time.Now(),
 		LastActivated: timePtr(time.Now()),
@@ -59,10 +58,10 @@ func TestServer_ActivateEndpoint(t *testing.T) {
 
 	srv := NewServer(gs, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	t.Cleanup(func() { cancel(); <-errCh })
 
 	waitForServer(t, srv, 2*time.Second)
 
@@ -103,10 +102,10 @@ func TestServer_ActivateEndpoint_UnknownSeed(t *testing.T) {
 
 	srv := NewServer(gs, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	t.Cleanup(func() { cancel(); <-errCh })
 
 	waitForServer(t, srv, 2*time.Second)
 
@@ -126,10 +125,10 @@ func TestServer_ActivateEndpoint_MissingSeed(t *testing.T) {
 
 	srv := NewServer(gs, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	t.Cleanup(func() { cancel(); <-errCh })
 
 	waitForServer(t, srv, 2*time.Second)
 

@@ -17,17 +17,21 @@ import (
 type Server struct {
 	store      store.GraphStore
 	enrichment *EnrichmentData
+	engine     *spreading.Engine
 	httpServer *http.Server
 	listener   net.Listener
 	mu         sync.Mutex
 	addr       string
+	cachedHTML []byte // cached index page (rendered once at startup)
 }
 
 // NewServer creates a new graph visualization server.
 func NewServer(gs store.GraphStore, enrichment *EnrichmentData) *Server {
+	cfg := spreading.DefaultConfig()
 	return &Server{
 		store:      gs,
 		enrichment: enrichment,
+		engine:     spreading.NewEngine(gs, cfg),
 	}
 }
 
@@ -40,7 +44,7 @@ func (s *Server) Addr() string {
 }
 
 // ListenAndServe starts the HTTP server on an OS-assigned port and blocks
-// until the context is cancelled. Returns http.ErrServerClosed on clean shutdown.
+// until the context is cancelled.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
@@ -58,6 +62,17 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	s.httpServer = &http.Server{Handler: mux}
 	s.mu.Unlock()
 
+	// Pre-render the index page now that we know the address.
+	apiBaseURL := "http://" + s.Addr()
+	html, err := RenderHTMLForServer(ctx, s.store, s.enrichment, apiBaseURL)
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("pre-render HTML: %w", err)
+	}
+	s.mu.Lock()
+	s.cachedHTML = html
+	s.mu.Unlock()
+
 	// Graceful shutdown when context is cancelled.
 	go func() {
 		<-ctx.Done()
@@ -73,19 +88,20 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return err
 }
 
-// handleIndex serves the graph HTML page with the API base URL configured.
+// handleIndex serves the cached graph HTML page.
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
-	apiBaseURL := "http://" + s.Addr()
-	html, err := RenderHTMLForServer(r.Context(), s.store, s.enrichment, apiBaseURL)
-	if err != nil {
-		http.Error(w, "render error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	s.mu.Lock()
+	html := s.cachedHTML
+	s.mu.Unlock()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(html)
@@ -93,6 +109,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // handleActivate runs spreading activation for a seed node and returns step snapshots.
 func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	seedID := r.URL.Query().Get("seed")
 	if seedID == "" {
 		http.Error(w, "missing 'seed' query parameter", http.StatusBadRequest)
@@ -102,13 +123,9 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	// Verify the seed node exists.
 	node, err := s.store.GetNode(r.Context(), seedID)
 	if err != nil || node == nil {
-		http.Error(w, "seed node not found: "+seedID, http.StatusNotFound)
+		http.Error(w, "seed node not found", http.StatusNotFound)
 		return
 	}
-
-	// Run spreading activation with step snapshots.
-	cfg := spreading.DefaultConfig()
-	engine := spreading.NewEngine(s.store, cfg)
 
 	seeds := []spreading.Seed{{
 		BehaviorID: seedID,
@@ -116,9 +133,9 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 		Source:     "electric-mode",
 	}}
 
-	steps, err := engine.ActivateWithSteps(r.Context(), seeds)
+	steps, err := s.engine.ActivateWithSteps(r.Context(), seeds)
 	if err != nil {
-		http.Error(w, "activation error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "activation failed", http.StatusInternalServerError)
 		return
 	}
 

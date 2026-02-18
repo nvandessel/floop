@@ -594,14 +594,21 @@
     })
     .onNodeClick(function(node) {
       graph.__nodeClickTime = Date.now();
-      focusedNodeId = node.id;
-      focusDistances = calculateFocusDistances(node.id, adjacencyMap);
+      if (electricEnabled()) {
+        electricActivate(node.id);
+      } else {
+        focusedNodeId = node.id;
+        focusDistances = calculateFocusDistances(node.id, adjacencyMap);
+      }
       showDetail(node);
     })
     .onBackgroundClick(function() {
       // Ignore if a node was just clicked (force-graph fires both events)
       if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
-      closePanel(); // also clears focus state
+      if (electricState.active) {
+        electricDeactivate();
+      }
+      closePanel();
     })
     .onEngineStop(function() {
       // Auto-fit once when simulation first settles, capped at zoom=1
@@ -943,6 +950,7 @@
         return 0.006 * electricState.speed;
       })
       .linkDirectionalParticleWidth(function(link) {
+        if (!electricState.steps || !electricState.steps[electricState.currentStep]) return 1;
         var src = link.source.id || link.source;
         var tgt = link.target.id || link.target;
         var act_ = electricState.steps[electricState.currentStep].activation || {};
@@ -1072,28 +1080,6 @@
     return origGetNodeOpacity(nodeId);
   };
 
-  // Integrate with node click
-  var origOnNodeClick = graph.onNodeClick();
-  graph.onNodeClick(function(node) {
-    graph.__nodeClickTime = Date.now();
-    if (electricEnabled()) {
-      electricActivate(node.id);
-    } else {
-      focusedNodeId = node.id;
-      focusDistances = calculateFocusDistances(node.id, adjacencyMap);
-    }
-    showDetail(node);
-  });
-
-  // Integrate with background click
-  graph.onBackgroundClick(function() {
-    if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
-    if (electricState.active) {
-      electricDeactivate();
-    }
-    closePanel();
-  });
-
   // Integrate with scope filter — deactivate electric mode first
   beforeScopeFilter = function() {
     if (electricState.active) {
@@ -1103,9 +1089,6 @@
 
   // Test helpers for electric mode
   window.__electricSim = function(nodeId) {
-    return electricActivate(nodeId);
-  };
-  window.__electricActivate = function(nodeId) {
     return electricActivate(nodeId);
   };
   window.__electricDeactivate = function() {
