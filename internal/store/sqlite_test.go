@@ -1195,14 +1195,14 @@ func TestSQLiteGraphStore_SchemaV3Migration(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Verify schema version is now 3
+	// Verify schema version is current (v2→v3→v4 migrations all ran)
 	var version int
 	err = store.db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version)
 	if err != nil {
 		t.Fatalf("get version: %v", err)
 	}
-	if version != 3 {
-		t.Errorf("schema version = %d, want 3", version)
+	if version != SchemaVersion {
+		t.Errorf("schema version = %d, want %d", version, SchemaVersion)
 	}
 
 	// Verify edges have been backfilled
@@ -1947,5 +1947,96 @@ func TestSQLiteGraphStore_SyncReconcilesTruncatedJSONL(t *testing.T) {
 		if !nodeIDs[id] {
 			t.Errorf("missing behavior %s in JSONL after reconciliation", id)
 		}
+	}
+}
+
+func TestSQLiteStore_StatsRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Add a behavior
+	_, err = s.AddNode(ctx, Node{
+		ID:   "stats-rt",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Stats Round Trip",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test stats survive DB recreation",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	// Sync to clear the insert-dirty flag
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("initial Sync() error = %v", err)
+	}
+
+	// Record stats changes
+	if err := s.RecordActivationHit(ctx, "stats-rt"); err != nil {
+		t.Fatalf("RecordActivationHit() error = %v", err)
+	}
+	if err := s.RecordActivationHit(ctx, "stats-rt"); err != nil {
+		t.Fatalf("RecordActivationHit() #2 error = %v", err)
+	}
+	if err := s.RecordConfirmed(ctx, "stats-rt"); err != nil {
+		t.Fatalf("RecordConfirmed() error = %v", err)
+	}
+	if err := s.RecordOverridden(ctx, "stats-rt"); err != nil {
+		t.Fatalf("RecordOverridden() error = %v", err)
+	}
+
+	// The behavior should be dirty from stats updates
+	dirty, err := s.IsDirty(ctx)
+	if err != nil {
+		t.Fatalf("IsDirty() error = %v", err)
+	}
+	if !dirty {
+		t.Fatal("store should be dirty after stats updates")
+	}
+
+	// Sync to export stats to JSONL
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	s.Close()
+
+	// Delete the DB file to force reimport from JSONL
+	dbPath := filepath.Join(tmpDir, ".floop", "floop.db")
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatalf("os.Remove(db) error = %v", err)
+	}
+
+	// Reopen — should reimport from JSONL
+	s2, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() reopen error = %v", err)
+	}
+	defer s2.Close()
+
+	// Verify stats survived the round-trip
+	var timesActivated, timesConfirmed, timesOverridden int
+	err = s2.db.QueryRowContext(ctx,
+		`SELECT times_activated, times_confirmed, times_overridden FROM behavior_stats WHERE behavior_id = ?`,
+		"stats-rt").Scan(&timesActivated, &timesConfirmed, &timesOverridden)
+	if err != nil {
+		t.Fatalf("query stats after reimport error = %v", err)
+	}
+	if timesActivated != 2 {
+		t.Errorf("times_activated = %d, want 2", timesActivated)
+	}
+	if timesConfirmed != 1 {
+		t.Errorf("times_confirmed = %d, want 1", timesConfirmed)
+	}
+	if timesOverridden != 1 {
+		t.Errorf("times_overridden = %d, want 1", timesOverridden)
 	}
 }

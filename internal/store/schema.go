@@ -9,7 +9,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
@@ -145,6 +145,13 @@ BEGIN
     INSERT OR REPLACE INTO dirty_behaviors (behavior_id, operation, dirty_at)
     VALUES (OLD.id, 'delete', datetime('now'));
 END;
+
+CREATE TRIGGER IF NOT EXISTS behavior_stats_dirty
+AFTER UPDATE ON behavior_stats
+BEGIN
+    INSERT OR REPLACE INTO dirty_behaviors (behavior_id, operation, dirty_at)
+    VALUES (NEW.behavior_id, 'update', datetime('now'));
+END;
 `
 
 // InitSchema initializes the database schema.
@@ -256,6 +263,11 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
 	if currentVersion < 3 {
 		if err := migrateV2ToV3(ctx, db); err != nil {
 			return fmt.Errorf("migrate v2 to v3: %w", err)
+		}
+	}
+	if currentVersion < 4 {
+		if err := migrateV3ToV4(ctx, db); err != nil {
+			return fmt.Errorf("migrate v3 to v4: %w", err)
 		}
 	}
 	return nil
@@ -398,6 +410,38 @@ func migrateV2ToV3(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
+// migrateV3ToV4 adds a dirty tracking trigger on the behavior_stats table.
+// Without this trigger, stats changes (times_activated, times_confirmed, etc.)
+// are never exported to JSONL and lost on DB recreation.
+func migrateV3ToV4(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		CREATE TRIGGER IF NOT EXISTS behavior_stats_dirty
+		AFTER UPDATE ON behavior_stats
+		BEGIN
+		    INSERT OR REPLACE INTO dirty_behaviors (behavior_id, operation, dirty_at)
+		    VALUES (NEW.behavior_id, 'update', datetime('now'));
+		END
+	`)
+	if err != nil {
+		return fmt.Errorf("create behavior_stats_dirty trigger: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`,
+		4)
+	if err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // validateStructuralIntegrity checks for SQLite database corruption.
 // It only runs PRAGMA integrity_check — not foreign_key_check.
 // Use ValidateIntegrity for full validation including FK checks.
@@ -485,6 +529,7 @@ func ResetSchema(ctx context.Context, db *sql.DB) error {
 		"behavior_insert_dirty",
 		"behavior_update_dirty",
 		"behavior_delete_dirty",
+		"behavior_stats_dirty",
 	}
 
 	for _, trigger := range triggers {
