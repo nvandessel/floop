@@ -100,3 +100,18 @@ type ExtendedGraphStore interface {
 	// ValidateBehaviorGraph checks the graph for consistency issues.
 	ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error)
 }
+
+// BehaviorEmbedding pairs a behavior ID with its embedding vector.
+type BehaviorEmbedding struct {
+	BehaviorID string
+	Embedding  []float32
+}
+
+// EmbeddingStore provides embedding vector persistence.
+// SQLiteGraphStore implements this interface. Consumers should type-assert
+// to check for support: if es, ok := store.(EmbeddingStore); ok { ... }
+type EmbeddingStore interface {
+	StoreEmbedding(ctx context.Context, behaviorID string, embedding []float32, modelName string) error
+	GetAllEmbeddings(ctx context.Context) ([]BehaviorEmbedding, error)
+	GetBehaviorIDsWithoutEmbeddings(ctx context.Context) ([]string, error)
+}

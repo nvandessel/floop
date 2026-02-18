@@ -9,7 +9,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS behaviors (
     priority INTEGER DEFAULT 0,
     scope TEXT DEFAULT 'local',
     metadata_extra TEXT,  -- JSON for arbitrary metadata (forget_reason, deprecation_reason, etc.)
+
+    -- Embeddings (V4)
+    embedding BLOB,           -- binary-encoded []float32 vector (little-endian)
+    embedding_model TEXT,     -- model that produced the embedding
 
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -258,6 +262,11 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
 			return fmt.Errorf("migrate v2 to v3: %w", err)
 		}
 	}
+	if currentVersion < 4 {
+		if err := migrateV3ToV4(ctx, db); err != nil {
+			return fmt.Errorf("migrate v3 to v4: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -391,6 +400,65 @@ func migrateV2ToV3(ctx context.Context, db *sql.DB) error {
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`,
 		3)
+	if err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// migrateV3ToV4 adds embedding vector columns to the behaviors table.
+// Columns added:
+// - embedding: binary-encoded []float32 vector (little-endian BLOB)
+// - embedding_model: tracks which model produced the embedding
+func migrateV3ToV4(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Get existing columns on behaviors table
+	existingCols := make(map[string]bool)
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(behaviors)`)
+	if err != nil {
+		return fmt.Errorf("check table info: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("scan table info: %w", err)
+		}
+		existingCols[name] = true
+	}
+
+	// Add missing columns (idempotent)
+	columnsToAdd := []struct {
+		name string
+		def  string
+	}{
+		{"embedding", "BLOB"},
+		{"embedding_model", "TEXT"},
+	}
+
+	for _, col := range columnsToAdd {
+		if !existingCols[col.name] {
+			_, err = tx.ExecContext(ctx, fmt.Sprintf(
+				`ALTER TABLE behaviors ADD COLUMN %s %s`, col.name, col.def))
+			if err != nil {
+				return fmt.Errorf("add %s column: %w", col.name, err)
+			}
+		}
+	}
+
+	// Record the new schema version
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`,
+		4)
 	if err != nil {
 		return fmt.Errorf("record schema version: %w", err)
 	}
