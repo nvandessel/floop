@@ -36,16 +36,28 @@ func TestComputeWhenOverlap(t *testing.T) {
 			want: 1.0,
 		},
 		{
-			name: "no overlap",
-			a:    map[string]interface{}{"key1": "value1"},
-			b:    map[string]interface{}{"key2": "value2"},
-			want: 0.0,
+			name: "no shared keys (orthogonal axes)",
+			a:    map[string]interface{}{"file_path": "store/*"},
+			b:    map[string]interface{}{"task": "refactor"},
+			want: -1.0, // Different dimensions = missing signal
+		},
+		{
+			name: "shared key different value",
+			a:    map[string]interface{}{"language": "go"},
+			b:    map[string]interface{}{"language": "python"},
+			want: 0.0, // Same dimension, genuinely different
 		},
 		{
 			name: "partial overlap",
 			a:    map[string]interface{}{"key1": "value1", "key2": "value2"},
 			b:    map[string]interface{}{"key1": "value1", "key3": "value3"},
 			want: 0.5, // 2 matches out of 4 total
+		},
+		{
+			name: "mixed keys shared and orthogonal",
+			a:    map[string]interface{}{"language": "go", "file_path": "store/*"},
+			b:    map[string]interface{}{"language": "go", "task": "refactor"},
+			want: 0.5, // shared key matches, orthogonal keys dilute total
 		},
 		{
 			name: "multiple matching keys",

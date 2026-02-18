@@ -8,11 +8,24 @@ import (
 )
 
 // ComputeWhenOverlap calculates overlap between two when predicates.
-// Returns -1.0 sentinel when either/both maps are empty/nil (missing signal).
-// For non-empty maps, computes a Dice-like coefficient based on matching keys and values.
+// Returns -1.0 sentinel when either/both maps are empty/nil (missing signal),
+// or when the maps share no keys (orthogonal scoping axes like file_path vs task).
+// For maps with shared keys, computes a Dice-like coefficient based on matching values.
 func ComputeWhenOverlap(a, b map[string]interface{}) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return -1.0 // Sentinel: missing signal, redistribute weight
+	}
+
+	// Check if any keys are shared between the two maps
+	hasSharedKey := false
+	for key := range a {
+		if _, exists := b[key]; exists {
+			hasSharedKey = true
+			break
+		}
+	}
+	if !hasSharedKey {
+		return -1.0 // Sentinel: orthogonal axes, can't compare
 	}
 
 	matches := 0
