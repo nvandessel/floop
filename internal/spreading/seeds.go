@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nvandessel/feedback-loop/internal/activation"
+	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/models"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
@@ -62,11 +63,13 @@ func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSna
 	}
 
 	// Step 4: Convert ActivationResult to Seed.
+	// Use MatchScoreToActivation to factor in partial matching:
+	// fully confirmed conditions get high activation, absent conditions get floor.
 	seeds := make([]Seed, 0, len(matches))
 	for _, match := range matches {
 		seeds = append(seeds, Seed{
 			BehaviorID: match.Behavior.ID,
-			Activation: SpecificityToActivation(match.Specificity),
+			Activation: MatchScoreToActivation(len(match.Behavior.When), match.MatchScore),
 			Source:     BuildSourceLabel(match.MatchedConditions),
 		})
 	}
@@ -100,6 +103,18 @@ func SpecificityToActivation(specificity int) float64 {
 		}
 		return v
 	}
+}
+
+// MatchScoreToActivation maps a match score (0.0-1.0) to a seed activation level.
+// It interpolates between AbsentFloorActivation (all absent) and
+// SpecificityToActivation(totalConditions) (all confirmed).
+func MatchScoreToActivation(totalConditions int, score float64) float64 {
+	if totalConditions == 0 {
+		return SpecificityToActivation(0) // always-active: 0.3
+	}
+	floor := constants.AbsentFloorActivation
+	ceiling := SpecificityToActivation(totalConditions)
+	return floor + score*(ceiling-floor)
 }
 
 // BuildSourceLabel formats matched conditions into a source label string.

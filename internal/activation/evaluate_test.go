@@ -69,7 +69,7 @@ func TestEvaluator_Evaluate(t *testing.T) {
 			wantActive: 1,
 		},
 		{
-			name: "multiple conditions partial match fails",
+			name: "contradiction excludes behavior",
 			ctx: models.ContextSnapshot{
 				FileLanguage: "go",
 				Task:         "debug",
@@ -195,6 +195,80 @@ func TestEvaluator_WhyActive(t *testing.T) {
 
 			if len(explanation.Conditions) != 2 {
 				t.Errorf("Expected 2 conditions in explanation, got %d", len(explanation.Conditions))
+			}
+		})
+	}
+}
+
+func TestEvaluator_PartialMatching(t *testing.T) {
+	evaluator := NewEvaluator()
+
+	tests := []struct {
+		name       string
+		ctx        models.ContextSnapshot
+		behavior   models.Behavior
+		wantActive bool
+		wantScore  float64
+	}{
+		{
+			name: "full match - all confirmed",
+			ctx:  models.ContextSnapshot{FileLanguage: "go", Task: "testing"},
+			behavior: models.Behavior{ID: "b1", When: map[string]interface{}{
+				"language": "go", "task": "testing",
+			}},
+			wantActive: true,
+			wantScore:  1.0,
+		},
+		{
+			name: "partial match - task absent",
+			ctx:  models.ContextSnapshot{FileLanguage: "go"},
+			behavior: models.Behavior{ID: "b2", When: map[string]interface{}{
+				"language": "go", "task": "development",
+			}},
+			wantActive: true,
+			wantScore:  0.5,
+		},
+		{
+			name: "contradiction excludes behavior",
+			ctx:  models.ContextSnapshot{FileLanguage: "go", Task: "debug"},
+			behavior: models.Behavior{ID: "b3", When: map[string]interface{}{
+				"language": "go", "task": "refactor",
+			}},
+			wantActive: false,
+			wantScore:  0.0,
+		},
+		{
+			name: "all conditions absent",
+			ctx:  models.ContextSnapshot{},
+			behavior: models.Behavior{ID: "b4", When: map[string]interface{}{
+				"task": "development",
+			}},
+			wantActive: true,
+			wantScore:  0.0,
+		},
+		{
+			name:       "no when conditions - always matches",
+			ctx:        models.ContextSnapshot{FileLanguage: "go"},
+			behavior:   models.Behavior{ID: "b5", When: nil},
+			wantActive: true,
+			wantScore:  0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			results := evaluator.Evaluate(tt.ctx, []models.Behavior{tt.behavior})
+			if tt.wantActive {
+				if len(results) != 1 {
+					t.Fatalf("expected 1 result, got %d", len(results))
+				}
+				if results[0].MatchScore != tt.wantScore {
+					t.Errorf("MatchScore = %f, want %f", results[0].MatchScore, tt.wantScore)
+				}
+			} else {
+				if len(results) != 0 {
+					t.Errorf("expected 0 results (excluded), got %d", len(results))
+				}
 			}
 		})
 	}

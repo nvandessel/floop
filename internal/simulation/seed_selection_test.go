@@ -128,13 +128,21 @@ func TestSeedSelectionIntegration(t *testing.T) {
 	assertNotSeed(t, s2, "go-general")
 
 	// --- Session 3: CI + deploy ---
-	// ci-deploy (spec=2) should be a seed; language-specific behaviors should not be seeds.
+	// ci-deploy (spec=2) should be a seed.
+	// With partial matching, go-general and python-style are also seeds because
+	// their language condition is absent (not contradicted). They get low activation
+	// via AbsentFloorActivation. go-security and rust-perf are excluded because
+	// their task condition is contradicted (deploy != security/performance).
 	s3 := result.Sessions[3]
 	simulation.AssertBehaviorIsSeed(t, s3, "ci-deploy")
 	simulation.AssertBehaviorIsSeed(t, s3, "always-lint")
+	simulation.AssertBehaviorIsSeed(t, s3, "go-general")
+	simulation.AssertBehaviorIsSeed(t, s3, "python-style")
 	assertNotSeed(t, s3, "go-security")
-	assertNotSeed(t, s3, "go-general")
-	assertNotSeed(t, s3, "python-style")
+	// ci-deploy should have higher activation than go-general/python-style
+	// since ci-deploy is fully confirmed (score=1.0) while they are all-absent (score=0.0).
+	assertActivationHigher(t, s3, "ci-deploy", "go-general")
+	assertActivationHigher(t, s3, "ci-deploy", "python-style")
 
 	// --- Session 4: Rust + performance ---
 	// rust-perf (spec=2) should be a seed.

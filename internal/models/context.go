@@ -58,6 +58,19 @@ func (c *ContextSnapshot) Matches(predicate map[string]interface{}) bool {
 	return true
 }
 
+// MatchField checks a single when-condition against this context.
+// Returns:
+//   - matched=true, hasValue=true: context has the key and values match (confirmed)
+//   - matched=false, hasValue=true: context has the key but values differ (contradicted)
+//   - matched=false, hasValue=false: context doesn't have the key (absent)
+func (c *ContextSnapshot) MatchField(key string, required interface{}) (matched, hasValue bool) {
+	actual := c.GetField(key)
+	if actual == nil || actual == "" {
+		return false, false // absent
+	}
+	return matchValue(actual, required), true
+}
+
 // GetField retrieves a field value by name (exported for use by activation package)
 func (c *ContextSnapshot) GetField(key string) interface{} {
 	switch key {

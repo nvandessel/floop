@@ -171,6 +171,86 @@ func TestContextSnapshot_Matches(t *testing.T) {
 	}
 }
 
+func TestContextSnapshot_MatchField(t *testing.T) {
+	tests := []struct {
+		name         string
+		ctx          ContextSnapshot
+		key          string
+		required     interface{}
+		wantMatched  bool
+		wantHasValue bool
+	}{
+		{
+			name:         "confirmed - language matches",
+			ctx:          ContextSnapshot{FileLanguage: "go"},
+			key:          "language",
+			required:     "go",
+			wantMatched:  true,
+			wantHasValue: true,
+		},
+		{
+			name:         "contradicted - language differs",
+			ctx:          ContextSnapshot{FileLanguage: "python"},
+			key:          "language",
+			required:     "go",
+			wantMatched:  false,
+			wantHasValue: true,
+		},
+		{
+			name:         "absent - no language set",
+			ctx:          ContextSnapshot{},
+			key:          "language",
+			required:     "go",
+			wantMatched:  false,
+			wantHasValue: false,
+		},
+		{
+			name:         "absent - empty string language",
+			ctx:          ContextSnapshot{FileLanguage: ""},
+			key:          "language",
+			required:     "go",
+			wantMatched:  false,
+			wantHasValue: false,
+		},
+		{
+			name:         "confirmed - task matches",
+			ctx:          ContextSnapshot{Task: "testing"},
+			key:          "task",
+			required:     "testing",
+			wantMatched:  true,
+			wantHasValue: true,
+		},
+		{
+			name:         "contradicted - task differs",
+			ctx:          ContextSnapshot{Task: "building"},
+			key:          "task",
+			required:     "testing",
+			wantMatched:  false,
+			wantHasValue: true,
+		},
+		{
+			name:         "absent - no task set",
+			ctx:          ContextSnapshot{},
+			key:          "task",
+			required:     "testing",
+			wantMatched:  false,
+			wantHasValue: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matched, hasValue := tt.ctx.MatchField(tt.key, tt.required)
+			if matched != tt.wantMatched {
+				t.Errorf("matched = %v, want %v", matched, tt.wantMatched)
+			}
+			if hasValue != tt.wantHasValue {
+				t.Errorf("hasValue = %v, want %v", hasValue, tt.wantHasValue)
+			}
+		})
+	}
+}
+
 func TestInferLanguage(t *testing.T) {
 	tests := []struct {
 		filePath string
