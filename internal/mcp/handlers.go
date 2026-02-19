@@ -308,10 +308,22 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 
 	actCtx := ctxBuilder.Build()
 
-	// Load all behaviors from store
-	nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
-	if err != nil {
-		return nil, FloopActiveOutput{}, fmt.Errorf("failed to query behaviors: %w", err)
+	// Load behaviors — vector pre-filter when embedder is available, else load all
+	var (
+		nodes []store.Node
+		err   error
+	)
+	if s.embedder != nil && s.embedder.Available() {
+		nodes, err = vectorRetrieve(ctx, s.embedder, s.store, actCtx, vectorRetrieveTopK)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: vector retrieval failed, falling back to full scan: %v\n", err)
+		}
+	}
+	if len(nodes) == 0 {
+		nodes, err = s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+		if err != nil {
+			return nil, FloopActiveOutput{}, fmt.Errorf("failed to query behaviors: %w", err)
+		}
 	}
 
 	// Convert nodes to behaviors
@@ -647,6 +659,21 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 				fmt.Fprintf(os.Stderr, "warning: auto-backup retention failed: %v\n", err)
 			}
 		})
+	}
+
+	// Background: embed the new/merged behavior for vector retrieval
+	if s.embedder != nil && s.embedder.Available() && learningResult.CandidateBehavior.ID != "" {
+		bid := learningResult.CandidateBehavior.ID
+		text := learningResult.CandidateBehavior.Content.Canonical
+		if text != "" {
+			s.runBackground("embed-new-behavior", func() {
+				if es, ok := s.store.(store.EmbeddingStore); ok {
+					if err := s.embedder.EmbedAndStore(context.Background(), es, bid, text); err != nil {
+						fmt.Fprintf(os.Stderr, "warning: failed to embed behavior %s: %v\n", bid, err)
+					}
+				}
+			})
+		}
 	}
 
 	// Debounced PageRank refresh after graph mutation

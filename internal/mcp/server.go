@@ -8,16 +8,20 @@ import (
 	"sync"
 	"time"
 
+	"path/filepath"
+
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/feedback-loop/internal/backup"
 	"github.com/nvandessel/feedback-loop/internal/config"
 	"github.com/nvandessel/feedback-loop/internal/constants"
+	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/ranking"
 	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/seed"
 	"github.com/nvandessel/feedback-loop/internal/session"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
+	"github.com/nvandessel/feedback-loop/internal/vectorsearch"
 )
 
 // maxBackgroundWorkers is the maximum number of concurrent background goroutines.
@@ -60,6 +64,10 @@ type Server struct {
 	// Hebbian co-activation learning
 	coActivationTracker *coActivationTracker
 	hebbianConfig       spreading.HebbianConfig
+
+	// Vector embedding retrieval
+	embedder  *vectorsearch.Embedder
+	llmClient llm.Client // held for cleanup (Close)
 
 	// Shutdown coordination
 	done      chan struct{} // closed on shutdown
@@ -124,6 +132,27 @@ func NewServer(cfg *Config) (*Server, error) {
 		done:                 make(chan struct{}),
 	}
 
+	// Initialize local embedding client if configured
+	if floopCfg.LLM.Provider == "local" {
+		embModelPath := floopCfg.LLM.LocalEmbeddingModelPath
+		if embModelPath == "" {
+			embModelPath = floopCfg.LLM.LocalModelPath
+		}
+		if embModelPath != "" {
+			localClient := llm.NewLocalClient(llm.LocalConfig{
+				LibPath:            floopCfg.LLM.LocalLibPath,
+				EmbeddingModelPath: embModelPath,
+				GPULayers:          floopCfg.LLM.LocalGPULayers,
+				ContextSize:        floopCfg.LLM.LocalContextSize,
+			})
+			if localClient.Available() {
+				s.llmClient = localClient
+				modelName := filepath.Base(embModelPath)
+				s.embedder = vectorsearch.NewEmbedder(localClient.Embed, modelName)
+			}
+		}
+	}
+
 	// Auto-seed meta-behaviors into global store (non-fatal)
 	autoSeedGlobalStore(graphStore)
 
@@ -143,6 +172,20 @@ func NewServer(cfg *Config) (*Server, error) {
 	if err := s.refreshPageRank(context.Background()); err != nil {
 		// Non-fatal: log but don't fail startup
 		fmt.Fprintf(os.Stderr, "warning: failed to compute initial PageRank: %v\n", err)
+	}
+
+	// Background backfill: embed behaviors that don't yet have vectors
+	if s.embedder != nil && s.embedder.Available() {
+		if ng, ok := s.store.(vectorsearch.NodeGetter); ok {
+			s.runBackground("embedding-backfill", func() {
+				n, err := s.embedder.BackfillMissing(context.Background(), ng)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: embedding backfill failed: %v\n", err)
+				} else if n > 0 {
+					fmt.Fprintf(os.Stderr, "floop: backfilled embeddings for %d behavior(s)\n", n)
+				}
+			})
+		}
 	}
 
 	return s, nil
@@ -292,6 +335,10 @@ func (s *Server) Close() error {
 
 		if s.auditLogger != nil {
 			s.auditLogger.Close()
+		}
+
+		if c, ok := s.llmClient.(llm.Closer); ok {
+			c.Close()
 		}
 
 		closeErr = s.store.Close()
