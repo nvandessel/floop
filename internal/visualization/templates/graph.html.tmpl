@@ -481,20 +481,16 @@
           ctx.fillStyle = grad;
           ctx.fill();
 
-          // Screen-space bloom
-          ctx.save();
-          ctx.shadowColor = glowHex;
-          ctx.shadowBlur = 18 + glowAlpha * 14;
+          // Bright core fill (shadow-free — radial gradient above already produces the glow)
           ctx.beginPath();
           ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
           ctx.fillStyle = 'rgba(' + rgbStr + ',' + (glowAlpha * 0.8).toFixed(3) + ')';
           ctx.fill();
-          ctx.restore();
 
           // Wave-front flash — brief flare when activation first reaches this node
           var firstStep = electricState.nodeFirstStep[node.id];
           if (firstStep !== undefined) {
-            var flashP = getElectricProgress();
+            var flashP = getElectricProgressCached();
             var stepsSince = (flashP.step + flashP.frac) - firstStep;
             if (stepsSince >= 0 && stepsSince < 1.2) {
               var flash = Math.max(0, 1.0 - stepsSince / 1.2);
@@ -503,15 +499,16 @@
               ctx.arc(node.x, node.y, r * 2.5, 0, 2 * Math.PI);
               ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.25).toFixed(3) + ')';
               ctx.fill();
-              ctx.save();
-              ctx.shadowColor = '#ffffff';
-              ctx.shadowBlur = flash * 25;
+              // Soft radial flash glow (shadow-free replacement)
+              var flashR = r * 2;
+              var flashGrad = ctx.createRadialGradient(node.x, node.y, r * 0.3, node.x, node.y, flashR);
+              flashGrad.addColorStop(0, 'rgba(255,255,255,' + (flash * 0.35).toFixed(3) + ')');
+              flashGrad.addColorStop(0.5, 'rgba(255,255,255,' + (flash * 0.12).toFixed(3) + ')');
+              flashGrad.addColorStop(1, 'rgba(255,255,255,0)');
               ctx.beginPath();
-              ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-              ctx.strokeStyle = 'rgba(255,255,255,' + (flash * 0.35).toFixed(3) + ')';
-              ctx.lineWidth = 1.5;
-              ctx.stroke();
-              ctx.restore();
+              ctx.arc(node.x, node.y, flashR, 0, 2 * Math.PI);
+              ctx.fillStyle = flashGrad;
+              ctx.fill();
             }
           }
 
@@ -519,7 +516,7 @@
         }
         // Seed node: expanding ripple rings — neural origin pulse
         if (node.id === electricState.seedNodeId) {
-          var rippleP = getElectricProgress();
+          var rippleP = getElectricProgressCached();
           var now = Date.now();
           for (var ri = 0; ri < 3; ri++) {
             var ripplePhase = ((now / 3000) + ri * 0.33) % 1.0;
@@ -558,13 +555,13 @@
       ctx.fill();
     })
     .enableNodeDrag(true)
-    .autoPauseRedraw(false)
+    .autoPauseRedraw(true)
     .linkColor(function(l) {
       // Electric mode: edges pulse with wave-front energy
       if (electricState.active && electricState.steps) {
         var src = l.source.id || l.source;
         var tgt = l.target.id || l.target;
-        var energy = getEdgeWaveEnergy(src, tgt);
+        var energy = getEdgeWaveEnergyCached(src, tgt);
         if (energy > 0.02) {
           var alpha = 0.15 + energy * 0.85;
           return 'rgba(34,211,238,' + alpha.toFixed(3) + ')';
@@ -580,7 +577,7 @@
       if (electricState.active && electricState.steps) {
         var src = l.source.id || l.source;
         var tgt = l.target.id || l.target;
-        var energy = getEdgeWaveEnergy(src, tgt);
+        var energy = getEdgeWaveEnergyCached(src, tgt);
         if (energy > 0.02) return 0.5 + energy * 2;
         return 0.5; // thin but visible
       }
@@ -598,10 +595,25 @@
       return lo !== null ? withAlpha(base, lo) : base;
     })
     .onRenderFramePost(function(ctx, globalScale) {
+      // FPS measurement
+      var now = performance.now();
+      if (fpsState.lastFrameTime > 0) {
+        fpsState.frameTimes[fpsState.frameIndex] = now - fpsState.lastFrameTime;
+        fpsState.frameIndex = (fpsState.frameIndex + 1) % fpsState.frameTimes.length;
+      }
+      fpsState.lastFrameTime = now;
+      if (fpsState.overlayVisible) {
+        fpsOverlay.textContent = window.__getElectricFPS() + ' FPS';
+      }
+
+      // Advance memoization frame counter so caches invalidate
+      _progressFrameCounter++;
+      _edgeEnergyCacheFrame = -1;
+
       if (!electricState.active || !electricState.steps) return;
 
       var links = graph.graphData().links;
-      var p = getElectricProgress();
+      var p = getElectricProgressCached();
       var wavePos = p.step + p.frac;
 
       for (var li = 0; li < links.length; li++) {
@@ -619,7 +631,7 @@
         var ny = dx / len;
 
         // Ambient glow bloom on active edges
-        var energy = getEdgeWaveEnergy(src.id, tgt.id);
+        var energy = getEdgeWaveEnergyCached(src.id, tgt.id);
         if (energy > 0.02) {
           ctx.beginPath();
           ctx.moveTo(src.x, src.y);
@@ -710,20 +722,17 @@
         ctx.fillStyle = haloGrad;
         ctx.fill();
 
-        // Core glow (white center → cyan edge)
-        ctx.save();
-        ctx.shadowColor = '#22d3ee';
-        ctx.shadowBlur = 20;
-        var coreGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR);
+        // Core glow (shadow-free — enlarged gradient radius replaces shadowBlur)
+        var coreR = dotR * 1.8;
+        var coreGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, coreR);
         coreGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.95).toFixed(3) + ')');
-        coreGrad.addColorStop(0.35, 'rgba(200,240,255,' + (sparkBright * 0.8).toFixed(3) + ')');
-        coreGrad.addColorStop(0.7, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
+        coreGrad.addColorStop(0.2, 'rgba(200,240,255,' + (sparkBright * 0.8).toFixed(3) + ')');
+        coreGrad.addColorStop(0.45, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
         coreGrad.addColorStop(1, 'rgba(34,211,238,0)');
         ctx.beginPath();
-        ctx.arc(tipX, tipY, dotR, 0, 2 * Math.PI);
+        ctx.arc(tipX, tipY, coreR, 0, 2 * Math.PI);
         ctx.fillStyle = coreGrad;
         ctx.fill();
-        ctx.restore();
 
         // ── Trailing ember particles ──
         for (var ei = 1; ei <= 4; ei++) {
@@ -744,7 +753,6 @@
     .d3AlphaDecay(0.02)
     .d3VelocityDecay(0.4)
     .warmupTicks(300)
-    .cooldownTime(Infinity)
     .onNodeDragEnd(function(node) {
       // Release the node so it rejoins the simulation
       node.fx = undefined;
@@ -986,6 +994,36 @@
     return getNodeOpacity(nodeId);
   };
 
+  // --- FPS diagnostic counter ---
+  var fpsState = {
+    frameTimes: new Float64Array(60),
+    frameIndex: 0,
+    lastFrameTime: 0,
+    overlayVisible: false
+  };
+
+  window.__getElectricFPS = function() {
+    var sum = 0, count = 0;
+    for (var i = 0; i < fpsState.frameTimes.length; i++) {
+      if (fpsState.frameTimes[i] > 0) { sum += fpsState.frameTimes[i]; count++; }
+    }
+    if (count === 0) return 0;
+    return Math.round(1000 / (sum / count));
+  };
+
+  // FPS overlay toggled by 'F' key
+  var fpsOverlay = document.createElement('div');
+  fpsOverlay.id = 'fps-overlay';
+  fpsOverlay.style.cssText = 'position:absolute;top:56px;left:16px;background:var(--surface0);border:1px solid var(--surface2);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--green);z-index:50;display:none;font-family:monospace';
+  document.body.appendChild(fpsOverlay);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'F' || e.key === 'f') {
+      fpsState.overlayVisible = !fpsState.overlayVisible;
+      fpsOverlay.style.display = fpsState.overlayVisible ? 'block' : 'none';
+    }
+  });
+
   // --- Electric mode (spreading activation visualization) ---
   var electricState = {
     active: false,
@@ -1024,6 +1062,26 @@
     return base;
   }
 
+  // Memoization: getElectricProgress is called ~970 times per frame
+  // but returns the same value within a single frame. Cache it.
+  var _cachedProgress = null;
+  var _cachedProgressFrame = -1;
+  var _progressFrameCounter = 0;
+
+  function getElectricProgressCached() {
+    if (_cachedProgressFrame === _progressFrameCounter) return _cachedProgress;
+    _cachedProgress = getElectricProgress();
+    _cachedProgressFrame = _progressFrameCounter;
+    return _cachedProgress;
+  }
+
+  window.__testProgressMemoization = function() {
+    _progressFrameCounter++;
+    var a = getElectricProgressCached();
+    var b = getElectricProgressCached();
+    return a === b; // should be true — same object reference within frame
+  };
+
   function getElectricProgress() {
     if (!electricState.steps || electricState.steps.length < 2) return { step: 0, frac: 0, fade: 1.0 };
     var animTime = getAnimTime();
@@ -1058,7 +1116,7 @@
   function updateElectricUI() {
     if (!electricState.steps) return;
     var total = electricState.steps.length - 1;
-    var p = getElectricProgress();
+    var p = getElectricProgressCached();
     document.getElementById('et-step-label').textContent = 'Step ' + p.step + '/' + total;
     var playBtn = document.getElementById('et-play');
     playBtn.innerHTML = electricState.playing ? '&#9646;&#9646;' : '&#9654;';
@@ -1073,7 +1131,7 @@
 
   function getElectricActivation(nodeId) {
     if (!electricState.active || !electricState.steps) return 0;
-    var p = getElectricProgress();
+    var p = getElectricProgressCached();
     var curr = electricState.steps[p.step];
     var nextIdx = Math.min(p.step + 1, electricState.steps.length - 1);
     var next = electricState.steps[nextIdx];
@@ -1091,6 +1149,27 @@
     return Math.pow(raw, 0.4) * p.fade;
   }
 
+  // Edge energy cache — getEdgeWaveEnergy is called 3x per edge per frame
+  // (linkColor, linkWidth, onRenderFramePost). Cache results per frame.
+  var _edgeEnergyCache = {};
+  var _edgeEnergyCacheFrame = -1;
+
+  function getEdgeWaveEnergyCached(srcId, tgtId) {
+    if (_edgeEnergyCacheFrame !== _progressFrameCounter) {
+      _edgeEnergyCache = {};
+      _edgeEnergyCacheFrame = _progressFrameCounter;
+    }
+    var key = srcId + '|' + tgtId;
+    if (_edgeEnergyCache[key] !== undefined) return _edgeEnergyCache[key];
+    var val = getEdgeWaveEnergy(srcId, tgtId);
+    _edgeEnergyCache[key] = val;
+    return val;
+  }
+
+  window.__testEdgeEnergyCache = function() {
+    return typeof getEdgeWaveEnergyCached === 'function';
+  };
+
   // Wave-front based edge energy — edges pulse as the wave passes, then fade
   function getEdgeWaveEnergy(srcId, tgtId) {
     if (!electricState.active || !electricState.steps) return 0;
@@ -1106,7 +1185,7 @@
     );
     if (edgeFireStep >= 999) return 0;
 
-    var p = getElectricProgress();
+    var p = getElectricProgressCached();
     var wavePos = p.step + p.frac;
     var dist = wavePos - edgeFireStep;
 
@@ -1145,6 +1224,9 @@
         return r.json();
       })
       .then(function(steps) {
+        // Enable continuous rendering for electric animation
+        graph.autoPauseRedraw(false);
+
         // Save current focus state
         electricState.savedFocus = {
           focusedNodeId: focusedNodeId,
@@ -1198,6 +1280,9 @@
     electricState.seedNodeId = null;
     electricState.playing = false;
     electricState.elapsed = 0;
+
+    // Restore idle rendering (no redraws when physics settled)
+    graph.autoPauseRedraw(true);
 
     if (electricState.uiFrameId) {
       cancelAnimationFrame(electricState.uiFrameId);
@@ -1255,7 +1340,7 @@
   getNodeOpacity = function(nodeId) {
     if (electricState.active && electricState.steps) {
       var act = getElectricActivation(nodeId);
-      var ep = getElectricProgress();
+      var ep = getElectricProgressCached();
       if (nodeId === electricState.seedNodeId) return 1.0;
       // Dim non-active nodes, blend partially back during fade transitions
       // Cap recovery at 80% to avoid flash — nodes stay subtly dimmed

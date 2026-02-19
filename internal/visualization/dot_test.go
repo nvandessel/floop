@@ -618,6 +618,95 @@ func TestRenderHTMLForServer_HasAPIBaseURL(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_FPSDiagnostic(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__getElectricFPS") {
+		t.Error("expected __getElectricFPS test helper in HTML")
+	}
+}
+
+func TestRenderHTML_ProgressMemoization(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__testProgressMemoization") {
+		t.Error("expected __testProgressMemoization test helper in HTML")
+	}
+}
+
+func TestRenderHTML_NoShadowBlurInElectricMode(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// shadowBlur should not appear anywhere in the electric rendering sections.
+	// It's the heaviest Canvas 2D compositing operation and was replaced with
+	// gradient-only equivalents.
+	if strings.Contains(htmlStr, "shadowBlur") {
+		t.Error("shadowBlur found in HTML — should be eliminated from electric mode rendering")
+	}
+}
+
+func TestRenderHTML_EdgeEnergyCacheHelper(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__testEdgeEnergyCache") {
+		t.Error("expected __testEdgeEnergyCache test helper in HTML")
+	}
+}
+
+func TestRenderHTML_AutoPauseRedrawDefault(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// The default should be autoPauseRedraw(true) for idle CPU savings
+	if !strings.Contains(htmlStr, ".autoPauseRedraw(true)") {
+		t.Error("expected .autoPauseRedraw(true) as default in HTML")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string
