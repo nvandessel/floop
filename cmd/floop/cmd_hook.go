@@ -276,9 +276,15 @@ func runHookPrompt(cmd *cobra.Command, root string) error {
 	}
 
 	// Evaluate which behaviors are active (no specific context for session start)
-	ctx := activation.NewContextBuilder().
-		WithRepoRoot(root).
-		Build()
+	ctxBuilder := activation.NewContextBuilder().
+		WithRepoRoot(root)
+
+	// Auto-infer language from project type at session start
+	if lang := projectTypeToLanguage(models.InferProjectType(root)); lang != "" {
+		ctxBuilder.WithLanguage(lang)
+	}
+
+	ctx := ctxBuilder.Build()
 
 	evaluator := activation.NewEvaluator()
 	matches := evaluator.Evaluate(ctx, behaviors)
@@ -391,7 +397,7 @@ func runHookActivate(cmd *cobra.Command, root, file, task string, tokenBudget in
 	_ = session.SaveState(sessState, sessionDir)
 
 	// Build trigger reason and output markdown
-	triggerReason := buildTriggerReason(file, task)
+	triggerReason := buildTriggerReason(triggerSignals{File: file, Task: task})
 	return outputMarkdown(cmd, budgeted, behaviorMap, triggerReason)
 }
 
@@ -416,6 +422,23 @@ func detectTaskFromCommand(command string) string {
 	case strings.HasPrefix(command, "docker"),
 		strings.HasPrefix(command, "kubectl"):
 		return "deployment"
+	default:
+		return ""
+	}
+}
+
+// projectTypeToLanguage maps a ProjectType to its primary programming language.
+// Returns empty string for unknown project types.
+func projectTypeToLanguage(pt models.ProjectType) string {
+	switch pt {
+	case models.ProjectTypeGo:
+		return "go"
+	case models.ProjectTypePython:
+		return "python"
+	case models.ProjectTypeNode:
+		return "javascript"
+	case models.ProjectTypeRust:
+		return "rust"
 	default:
 		return ""
 	}

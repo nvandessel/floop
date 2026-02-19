@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
 // TestNewHookCmd verifies the parent hook command has the expected subcommands.
@@ -414,5 +416,28 @@ func TestHookDynamicContextNoFilePath(t *testing.T) {
 
 	if strings.TrimSpace(out.String()) != "" {
 		t.Errorf("expected empty output for missing file_path, got: %q", out.String())
+	}
+}
+
+// TestProjectTypeToLanguage verifies the mapping from project type to language.
+func TestProjectTypeToLanguage(t *testing.T) {
+	tests := []struct {
+		pt   models.ProjectType
+		want string
+	}{
+		{models.ProjectTypeGo, "go"},
+		{models.ProjectTypePython, "python"},
+		{models.ProjectTypeNode, "javascript"},
+		{models.ProjectTypeRust, "rust"},
+		{models.ProjectTypeUnknown, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.pt), func(t *testing.T) {
+			got := projectTypeToLanguage(tt.pt)
+			if got != tt.want {
+				t.Errorf("projectTypeToLanguage(%v) = %q, want %q", tt.pt, got, tt.want)
+			}
+		})
 	}
 }

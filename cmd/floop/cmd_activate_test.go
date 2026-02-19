@@ -90,23 +90,24 @@ func TestApplyTokenBudget(t *testing.T) {
 
 func TestBuildTriggerReason(t *testing.T) {
 	tests := []struct {
-		name string
-		file string
-		task string
-		want string
+		name    string
+		signals triggerSignals
+		want    string
 	}{
-		{"file with extension", "main.go", "", "file change to `*.go`"},
-		{"file without extension", "Makefile", "", "file `Makefile`"},
-		{"task only", "", "testing", "task: `testing`"},
-		{"neither", "", "", "context change"},
-		{"file takes priority", "main.py", "testing", "file change to `*.py`"},
+		{"file with extension", triggerSignals{File: "main.go"}, "file change to `*.go`"},
+		{"file without extension", triggerSignals{File: "Makefile"}, "file `Makefile`"},
+		{"task only", triggerSignals{Task: "testing"}, "task: `testing`"},
+		{"language only", triggerSignals{Language: "go"}, "language: `go`"},
+		{"no signals", triggerSignals{}, "context change"},
+		{"file takes priority", triggerSignals{File: "main.py", Task: "testing", Language: "python"}, "file change to `*.py`"},
+		{"task over language", triggerSignals{Task: "testing", Language: "go"}, "task: `testing`"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildTriggerReason(tt.file, tt.task)
+			got := buildTriggerReason(tt.signals)
 			if got != tt.want {
-				t.Errorf("buildTriggerReason(%q, %q) = %q, want %q", tt.file, tt.task, got, tt.want)
+				t.Errorf("buildTriggerReason(%+v) = %q, want %q", tt.signals, got, tt.want)
 			}
 		})
 	}
@@ -286,7 +287,7 @@ func TestNewActivateCmd(t *testing.T) {
 	}
 
 	// Verify flags exist
-	flags := []string{"file", "task", "format", "token-budget", "session-id"}
+	flags := []string{"file", "task", "format", "token-budget", "session-id", "language"}
 	for _, flag := range flags {
 		if cmd.Flags().Lookup(flag) == nil {
 			t.Errorf("expected flag '%s' to exist", flag)

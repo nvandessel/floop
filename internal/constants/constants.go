@@ -150,3 +150,14 @@ var ValidUserEdgeKinds = map[string]bool{
 	"similar-to":   true,
 	"learned-from": true,
 }
+
+// KnownTasks is the vocabulary of task values that detectTaskFromCommand()
+// produces at runtime. Only these are stored in when-conditions — anything
+// else creates dead conditions that never activate.
+var KnownTasks = map[string]bool{
+	"committing":     true,
+	"git-operations": true,
+	"testing":        true,
+	"building":       true,
+	"deployment":     true,
+}

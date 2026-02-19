@@ -228,15 +228,15 @@ func TestBehaviorExtractor_InferWhen(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple fields",
+			name: "multiple fields with known task",
 			context: models.ContextSnapshot{
 				FileLanguage: "python",
-				Task:         "refactor",
+				Task:         "testing",
 				Environment:  "dev",
 			},
 			want: map[string]interface{}{
 				"language": "python",
-				"task":     "refactor",
+				"task":     "testing",
 			},
 		},
 		{
@@ -265,6 +265,49 @@ func TestBehaviorExtractor_InferWhen(t *testing.T) {
 			},
 			want: map[string]interface{}{
 				"file_path": "db/*",
+			},
+		},
+		{
+			name: "unknown task excluded - development",
+			context: models.ContextSnapshot{
+				FileLanguage: "go",
+				Task:         "development",
+			},
+			want: map[string]interface{}{
+				"language": "go",
+				// task "development" is not in knownTasks
+			},
+		},
+		{
+			name: "unknown task excluded - coding",
+			context: models.ContextSnapshot{
+				Task: "coding",
+			},
+			want: map[string]interface{}{},
+		},
+		{
+			name: "unknown task excluded - configuration",
+			context: models.ContextSnapshot{
+				Task: "configuration",
+			},
+			want: map[string]interface{}{},
+		},
+		{
+			name: "fine-grained task included - testing",
+			context: models.ContextSnapshot{
+				Task: "testing",
+			},
+			want: map[string]interface{}{
+				"task": "testing",
+			},
+		},
+		{
+			name: "fine-grained task included - committing",
+			context: models.ContextSnapshot{
+				Task: "committing",
+			},
+			want: map[string]interface{}{
+				"task": "committing",
 			},
 		},
 		{

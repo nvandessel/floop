@@ -123,8 +123,8 @@ func (e *behaviorExtractor) inferWhen(ctx models.ContextSnapshot) map[string]int
 		}
 	}
 
-	// Include task if present
-	if ctx.Task != "" {
+	// Include task if present and in the known vocabulary
+	if ctx.Task != "" && constants.KnownTasks[ctx.Task] {
 		when["task"] = ctx.Task
 	}
 

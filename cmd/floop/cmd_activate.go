@@ -42,6 +42,7 @@ Examples:
 
 	cmd.Flags().String("file", "", "File path for context")
 	cmd.Flags().String("task", "", "Task type for context")
+	cmd.Flags().String("language", "", "Programming language for context (overrides file inference)")
 	cmd.Flags().String("format", "markdown", "Output format: markdown, json")
 	cmd.Flags().Int("token-budget", config.Default().TokenBudget.DynamicContext, "Token budget for this injection")
 	cmd.Flags().String("session-id", "default", "Session ID for state tracking")
@@ -54,13 +55,14 @@ func runActivate(cmd *cobra.Command, args []string) error {
 	root, _ := cmd.Flags().GetString("root")
 	file, _ := cmd.Flags().GetString("file")
 	task, _ := cmd.Flags().GetString("task")
+	language, _ := cmd.Flags().GetString("language")
 	format, _ := cmd.Flags().GetString("format")
 	tokenBudget, _ := cmd.Flags().GetInt("token-budget")
 	sessionID, _ := cmd.Flags().GetString("session-id")
 	jsonOut, _ := cmd.Flags().GetBool("json")
 
 	// Must have at least one context signal
-	if file == "" && task == "" {
+	if file == "" && task == "" && language == "" {
 		return nil // nothing to activate on
 	}
 
@@ -78,6 +80,9 @@ func runActivate(cmd *cobra.Command, args []string) error {
 	}
 	if task != "" {
 		ctxBuilder.WithTask(task)
+	}
+	if language != "" {
+		ctxBuilder.WithLanguage(language)
 	}
 	actCtx := ctxBuilder.Build()
 
@@ -154,7 +159,7 @@ func runActivate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build trigger reason
-	triggerReason := buildTriggerReason(file, task)
+	triggerReason := buildTriggerReason(triggerSignals{File: file, Task: task, Language: language})
 
 	// Output
 	if jsonOut || format == "json" {
@@ -235,17 +240,29 @@ func applyTokenBudget(filtered []session.FilteredResult, budget int) []session.F
 	return result
 }
 
+// triggerSignals captures the context signals that triggered an activation.
+// Each field corresponds to a distinct activation path — only set the fields
+// that the caller actually received (not inferred downstream).
+type triggerSignals struct {
+	File     string
+	Task     string
+	Language string
+}
+
 // buildTriggerReason creates a human-readable reason for the activation.
-func buildTriggerReason(file, task string) string {
-	if file != "" {
-		ext := filepath.Ext(file)
+func buildTriggerReason(signals triggerSignals) string {
+	if signals.File != "" {
+		ext := filepath.Ext(signals.File)
 		if ext != "" {
 			return fmt.Sprintf("file change to `*%s`", ext)
 		}
-		return fmt.Sprintf("file `%s`", filepath.Base(file))
+		return fmt.Sprintf("file `%s`", filepath.Base(signals.File))
 	}
-	if task != "" {
-		return fmt.Sprintf("task: `%s`", task)
+	if signals.Task != "" {
+		return fmt.Sprintf("task: `%s`", signals.Task)
+	}
+	if signals.Language != "" {
+		return fmt.Sprintf("language: `%s`", signals.Language)
 	}
 	return "context change"
 }
