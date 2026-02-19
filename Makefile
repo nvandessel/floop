@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean docs-validate graph-html graph-screenshot graph-preview
+.PHONY: build test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean docs-validate graph-html graph-screenshot graph-preview graph-serve
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -71,3 +71,7 @@ graph-screenshot: graph-html
 graph-preview: graph-screenshot
 	@echo "Preview: build/graph/graph.html (open in browser)"
 	@echo "Screenshot: build/graph/graph.png"
+
+graph-serve:
+	GOWORK=off go build -o ./floop ./cmd/floop
+	./floop graph --format html --serve

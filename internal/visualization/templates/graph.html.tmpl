@@ -260,8 +260,6 @@
 
 <div id="electric-toolbar">
   <button id="et-play" title="Play/Pause">&#9654;</button>
-  <button id="et-prev" title="Previous step">&#9664;&#9664;</button>
-  <button id="et-next" title="Next step">&#9654;&#9654;</button>
   <span class="et-label">Speed</span>
   <input type="range" id="et-speed" min="0.5" max="3" step="0.25" value="1">
   <span class="et-step" id="et-step-label">Step 0/0</span>
@@ -458,28 +456,81 @@
         ctx.stroke();
       }
 
-      // Electric mode glow
+      // Electric mode glow — nodes illuminate when activation wave reaches them
       if (electricState.active && electricState.steps) {
         var eAct = getElectricActivation(node.id);
         if (eAct > 0.01) {
+          var isSeed = node.id === electricState.seedNodeId;
+          var glowAlpha = Math.min(1.0, eAct);
+          var rgbStr = isSeed ? '249,226,175' : '34,211,238';
+          var glowHex = isSeed ? '#f9e2af' : '#22d3ee';
+
+          var savedAlpha = ctx.globalAlpha;
+          ctx.globalAlpha = 1.0;
+
+          // Smooth radial gradient glow — single gradient replaces discrete rings
+          var glowR = r * 5;
+          var grad = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, glowR);
+          grad.addColorStop(0, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.85).toFixed(3) + ')');
+          grad.addColorStop(0.15, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.45).toFixed(3) + ')');
+          grad.addColorStop(0.4, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.15).toFixed(3) + ')');
+          grad.addColorStop(0.7, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.05).toFixed(3) + ')');
+          grad.addColorStop(1, 'rgba(' + rgbStr + ',0)');
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, glowR, 0, 2 * Math.PI);
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          // Screen-space bloom
           ctx.save();
-          ctx.shadowColor = node.id === electricState.seedNodeId ? '#f9e2af' : '#89b4fa';
-          ctx.shadowBlur = eAct * 15;
+          ctx.shadowColor = glowHex;
+          ctx.shadowBlur = 18 + glowAlpha * 14;
           ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 1, 0, 2 * Math.PI);
-          ctx.strokeStyle = ctx.shadowColor;
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
+          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(' + rgbStr + ',' + (glowAlpha * 0.8).toFixed(3) + ')';
+          ctx.fill();
           ctx.restore();
+
+          // Wave-front flash — brief flare when activation first reaches this node
+          var firstStep = electricState.nodeFirstStep[node.id];
+          if (firstStep !== undefined) {
+            var flashP = getElectricProgress();
+            var stepsSince = (flashP.step + flashP.frac) - firstStep;
+            if (stepsSince >= 0 && stepsSince < 1.2) {
+              var flash = Math.max(0, 1.0 - stepsSince / 1.2);
+              flash = flash * flash * flashP.fade;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r * 2.5, 0, 2 * Math.PI);
+              ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.25).toFixed(3) + ')';
+              ctx.fill();
+              ctx.save();
+              ctx.shadowColor = '#ffffff';
+              ctx.shadowBlur = flash * 25;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+              ctx.strokeStyle = 'rgba(255,255,255,' + (flash * 0.35).toFixed(3) + ')';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+
+          ctx.globalAlpha = savedAlpha;
         }
-        // Seed node pulse
+        // Seed node: expanding ripple rings — neural origin pulse
         if (node.id === electricState.seedNodeId) {
-          var pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, r + 4 + pulse * 3, 0, 2 * Math.PI);
-          ctx.strokeStyle = 'rgba(249,226,175,' + (0.3 + pulse * 0.4) + ')';
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
+          var rippleP = getElectricProgress();
+          var now = Date.now();
+          for (var ri = 0; ri < 3; ri++) {
+            var ripplePhase = ((now / 3000) + ri * 0.33) % 1.0;
+            var rippleR = r * 1.5 + ripplePhase * r * 7;
+            var rippleAlpha = (1 - ripplePhase) * (1 - ripplePhase) * 0.3 * rippleP.fade;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, rippleR, 0, 2 * Math.PI);
+            ctx.strokeStyle = 'rgba(249,226,175,' + rippleAlpha.toFixed(3) + ')';
+            ctx.lineWidth = 1.5 * (1 - ripplePhase * 0.7);
+            ctx.stroke();
+          }
         }
       }
 
@@ -509,11 +560,30 @@
     .enableNodeDrag(true)
     .autoPauseRedraw(false)
     .linkColor(function(l) {
+      // Electric mode: edges pulse with wave-front energy
+      if (electricState.active && electricState.steps) {
+        var src = l.source.id || l.source;
+        var tgt = l.target.id || l.target;
+        var energy = getEdgeWaveEnergy(src, tgt);
+        if (energy > 0.02) {
+          var alpha = 0.15 + energy * 0.85;
+          return 'rgba(34,211,238,' + alpha.toFixed(3) + ')';
+        }
+        return 'rgba(108,112,134,0.10)'; // dim but always visible
+      }
       var base = edgeColors[l.kind] || defaultEdgeColor;
       var lo = getLinkOpacity(l);
       return lo !== null ? withAlpha(base, lo) : base;
     })
     .linkWidth(function(l) {
+      // Electric mode: edges thicken with wave-front energy
+      if (electricState.active && electricState.steps) {
+        var src = l.source.id || l.source;
+        var tgt = l.target.id || l.target;
+        var energy = getEdgeWaveEnergy(src, tgt);
+        if (energy > 0.02) return 0.5 + energy * 2;
+        return 0.5; // thin but visible
+      }
       var w = edgeWidth[l.kind] || 1;
       if (getLinkOpacity(l) !== null) w *= 0.5;
       return w;
@@ -522,9 +592,154 @@
     .linkDirectionalArrowLength(5)
     .linkDirectionalArrowRelPos(0.92)
     .linkDirectionalArrowColor(function(l) {
+      if (electricState.active) return 'rgba(0,0,0,0)';
       var base = 'rgba(147,153,178,0.6)';
       var lo = getLinkOpacity(l);
       return lo !== null ? withAlpha(base, lo) : base;
+    })
+    .onRenderFramePost(function(ctx, globalScale) {
+      if (!electricState.active || !electricState.steps) return;
+
+      var links = graph.graphData().links;
+      var p = getElectricProgress();
+      var wavePos = p.step + p.frac;
+
+      for (var li = 0; li < links.length; li++) {
+        var link = links[li];
+        var src = link.source;
+        var tgt = link.target;
+        if (!src || !tgt || src.x == null || tgt.x == null) continue;
+
+        var dx = tgt.x - src.x;
+        var dy = tgt.y - src.y;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1) continue;
+
+        var nx = -dy / len;
+        var ny = dx / len;
+
+        // Ambient glow bloom on active edges
+        var energy = getEdgeWaveEnergy(src.id, tgt.id);
+        if (energy > 0.02) {
+          ctx.beginPath();
+          ctx.moveTo(src.x, src.y);
+          ctx.lineTo(tgt.x, tgt.y);
+          ctx.strokeStyle = 'rgba(34,211,238,' + (energy * 0.3).toFixed(3) + ')';
+          ctx.lineWidth = energy * 8;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+        }
+
+        // ── Directional sparks — electricity flowing along edges ──
+        var srcFirst = electricState.nodeFirstStep[src.id];
+        var tgtFirst = electricState.nodeFirstStep[tgt.id];
+        if (srcFirst === undefined || tgtFirst === undefined) continue;
+
+        var edgeFireStep = Math.max(srcFirst, tgtFirst);
+        var dist = wavePos - edgeFireStep;
+
+        var sparkT = dist + 1.0;
+        if (sparkT < -0.1 || sparkT > 1.6) continue;
+
+        var sparkBright = Math.min(1.0, sparkT * 2.5);
+        if (sparkT > 1.0) sparkBright *= Math.max(0, (1.6 - sparkT) / 0.6);
+        sparkBright *= p.fade;
+        if (sparkBright < 0.03) continue;
+
+        var sparkPos = Math.min(1.0, sparkT);
+        var flowForward = (srcFirst <= tgtFirst);
+        var pos = flowForward ? sparkPos : 1.0 - sparkPos;
+
+        // ── Progressive edge illumination — wire lights up behind the spark ──
+        var litPos = Math.max(0.01, Math.min(0.99, pos));
+        var litAlpha = (sparkBright * 0.5).toFixed(3);
+        var edgeGrad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
+        if (flowForward) {
+          edgeGrad.addColorStop(0, 'rgba(34,211,238,' + litAlpha + ')');
+          edgeGrad.addColorStop(litPos, 'rgba(34,211,238,' + litAlpha + ')');
+          edgeGrad.addColorStop(Math.min(1, litPos + 0.06), 'rgba(34,211,238,0)');
+          edgeGrad.addColorStop(1, 'rgba(34,211,238,0)');
+        } else {
+          edgeGrad.addColorStop(0, 'rgba(34,211,238,0)');
+          edgeGrad.addColorStop(Math.max(0, litPos - 0.06), 'rgba(34,211,238,0)');
+          edgeGrad.addColorStop(litPos, 'rgba(34,211,238,' + litAlpha + ')');
+          edgeGrad.addColorStop(1, 'rgba(34,211,238,' + litAlpha + ')');
+        }
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(tgt.x, tgt.y);
+        ctx.strokeStyle = edgeGrad;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // ── Comet trail — gradient from transparent to bright at tip ──
+        var trail = 0.20;
+        var ts0 = flowForward ? Math.max(0, pos - trail) : pos;
+        var ts1 = flowForward ? pos : Math.min(1, pos + trail);
+        var ts0x = src.x + dx * ts0, ts0y = src.y + dy * ts0;
+        var ts1x = src.x + dx * ts1, ts1y = src.y + dy * ts1;
+        var trailGrad = ctx.createLinearGradient(ts0x, ts0y, ts1x, ts1y);
+        if (flowForward) {
+          trailGrad.addColorStop(0, 'rgba(255,255,255,0)');
+          trailGrad.addColorStop(1, 'rgba(255,255,255,' + (sparkBright * 0.85).toFixed(3) + ')');
+        } else {
+          trailGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.85).toFixed(3) + ')');
+          trailGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        }
+        ctx.beginPath();
+        ctx.moveTo(ts0x, ts0y);
+        ctx.lineTo(ts1x, ts1y);
+        ctx.strokeStyle = trailGrad;
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // ── Spark tip — bright moving dot with halo ──
+        var tipX = src.x + dx * pos;
+        var tipY = src.y + dy * pos;
+        var dotR = 6 + sparkBright * 6;
+
+        // Outer halo (large, soft bloom)
+        var haloGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR * 2.5);
+        haloGrad.addColorStop(0, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
+        haloGrad.addColorStop(0.4, 'rgba(34,211,238,' + (sparkBright * 0.15).toFixed(3) + ')');
+        haloGrad.addColorStop(1, 'rgba(34,211,238,0)');
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, dotR * 2.5, 0, 2 * Math.PI);
+        ctx.fillStyle = haloGrad;
+        ctx.fill();
+
+        // Core glow (white center → cyan edge)
+        ctx.save();
+        ctx.shadowColor = '#22d3ee';
+        ctx.shadowBlur = 20;
+        var coreGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR);
+        coreGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.95).toFixed(3) + ')');
+        coreGrad.addColorStop(0.35, 'rgba(200,240,255,' + (sparkBright * 0.8).toFixed(3) + ')');
+        coreGrad.addColorStop(0.7, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
+        coreGrad.addColorStop(1, 'rgba(34,211,238,0)');
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, dotR, 0, 2 * Math.PI);
+        ctx.fillStyle = coreGrad;
+        ctx.fill();
+        ctx.restore();
+
+        // ── Trailing ember particles ──
+        for (var ei = 1; ei <= 4; ei++) {
+          var eOffset = ei * 0.05;
+          var ePos = flowForward ? (pos - eOffset) : (pos + eOffset);
+          if (ePos < 0 || ePos > 1) continue;
+          var eFade = 1.0 - (ei / 5);
+          var jitter = Math.sin(wavePos * 7 + ei * 2.3) * 1.5;
+          var ex = src.x + dx * ePos + nx * jitter;
+          var ey = src.y + dy * ePos + ny * jitter;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 2 * eFade, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(34,211,238,' + (sparkBright * eFade * 0.7).toFixed(3) + ')';
+          ctx.fill();
+        }
+      }
     })
     .d3AlphaDecay(0.02)
     .d3VelocityDecay(0.4)
@@ -776,12 +991,14 @@
     active: false,
     seedNodeId: null,
     steps: null,
-    currentStep: 0,
     playing: false,
     speed: 1.0,
-    animFrameId: null,
-    lastStepTime: 0,
-    savedFocus: null // {focusedNodeId, focusDistances} saved before electric mode
+    startTime: 0,      // performance.now() when play started/resumed
+    elapsed: 0,        // accumulated animation time (speed-scaled ms)
+    uiFrameId: null,   // requestAnimationFrame for UI updates
+    savedFocus: null,  // {focusedNodeId, focusDistances} saved before electric mode
+    savedZoom: null,   // {x, y, z} saved camera position to restore on deactivate
+    nodeFirstStep: {}  // nodeId -> step index where node first activates (for flash)
   };
 
   var electricToolbar = document.getElementById('electric-toolbar');
@@ -798,56 +1015,126 @@
     electricToolbar.classList.remove('visible');
   }
 
+  function getAnimTime() {
+    if (!electricState.active) return 0;
+    var base = electricState.elapsed;
+    if (electricState.playing) {
+      base += (performance.now() - electricState.startTime) * electricState.speed;
+    }
+    return base;
+  }
+
+  function getElectricProgress() {
+    if (!electricState.steps || electricState.steps.length < 2) return { step: 0, frac: 0, fade: 1.0 };
+    var animTime = getAnimTime();
+    var stepDuration = 2000; // ms per activation step
+    var totalSteps = electricState.steps.length - 1;
+    // Extra step at end for smooth fade-out before loop restarts
+    var cycleDuration = stepDuration * (totalSteps + 1);
+    if (cycleDuration <= 0) return { step: 0, frac: 0, fade: 1.0 };
+    var loopedTime = animTime % cycleDuration;
+    var fractionalStep = loopedTime / stepDuration;
+    var step = Math.floor(fractionalStep);
+    var frac = fractionalStep - step;
+    var fade = 1.0;
+    var fadeFloor = 0.15; // never fully die — keeps subtle electric ambiance
+    if (step === 0 && frac < 0.5) {
+      // Fade-in during first half-step — smooth ramp from residual
+      var fi = frac * 2; // remap 0→0.5 to 0→1
+      fi = fi * fi * (3 - 2 * fi); // smoothstep
+      fade = fadeFloor + (1.0 - fadeFloor) * fi;
+    } else if (step >= totalSteps) {
+      // Fade-out period — smooth ease to residual level
+      step = totalSteps - 1;
+      frac = 1.0;
+      var fadeProgress = fractionalStep - totalSteps;
+      var fo = Math.max(0, 1.0 - fadeProgress);
+      fo = fo * fo * (3 - 2 * fo); // smoothstep for gentle fade
+      fade = fadeFloor + (1.0 - fadeFloor) * fo;
+    }
+    return { step: step, frac: frac, fade: fade };
+  }
+
   function updateElectricUI() {
     if (!electricState.steps) return;
     var total = electricState.steps.length - 1;
-    document.getElementById('et-step-label').textContent = 'Step ' + electricState.currentStep + '/' + total;
+    var p = getElectricProgress();
+    document.getElementById('et-step-label').textContent = 'Step ' + p.step + '/' + total;
     var playBtn = document.getElementById('et-play');
     playBtn.innerHTML = electricState.playing ? '&#9646;&#9646;' : '&#9654;';
     playBtn.classList.toggle('active', electricState.playing);
   }
 
+  function electricUILoop() {
+    if (!electricState.active) return;
+    updateElectricUI();
+    electricState.uiFrameId = requestAnimationFrame(electricUILoop);
+  }
+
   function getElectricActivation(nodeId) {
     if (!electricState.active || !electricState.steps) return 0;
-    var snap = electricState.steps[electricState.currentStep];
-    if (!snap || !snap.activation) return 0;
-    return snap.activation[nodeId] || 0;
+    var p = getElectricProgress();
+    var curr = electricState.steps[p.step];
+    var nextIdx = Math.min(p.step + 1, electricState.steps.length - 1);
+    var next = electricState.steps[nextIdx];
+    var a0 = (curr && curr.activation) ? (curr.activation[nodeId] || 0) : 0;
+    var a1 = (next && next.activation) ? (next.activation[nodeId] || 0) : 0;
+
+    // Smooth hermite interpolation — organic transitions, no harsh delays
+    var t = p.frac;
+    t = t * t * (3 - 2 * t); // smoothstep for buttery S-curve
+
+    var raw = a0 + (a1 - a0) * t;
+    // Amplify for visual display — engine values are often very low (0.02–0.16).
+    // pow(x, 0.4) maps: 1.0→1.0, 0.16→0.44, 0.05→0.27, 0.002→0.07
+    if (raw <= 0) return 0;
+    return Math.pow(raw, 0.4) * p.fade;
   }
 
-  function updateElectricParticles() {
-    if (!electricState.active || !electricState.steps) {
-      graph.linkDirectionalParticles(0);
-      return;
+  // Wave-front based edge energy — edges pulse as the wave passes, then fade
+  function getEdgeWaveEnergy(srcId, tgtId) {
+    if (!electricState.active || !electricState.steps) return 0;
+
+    var srcFirst = electricState.nodeFirstStep[srcId];
+    var tgtFirst = electricState.nodeFirstStep[tgtId];
+    if (srcFirst === undefined && tgtFirst === undefined) return 0;
+
+    // Edge fires when the later endpoint first activates
+    var edgeFireStep = Math.max(
+      srcFirst !== undefined ? srcFirst : 999,
+      tgtFirst !== undefined ? tgtFirst : 999
+    );
+    if (edgeFireStep >= 999) return 0;
+
+    var p = getElectricProgress();
+    var wavePos = p.step + p.frac;
+    var dist = wavePos - edgeFireStep;
+
+    // Pulse shape: ramp up → peak → decay
+    var energy;
+    if (dist < -0.5) {
+      energy = 0;
+    } else if (dist < 0) {
+      // Leading edge: ramp up as wave approaches
+      energy = (dist + 0.5) / 0.5;
+      energy = energy * energy; // ease-in for smooth arrival
+    } else if (dist < 0.4) {
+      // Peak: full brightness while wave is here
+      energy = 1.0;
+    } else {
+      // Decay: dims over ~1.5 steps after wave passes
+      energy = Math.max(0, 1.0 - (dist - 0.4) * 0.45);
+      energy = energy * energy; // ease-out for smooth fade
     }
-    var snap = electricState.steps[electricState.currentStep];
-    if (!snap) return;
-    var act = snap.activation || {};
 
-    graph
-      .linkDirectionalParticles(function(link) {
-        var src = link.source.id || link.source;
-        var tgt = link.target.id || link.target;
-        var srcAct = act[src] || 0;
-        var tgtAct = act[tgt] || 0;
-        var energy = Math.max(srcAct, tgtAct);
-        if (energy < 0.01) return 0;
-        return Math.min(4, Math.ceil(energy * 4));
-      })
-      .linkDirectionalParticleSpeed(function() {
-        return 0.006 * electricState.speed;
-      })
-      .linkDirectionalParticleWidth(function(link) {
-        if (!electricState.steps || !electricState.steps[electricState.currentStep]) return 1;
-        var src = link.source.id || link.source;
-        var tgt = link.target.id || link.target;
-        var act_ = electricState.steps[electricState.currentStep].activation || {};
-        var energy = Math.max(act_[src] || 0, act_[tgt] || 0);
-        return Math.max(1, energy * 4);
-      })
-      .linkDirectionalParticleColor(function(link) {
-        return link.kind === 'conflicts' ? '#f38ba8' : '#89b4fa';
-      });
+    // Residual glow when both endpoints are active — keeps edges faintly alive
+    var srcAct = getElectricActivation(srcId);
+    var tgtAct = getElectricActivation(tgtId);
+    var residual = Math.min(srcAct, tgtAct) * 0.15;
+
+    return Math.max(energy * p.fade, residual);
   }
+
 
   function electricActivate(nodeId) {
     if (!electricEnabled()) return;
@@ -866,17 +1153,41 @@
 
         electricState.steps = steps;
         electricState.seedNodeId = nodeId;
-        electricState.currentStep = 0;
         electricState.active = true;
-        electricState.playing = false;
+
+        // Pre-compute which step each node first activates (for flash effect)
+        electricState.nodeFirstStep = {};
+        for (var s = 0; s < steps.length; s++) {
+          var act = steps[s].activation || {};
+          for (var nid in act) {
+            if (act[nid] > 0 && electricState.nodeFirstStep[nid] === undefined) {
+              electricState.nodeFirstStep[nid] = s;
+            }
+          }
+        }
+
+        // Auto-play from the start
+        electricState.elapsed = 0;
+        electricState.startTime = performance.now();
+        electricState.playing = true;
 
         // Clear focus mode (electric replaces it)
         focusedNodeId = null;
         focusDistances = null;
 
-        updateElectricParticles();
         updateElectricUI();
         showElectricToolbar();
+        electricState.uiFrameId = requestAnimationFrame(electricUILoop);
+
+        // Auto-zoom into the seed node's neighborhood for better visibility
+        var seedNode = graph.graphData().nodes.find(function(n) { return n.id === nodeId; });
+        if (seedNode) {
+          // Save current view so we can restore on deactivate
+          electricState.savedZoom = { x: graph.centerAt().x, y: graph.centerAt().y, z: graph.zoom() };
+          graph.centerAt(seedNode.x, seedNode.y, 800);
+          setTimeout(function() { graph.zoom(3, 800); }, 100);
+        }
+
         return steps;
       });
   }
@@ -885,14 +1196,12 @@
     electricState.active = false;
     electricState.steps = null;
     electricState.seedNodeId = null;
-    electricState.currentStep = 0;
+    electricState.playing = false;
+    electricState.elapsed = 0;
 
-    if (electricState.playing) {
-      electricState.playing = false;
-      if (electricState.animFrameId) {
-        cancelAnimationFrame(electricState.animFrameId);
-        electricState.animFrameId = null;
-      }
+    if (electricState.uiFrameId) {
+      cancelAnimationFrame(electricState.uiFrameId);
+      electricState.uiFrameId = null;
     }
 
     // Restore focus state
@@ -902,54 +1211,39 @@
       electricState.savedFocus = null;
     }
 
-    // Clear particles
-    graph.linkDirectionalParticles(0);
     hideElectricToolbar();
-  }
 
-  function electricSetStep(step) {
-    if (!electricState.steps) return;
-    electricState.currentStep = Math.max(0, Math.min(step, electricState.steps.length - 1));
-    updateElectricParticles();
-    updateElectricUI();
-  }
-
-  function electricPlayLoop(timestamp) {
-    if (!electricState.playing || !electricState.steps) return;
-    var interval = 1500 / electricState.speed;
-    if (timestamp - electricState.lastStepTime >= interval) {
-      electricState.lastStepTime = timestamp;
-      var next = electricState.currentStep + 1;
-      if (next >= electricState.steps.length) next = 0;
-      electricSetStep(next);
+    // Restore zoom to overview
+    if (electricState.savedZoom) {
+      graph.centerAt(electricState.savedZoom.x, electricState.savedZoom.y, 800);
+      setTimeout(function() { graph.zoom(electricState.savedZoom.z, 800); }, 100);
+      electricState.savedZoom = null;
     }
-    electricState.animFrameId = requestAnimationFrame(electricPlayLoop);
   }
 
   function electricTogglePlay() {
     if (!electricState.active) return;
-    electricState.playing = !electricState.playing;
     if (electricState.playing) {
-      electricState.lastStepTime = performance.now();
-      electricState.animFrameId = requestAnimationFrame(electricPlayLoop);
+      // Pause: save accumulated animation time
+      electricState.elapsed += (performance.now() - electricState.startTime) * electricState.speed;
+      electricState.playing = false;
     } else {
-      if (electricState.animFrameId) {
-        cancelAnimationFrame(electricState.animFrameId);
-        electricState.animFrameId = null;
-      }
+      // Resume: restart time tracking from saved position
+      electricState.startTime = performance.now();
+      electricState.playing = true;
+      electricState.uiFrameId = requestAnimationFrame(electricUILoop);
     }
     updateElectricUI();
   }
 
   // Toolbar button bindings
   document.getElementById('et-play').addEventListener('click', electricTogglePlay);
-  document.getElementById('et-prev').addEventListener('click', function() {
-    electricSetStep(electricState.currentStep - 1);
-  });
-  document.getElementById('et-next').addEventListener('click', function() {
-    electricSetStep(electricState.currentStep + 1);
-  });
   document.getElementById('et-speed').addEventListener('input', function(e) {
+    // Save current animation position before changing speed
+    if (electricState.playing) {
+      electricState.elapsed += (performance.now() - electricState.startTime) * electricState.speed;
+      electricState.startTime = performance.now();
+    }
     electricState.speed = parseFloat(e.target.value);
   });
   document.getElementById('et-clear').addEventListener('click', function() {
@@ -961,8 +1255,13 @@
   getNodeOpacity = function(nodeId) {
     if (electricState.active && electricState.steps) {
       var act = getElectricActivation(nodeId);
+      var ep = getElectricProgress();
       if (nodeId === electricState.seedNodeId) return 1.0;
-      return Math.max(0.08, act);
+      // Dim non-active nodes, blend partially back during fade transitions
+      // Cap recovery at 80% to avoid flash — nodes stay subtly dimmed
+      var dimmed = Math.max(0.12, act * 0.6);
+      var recovery = Math.max(0, 1.0 - ep.fade) * 0.8;
+      return dimmed + (1.0 - dimmed) * recovery;
     }
     return origGetNodeOpacity(nodeId);
   };
@@ -982,16 +1281,90 @@
     electricDeactivate();
   };
   window.__electricGetStep = function() {
-    return electricState.currentStep;
+    return getElectricProgress().step;
   };
   window.__electricSetStep = function(step) {
-    electricSetStep(step);
+    // Set animation time to place us at the start of the given step
+    electricState.elapsed = step * 2000;
+    electricState.startTime = performance.now();
+    updateElectricUI();
   };
   window.__electricIsActive = function() {
     return electricState.active;
   };
   window.__electricGetActivation = function(nodeId) {
     return getElectricActivation(nodeId);
+  };
+  window.__sparkDiag = function() {
+    if (!electricState.active || !electricState.steps) return { error: 'not active' };
+    var p = getElectricProgress();
+    var links = graph.graphData().links;
+    var results = [];
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      var src = link.source;
+      var tgt = link.target;
+      var srcId = src.id || src;
+      var tgtId = tgt.id || tgt;
+      var srcFirst = electricState.nodeFirstStep[srcId];
+      var tgtFirst = electricState.nodeFirstStep[tgtId];
+      var edgeFireStep = Math.max(
+        srcFirst !== undefined ? srcFirst : 999,
+        tgtFirst !== undefined ? tgtFirst : 999
+      );
+      var wavePos = p.step + p.frac;
+      var dist = wavePos - edgeFireStep;
+      var sparkT = dist + 1.0;
+      var sparkBright = Math.min(1.0, Math.max(0, sparkT * 2.5));
+      if (sparkT > 1.0) sparkBright *= Math.max(0, (1.6 - sparkT) / 0.6);
+      sparkBright *= p.fade;
+      var hasCoords = src.x != null && tgt.x != null;
+      results.push({
+        srcId: srcId.substring(0, 20),
+        tgtId: tgtId.substring(0, 20),
+        srcFirst: srcFirst,
+        tgtFirst: tgtFirst,
+        edgeFireStep: edgeFireStep,
+        sparkT: +sparkT.toFixed(3),
+        sparkBright: +sparkBright.toFixed(4),
+        inRange: sparkT >= -0.1 && sparkT <= 1.6,
+        visible: sparkBright >= 0.03,
+        hasCoords: hasCoords
+      });
+    }
+    // Raw step data stats
+    var stepStats = [];
+    if (electricState.steps) {
+      for (var si = 0; si < electricState.steps.length; si++) {
+        var stepAct = electricState.steps[si].activation || {};
+        var keys = Object.keys(stepAct);
+        var maxAct = 0, minAct = Infinity;
+        keys.forEach(function(k) {
+          if (stepAct[k] > maxAct) maxAct = stepAct[k];
+          if (stepAct[k] < minAct) minAct = stepAct[k];
+        });
+        stepStats.push({
+          step: si,
+          nodeCount: keys.length,
+          maxAct: +maxAct.toFixed(6),
+          minAct: keys.length > 0 ? +minAct.toFixed(6) : 0,
+          final: !!electricState.steps[si].final
+        });
+      }
+    }
+    return {
+      progress: { step: p.step, frac: +p.frac.toFixed(3), fade: +p.fade.toFixed(3) },
+      nodeFirstStepCount: Object.keys(electricState.nodeFirstStep).length,
+      nodeFirstStepEntries: Object.keys(electricState.nodeFirstStep).slice(0, 5).map(function(k) {
+        return { id: k.substring(0, 20), step: electricState.nodeFirstStep[k] };
+      }),
+      totalNodes: graph.graphData().nodes.length,
+      totalLinks: links.length,
+      stepStats: stepStats,
+      sparksInRange: results.filter(function(r) { return r.inRange; }).length,
+      sparksVisible: results.filter(function(r) { return r.visible; }).length,
+      edges: results.slice(0, 10)
+    };
   };
 })();
 </script>
