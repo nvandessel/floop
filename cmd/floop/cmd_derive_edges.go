@@ -64,8 +64,8 @@ Examples:
 				if err != nil {
 					return fmt.Errorf("failed to open local store: %w", err)
 				}
+				defer graphStore.Close()
 				result, err := deriveEdgesForStore(ctx, graphStore, "local", dryRun, clear)
-				graphStore.Close()
 				if err != nil {
 					return fmt.Errorf("local store: %w", err)
 				}
@@ -88,8 +88,8 @@ Examples:
 				if err != nil {
 					return fmt.Errorf("failed to open global store: %w", err)
 				}
+				defer graphStore.Close()
 				result, err := deriveEdgesForStore(ctx, graphStore, "global", dryRun, clear)
-				graphStore.Close()
 				if err != nil {
 					return fmt.Errorf("global store: %w", err)
 				}
@@ -164,11 +164,7 @@ func deriveEdgesForStore(ctx context.Context, graphStore store.GraphStore, scope
 
 	// Clear existing derived edges if requested
 	if clear && !dryRun {
-		cleared, err := clearDerivedEdges(ctx, graphStore, behaviors)
-		if err != nil {
-			return result, fmt.Errorf("failed to clear edges: %w", err)
-		}
-		result.ClearedEdges = cleared
+		result.ClearedEdges = clearDerivedEdges(ctx, graphStore, behaviors)
 	}
 
 	// Build existing edge set for dedup
@@ -277,8 +273,9 @@ func deriveEdgesForStore(ctx context.Context, graphStore store.GraphStore, scope
 }
 
 // clearDerivedEdges removes all similar-to and overrides outbound edges for behaviors.
-// Returns the number of edges removed.
-func clearDerivedEdges(ctx context.Context, graphStore store.GraphStore, behaviors []models.Behavior) (int, error) {
+// Returns the number of edges removed. Logs warnings on individual failures but
+// continues clearing remaining edges.
+func clearDerivedEdges(ctx context.Context, graphStore store.GraphStore, behaviors []models.Behavior) int {
 	cleared := 0
 	for _, b := range behaviors {
 		for _, kind := range []string{"similar-to", "overrides"} {
@@ -295,7 +292,7 @@ func clearDerivedEdges(ctx context.Context, graphStore store.GraphStore, behavio
 			}
 		}
 	}
-	return cleared, nil
+	return cleared
 }
 
 // computeConnectivity counts how many behaviors have edges vs. are isolated islands.
