@@ -4,7 +4,6 @@ package config
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -367,8 +366,8 @@ func applyEnvOverrides(config *FloopConfig) {
 		config.LLM.LocalEmbeddingModelPath = v
 	}
 	if v := os.Getenv("FLOOP_LOCAL_GPU_LAYERS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			config.LLM.LocalGPULayers = int32(min(max(n, 0), math.MaxInt32))
+		if n, err := strconv.ParseInt(v, 10, 32); err == nil && n >= 0 {
+			config.LLM.LocalGPULayers = int32(n)
 		}
 	}
 	if v := os.Getenv("FLOOP_LOCAL_CONTEXT_SIZE"); v != "" {
