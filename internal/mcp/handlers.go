@@ -974,14 +974,26 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 		return nil, FloopDeduplicateOutput{}, fmt.Errorf("invalid scope: %s (must be 'local', 'global', or 'both')", args.Scope)
 	}
 
-	// Configure deduplicator
+	// Configure deduplicator with LLM support when available
+	useLLM := s.llmClient != nil && s.llmClient.Available()
 	dedupConfig := dedup.DeduplicatorConfig{
 		SimilarityThreshold: threshold,
+		EmbeddingThreshold:  constants.DefaultEmbeddingDedupThreshold,
 		AutoMerge:           !args.DryRun,
+		UseLLM:              useLLM,
 	}
 
-	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{}) // Empty config uses basic merge
-	deduplicator := dedup.NewStoreDeduplicator(s.store, merger, dedupConfig)
+	merger := dedup.NewBehaviorMerger(dedup.MergerConfig{
+		UseLLM:    useLLM,
+		LLMClient: s.llmClient,
+	})
+
+	var deduplicator *dedup.StoreDeduplicator
+	if useLLM {
+		deduplicator = dedup.NewStoreDeduplicatorWithLLM(s.store, merger, dedupConfig, s.llmClient)
+	} else {
+		deduplicator = dedup.NewStoreDeduplicator(s.store, merger, dedupConfig)
+	}
 
 	// Perform deduplication
 	report, err := deduplicator.DeduplicateStore(ctx, s.store)
@@ -993,6 +1005,23 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 	if !args.DryRun {
 		if err := s.store.Sync(ctx); err != nil {
 			return nil, FloopDeduplicateOutput{}, fmt.Errorf("failed to sync store: %w", err)
+		}
+
+		// Embed merged behaviors for vector retrieval
+		if report.MergesPerformed > 0 && s.embedder != nil && s.embedder.Available() {
+			for _, merged := range report.MergedBehaviors {
+				bid := merged.ID
+				text := merged.Content.Canonical
+				if text != "" {
+					s.runBackground("embed-merged-behavior", func() {
+						if es, ok := s.store.(store.EmbeddingStore); ok {
+							if err := s.embedder.EmbedAndStore(context.Background(), es, bid, text); err != nil {
+								fmt.Fprintf(os.Stderr, "warning: failed to embed merged behavior %s: %v\n", bid, err)
+							}
+						}
+					})
+				}
+			}
 		}
 
 		// Debounced PageRank refresh after graph mutation

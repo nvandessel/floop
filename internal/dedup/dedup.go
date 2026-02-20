@@ -52,6 +52,12 @@ type DeduplicatorConfig struct {
 	// Range: 0.0 to 1.0, default: 0.9
 	SimilarityThreshold float64 `json:"similarity_threshold,omitempty" yaml:"similarity_threshold,omitempty"`
 
+	// EmbeddingThreshold is the cosine similarity threshold for embedding-based
+	// duplicate detection. When embeddings are available, this threshold is used
+	// instead of SimilarityThreshold for the embedding comparison path.
+	// Range: 0.0 to 1.0, default: 0.7
+	EmbeddingThreshold float64 `json:"embedding_threshold,omitempty" yaml:"embedding_threshold,omitempty"`
+
 	// AutoMerge enables automatic merging of detected duplicates.
 	// When false, duplicates are only reported, not merged.
 	AutoMerge bool `json:"auto_merge,omitempty" yaml:"auto_merge,omitempty"`
@@ -69,6 +75,7 @@ type DeduplicatorConfig struct {
 func DefaultConfig() DeduplicatorConfig {
 	return DeduplicatorConfig{
 		SimilarityThreshold: constants.DefaultAutoMergeThreshold,
+		EmbeddingThreshold:  constants.DefaultEmbeddingDedupThreshold,
 		AutoMerge:           false,
 		UseLLM:              false,
 		MaxBatchSize:        100,

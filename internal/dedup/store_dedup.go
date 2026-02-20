@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/logging"
 	"github.com/nvandessel/feedback-loop/internal/models"
-	"github.com/nvandessel/feedback-loop/internal/similarity"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -24,12 +22,13 @@ type scopedWriter interface {
 // StoreDeduplicator implements the Deduplicator interface for a single store.
 // It provides methods for finding and merging duplicate behaviors within a store.
 type StoreDeduplicator struct {
-	store     store.GraphStore
-	merger    *BehaviorMerger
-	config    DeduplicatorConfig
-	llmClient llm.Client
-	logger    *slog.Logger
-	decisions *logging.DecisionLogger
+	store          store.GraphStore
+	merger         *BehaviorMerger
+	config         DeduplicatorConfig
+	llmClient      llm.Client
+	logger         *slog.Logger
+	decisions      *logging.DecisionLogger
+	embeddingCache *EmbeddingCache
 }
 
 // NewStoreDeduplicator creates a new StoreDeduplicator with the given store and configuration.
@@ -77,7 +76,7 @@ func (d *StoreDeduplicator) FindDuplicates(ctx context.Context, behavior *models
 		other := models.NodeToBehavior(node)
 		sim := d.computeSimilarity(behavior, &other)
 
-		if sim.score >= d.config.SimilarityThreshold {
+		if sim.score >= d.effectiveThreshold(sim.method) {
 			matches = append(matches, DuplicateMatch{
 				Behavior:         &other,
 				Similarity:       sim.score,
@@ -151,6 +150,12 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 		behaviors = append(behaviors, models.NodeToBehavior(node))
 	}
 
+	// Create embedding cache for batch pairwise comparisons so each
+	// behavior's canonical text is embedded at most once.
+	if d.config.UseLLM && d.llmClient != nil {
+		d.embeddingCache = NewEmbeddingCache()
+	}
+
 	// Find and process duplicates
 	for i := range behaviors {
 		behavior := &behaviors[i]
@@ -171,7 +176,7 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 			other := &behaviors[j]
 			sim := d.computeSimilarity(behavior, other)
 
-			if sim.score >= d.config.SimilarityThreshold {
+			if sim.score >= d.effectiveThreshold(sim.method) {
 				duplicates = append(duplicates, DuplicateMatch{
 					Behavior:         other,
 					Similarity:       sim.score,
@@ -223,94 +228,32 @@ type similarityResult struct {
 	method string
 }
 
+// effectiveThreshold returns the threshold for the given similarity method.
+// Uses EmbeddingThreshold for embedding results when configured, otherwise
+// falls back to SimilarityThreshold.
+func (d *StoreDeduplicator) effectiveThreshold(method string) float64 {
+	if method == "embedding" && d.config.EmbeddingThreshold > 0 {
+		return d.config.EmbeddingThreshold
+	}
+	return d.config.SimilarityThreshold
+}
+
 // computeSimilarity calculates similarity between two behaviors.
-// Uses embedding-based comparison if the LLM client supports EmbeddingComparer,
-// then tries LLM-based comparison, otherwise falls back to Jaccard word overlap.
+// Delegates to the unified ComputeSimilarity function with this deduplicator's config.
 func (d *StoreDeduplicator) computeSimilarity(a, b *models.Behavior) similarityResult {
-	if d.config.UseLLM && d.llmClient != nil && d.llmClient.Available() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	result := ComputeSimilarity(a, b, d.similarityConfig())
+	return similarityResult{score: result.Score, method: result.Method}
+}
 
-		// Prefer embedding-based comparison if supported
-		if ec, ok := d.llmClient.(llm.EmbeddingComparer); ok {
-			sim, err := ec.CompareEmbeddings(ctx, a.Content.Canonical, b.Content.Canonical)
-			if err == nil {
-				method := "embedding"
-				isDup := sim >= d.config.SimilarityThreshold
-
-				if d.logger != nil {
-					d.logger.Debug("similarity computed", "behavior_a", a.ID, "behavior_b", b.ID, "score", sim, "method", method)
-				}
-				if d.decisions != nil {
-					d.decisions.Log(map[string]any{
-						"event":        "similarity_computed",
-						"behavior_a":   a.ID,
-						"behavior_b":   b.ID,
-						"score":        sim,
-						"method":       method,
-						"threshold":    d.config.SimilarityThreshold,
-						"is_duplicate": isDup,
-					})
-				}
-
-				return similarityResult{score: sim, method: method}
-			}
-			// Fall through on error
-		}
-
-		// Try full LLM comparison
-		result, err := d.llmClient.CompareBehaviors(ctx, a, b)
-		if err == nil && result != nil {
-			method := "llm"
-			score := result.SemanticSimilarity
-			isDup := score >= d.config.SimilarityThreshold
-
-			if d.logger != nil {
-				d.logger.Debug("similarity computed", "behavior_a", a.ID, "behavior_b", b.ID, "score", score, "method", method)
-			}
-			if d.decisions != nil {
-				d.decisions.Log(map[string]any{
-					"event":        "similarity_computed",
-					"behavior_a":   a.ID,
-					"behavior_b":   b.ID,
-					"score":        score,
-					"method":       method,
-					"threshold":    d.config.SimilarityThreshold,
-					"is_duplicate": isDup,
-				})
-			}
-
-			return similarityResult{score: score, method: method}
-		}
-		// Fall through to Jaccard on error
-		if d.logger != nil {
-			d.logger.Debug("LLM comparison failed, falling back to jaccard", "error", err)
-		}
+// similarityConfig builds a SimilarityConfig from the deduplicator's state.
+func (d *StoreDeduplicator) similarityConfig() SimilarityConfig {
+	return SimilarityConfig{
+		UseLLM:              d.config.UseLLM,
+		LLMClient:           d.llmClient,
+		SimilarityThreshold: d.config.SimilarityThreshold,
+		EmbeddingThreshold:  d.config.EmbeddingThreshold,
+		Logger:              d.logger,
+		Decisions:           d.decisions,
+		EmbeddingCache:      d.embeddingCache,
 	}
-
-	// Fallback: weighted Jaccard similarity with tag enhancement
-	whenOverlap := similarity.ComputeWhenOverlap(a.When, b.When)
-	contentSim := similarity.ComputeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
-	tagSim := similarity.ComputeTagSimilarity(a.Content.Tags, b.Content.Tags)
-	score := similarity.WeightedScoreWithTags(whenOverlap, contentSim, tagSim)
-
-	method := "jaccard"
-	isDup := score >= d.config.SimilarityThreshold
-
-	if d.logger != nil {
-		d.logger.Debug("similarity computed", "behavior_a", a.ID, "behavior_b", b.ID, "score", score, "method", method)
-	}
-	if d.decisions != nil {
-		d.decisions.Log(map[string]any{
-			"event":        "similarity_computed",
-			"behavior_a":   a.ID,
-			"behavior_b":   b.ID,
-			"score":        score,
-			"method":       method,
-			"threshold":    d.config.SimilarityThreshold,
-			"is_duplicate": isDup,
-		})
-	}
-
-	return similarityResult{score: score, method: method}
 }

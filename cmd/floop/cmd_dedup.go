@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/config"
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/dedup"
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
-	"github.com/nvandessel/feedback-loop/internal/similarity"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -38,6 +36,7 @@ Examples:
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			threshold, _ := cmd.Flags().GetFloat64("threshold")
+			embeddingThreshold, _ := cmd.Flags().GetFloat64("embedding-threshold")
 			scope, _ := cmd.Flags().GetString("scope")
 
 			// Validate scope
@@ -78,6 +77,7 @@ Examples:
 			// Configure deduplication
 			dedupConfig := dedup.DeduplicatorConfig{
 				SimilarityThreshold: threshold,
+				EmbeddingThreshold:  embeddingThreshold,
 				AutoMerge:           !dryRun,
 				UseLLM:              useLLM,
 				MaxBatchSize:        100,
@@ -95,6 +95,7 @@ Examples:
 
 	cmd.Flags().Bool("dry-run", false, "Show duplicates without merging")
 	cmd.Flags().Float64("threshold", constants.DefaultAutoMergeThreshold, "Similarity threshold for duplicate detection (0.0-1.0)")
+	cmd.Flags().Float64("embedding-threshold", constants.DefaultEmbeddingDedupThreshold, "Cosine similarity threshold for embedding-based duplicate detection (0.0-1.0)")
 	cmd.Flags().String("scope", "local", "Store scope: local, global, or both")
 
 	return cmd
@@ -220,10 +221,16 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 func findDuplicatePairs(behaviors []models.Behavior, cfg dedup.DeduplicatorConfig, llmClient llm.Client) []duplicatePair {
 	useLLM := cfg.UseLLM && llmClient != nil
 
+	// Create embedding cache so each behavior text is embedded at most once.
+	var cache *dedup.EmbeddingCache
+	if useLLM {
+		cache = dedup.NewEmbeddingCache()
+	}
+
 	var duplicates []duplicatePair
 	for i := 0; i < len(behaviors); i++ {
 		for j := i + 1; j < len(behaviors); j++ {
-			sim := computeBehaviorSimilarity(&behaviors[i], &behaviors[j], llmClient, useLLM)
+			sim := computeBehaviorSimilarity(&behaviors[i], &behaviors[j], llmClient, useLLM, cache)
 			if sim >= cfg.SimilarityThreshold {
 				duplicates = append(duplicates, duplicatePair{
 					BehaviorA:  &behaviors[i],
@@ -393,21 +400,12 @@ func loadBehaviorsFromStore(ctx context.Context, graphStore store.GraphStore) ([
 }
 
 // computeBehaviorSimilarity calculates similarity between two behaviors.
-// Uses LLM-based comparison if available, otherwise falls back to Jaccard.
-func computeBehaviorSimilarity(a, b *models.Behavior, llmClient llm.Client, useLLM bool) float64 {
-	if useLLM && llmClient != nil && llmClient.Available() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		result, err := llmClient.CompareBehaviors(ctx, a, b)
-		if err == nil && result != nil {
-			return result.SemanticSimilarity
-		}
-		// Fall through to Jaccard on error
-	}
-
-	whenOverlap := similarity.ComputeWhenOverlap(a.When, b.When)
-	contentSim := similarity.ComputeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
-	tagSim := similarity.ComputeTagSimilarity(a.Content.Tags, b.Content.Tags)
-	return similarity.WeightedScoreWithTags(whenOverlap, contentSim, tagSim)
+// Delegates to the unified dedup.ComputeSimilarity function.
+func computeBehaviorSimilarity(a, b *models.Behavior, llmClient llm.Client, useLLM bool, cache *dedup.EmbeddingCache) float64 {
+	result := dedup.ComputeSimilarity(a, b, dedup.SimilarityConfig{
+		UseLLM:         useLLM,
+		LLMClient:      llmClient,
+		EmbeddingCache: cache,
+	})
+	return result.Score
 }

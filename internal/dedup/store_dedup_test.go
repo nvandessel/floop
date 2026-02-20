@@ -532,8 +532,31 @@ func TestNewStoreDeduplicatorWithLLM(t *testing.T) {
 }
 
 func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
-	t.Run("uses LLM when available and configured", func(t *testing.T) {
+	t.Run("uses embedding when client supports EmbeddingComparer", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
+			WithCompareEmbeddingsResult(0.95)
+
+		dedup := &StoreDeduplicator{
+			config:    DeduplicatorConfig{UseLLM: true},
+			llmClient: mockClient,
+		}
+
+		a := &models.Behavior{Content: models.BehaviorContent{Canonical: "use pathlib"}}
+		b := &models.Behavior{Content: models.BehaviorContent{Canonical: "prefer pathlib"}}
+
+		sim := dedup.computeSimilarity(a, b)
+
+		if sim.score != 0.95 {
+			t.Errorf("expected embedding similarity 0.95, got %f", sim.score)
+		}
+		if sim.method != "embedding" {
+			t.Errorf("expected method 'embedding', got %q", sim.method)
+		}
+	})
+
+	t.Run("falls back to LLM when embedding errors", func(t *testing.T) {
+		mockClient := llm.NewMockClient().
+			WithCompareEmbeddingsError(errors.New("embedding error")).
 			WithComparisonResult(&llm.ComparisonResult{
 				SemanticSimilarity: 0.95,
 				IntentMatch:        true,
@@ -637,6 +660,7 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 
 	t.Run("falls back to Jaccard on LLM error", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
+			WithCompareEmbeddingsError(errors.New("embedding error")).
 			WithError(errors.New("LLM error"))
 
 		dedup := &StoreDeduplicator{

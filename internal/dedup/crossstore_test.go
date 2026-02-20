@@ -1,6 +1,7 @@
 package dedup
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
@@ -220,8 +221,28 @@ func TestNewCrossStoreDeduplicatorWithLLM(t *testing.T) {
 }
 
 func TestCrossStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
-	t.Run("uses LLM when available and configured", func(t *testing.T) {
+	t.Run("uses embedding when client supports EmbeddingComparer", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
+			WithCompareEmbeddingsResult(0.92)
+
+		dedup := &CrossStoreDeduplicator{
+			config:    DeduplicatorConfig{UseLLM: true},
+			llmClient: mockClient,
+		}
+
+		a := &models.Behavior{Content: models.BehaviorContent{Canonical: "use pathlib"}}
+		b := &models.Behavior{Content: models.BehaviorContent{Canonical: "prefer pathlib"}}
+
+		sim := dedup.computeSimilarity(a, b)
+
+		if sim != 0.92 {
+			t.Errorf("expected embedding similarity 0.92, got %f", sim)
+		}
+	})
+
+	t.Run("falls back to LLM when embedding errors", func(t *testing.T) {
+		mockClient := llm.NewMockClient().
+			WithCompareEmbeddingsError(errors.New("embedding error")).
 			WithComparisonResult(&llm.ComparisonResult{
 				SemanticSimilarity: 0.92,
 				IntentMatch:        true,

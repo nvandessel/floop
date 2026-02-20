@@ -91,6 +91,12 @@ const (
 	// Behavior pairs with similarity >= this value are considered duplicates.
 	DefaultAutoMergeThreshold = 0.9
 
+	// DefaultEmbeddingDedupThreshold is the cosine similarity threshold for
+	// embedding-based duplicate detection. Embedding similarity distributes
+	// differently from Jaccard — cosine values tend to cluster higher, so a
+	// lower threshold captures true duplicates without excessive false positives.
+	DefaultEmbeddingDedupThreshold = 0.7
+
 	// DefaultAutoAcceptThreshold is the minimum confidence for auto-accepting learned behaviors.
 	// Behaviors with confidence >= this value and no review flags are auto-accepted.
 	DefaultAutoAcceptThreshold = 0.8

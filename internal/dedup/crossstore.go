@@ -8,7 +8,6 @@ import (
 
 	"github.com/nvandessel/feedback-loop/internal/llm"
 	"github.com/nvandessel/feedback-loop/internal/models"
-	"github.com/nvandessel/feedback-loop/internal/similarity"
 	"github.com/nvandessel/feedback-loop/internal/store"
 )
 
@@ -211,26 +210,14 @@ func (d *CrossStoreDeduplicator) getBehaviorsFromStore(ctx context.Context, s st
 }
 
 // computeSimilarity calculates similarity between two behaviors.
-// Uses LLM-based comparison if available and configured, otherwise falls back
-// to Jaccard word overlap combined with when-condition overlap.
+// Delegates to the unified ComputeSimilarity function.
 func (d *CrossStoreDeduplicator) computeSimilarity(a, b *models.Behavior) float64 {
-	// Try LLM-based comparison if configured and available
-	if d.config.UseLLM && d.llmClient != nil && d.llmClient.Available() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		result, err := d.llmClient.CompareBehaviors(ctx, a, b)
-		if err == nil && result != nil {
-			return result.SemanticSimilarity
-		}
-		// Fall through to Jaccard on error
-	}
-
-	// Fallback: weighted Jaccard similarity with tag enhancement
-	whenOverlap := similarity.ComputeWhenOverlap(a.When, b.When)
-	contentSim := similarity.ComputeContentSimilarity(a.Content.Canonical, b.Content.Canonical)
-	tagSim := similarity.ComputeTagSimilarity(a.Content.Tags, b.Content.Tags)
-	return similarity.WeightedScoreWithTags(whenOverlap, contentSim, tagSim)
+	result := ComputeSimilarity(a, b, SimilarityConfig{
+		UseLLM:              d.config.UseLLM,
+		LLMClient:           d.llmClient,
+		SimilarityThreshold: d.config.SimilarityThreshold,
+	})
+	return result.Score
 }
 
 // updateEdges updates edges in both stores to point to the merged behavior.

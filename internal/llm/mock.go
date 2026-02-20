@@ -8,9 +8,9 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/models"
 )
 
-// MockClient implements Client for testing purposes.
-// It allows configuring responses for CompareBehaviors and MergeBehaviors,
-// simulating errors, and tracking calls for verification.
+// MockClient implements Client and EmbeddingComparer for testing purposes.
+// It allows configuring responses for CompareBehaviors, MergeBehaviors, Embed,
+// and CompareEmbeddings, simulating errors, and tracking calls for verification.
 type MockClient struct {
 	mu sync.Mutex
 
@@ -20,9 +20,16 @@ type MockClient struct {
 	err              error
 	available        bool
 
+	// Embedding configured responses
+	embedResult      []float32
+	embedErr         error
+	compareEmbResult float64
+	compareEmbErr    error
+
 	// Call tracking
 	CompareCalls []CompareCall
 	MergeCalls   []MergeCall
+	EmbedCalls   []string
 }
 
 // CompareCall records a call to CompareBehaviors.
@@ -43,6 +50,7 @@ func NewMockClient() *MockClient {
 		available:    true,
 		CompareCalls: make([]CompareCall, 0),
 		MergeCalls:   make([]MergeCall, 0),
+		EmbedCalls:   make([]string, 0),
 	}
 }
 
@@ -76,6 +84,74 @@ func (m *MockClient) WithAvailable(available bool) *MockClient {
 	defer m.mu.Unlock()
 	m.available = available
 	return m
+}
+
+// WithEmbedResult configures the embedding vector returned by Embed.
+func (m *MockClient) WithEmbedResult(v []float32) *MockClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.embedResult = v
+	return m
+}
+
+// WithEmbedError configures the error returned by Embed.
+func (m *MockClient) WithEmbedError(err error) *MockClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.embedErr = err
+	return m
+}
+
+// WithCompareEmbeddingsResult configures the similarity returned by CompareEmbeddings.
+func (m *MockClient) WithCompareEmbeddingsResult(sim float64) *MockClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.compareEmbResult = sim
+	return m
+}
+
+// WithCompareEmbeddingsError configures the error returned by CompareEmbeddings.
+func (m *MockClient) WithCompareEmbeddingsError(err error) *MockClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.compareEmbErr = err
+	return m
+}
+
+// Embed implements EmbeddingComparer.Embed.
+// It records the call and returns the configured result or error.
+func (m *MockClient) Embed(ctx context.Context, text string) ([]float32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.EmbedCalls = append(m.EmbedCalls, text)
+
+	if m.embedErr != nil {
+		return nil, m.embedErr
+	}
+
+	if m.embedResult != nil {
+		return m.embedResult, nil
+	}
+
+	// Default: return a zero vector
+	return []float32{0, 0, 0}, nil
+}
+
+// CompareEmbeddings implements EmbeddingComparer.CompareEmbeddings.
+// It returns the configured similarity or error.
+func (m *MockClient) CompareEmbeddings(ctx context.Context, a, b string) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Track both texts as embed calls for completeness
+	m.EmbedCalls = append(m.EmbedCalls, a, b)
+
+	if m.compareEmbErr != nil {
+		return 0, m.compareEmbErr
+	}
+
+	return m.compareEmbResult, nil
 }
 
 // CompareBehaviors implements Client.CompareBehaviors.
@@ -141,8 +217,13 @@ func (m *MockClient) Reset() {
 	m.mergeResult = nil
 	m.err = nil
 	m.available = true
+	m.embedResult = nil
+	m.embedErr = nil
+	m.compareEmbResult = 0
+	m.compareEmbErr = nil
 	m.CompareCalls = make([]CompareCall, 0)
 	m.MergeCalls = make([]MergeCall, 0)
+	m.EmbedCalls = make([]string, 0)
 }
 
 // CompareCallCount returns the number of times CompareBehaviors was called.
@@ -158,3 +239,16 @@ func (m *MockClient) MergeCallCount() int {
 	defer m.mu.Unlock()
 	return len(m.MergeCalls)
 }
+
+// EmbedCallCount returns the number of texts passed to Embed or CompareEmbeddings.
+func (m *MockClient) EmbedCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.EmbedCalls)
+}
+
+// Compile-time interface assertions.
+var (
+	_ Client            = (*MockClient)(nil)
+	_ EmbeddingComparer = (*MockClient)(nil)
+)

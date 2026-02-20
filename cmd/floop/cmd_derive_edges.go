@@ -189,7 +189,7 @@ func deriveEdgesForStore(ctx context.Context, graphStore store.GraphStore, scope
 			b := &behaviors[j]
 
 			// Compute similarity (no LLM)
-			score := computeBehaviorSimilarity(a, b, nil, false)
+			score := computeBehaviorSimilarity(a, b, nil, false, nil)
 
 			// Record in histogram (10 buckets: [0.0,0.1), [0.1,0.2), ..., [0.9,1.0])
 			bucket := int(score * 10)
