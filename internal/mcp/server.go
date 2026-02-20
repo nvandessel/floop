@@ -19,6 +19,7 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/ratelimit"
 	"github.com/nvandessel/feedback-loop/internal/seed"
 	"github.com/nvandessel/feedback-loop/internal/session"
+	"github.com/nvandessel/feedback-loop/internal/setup"
 	"github.com/nvandessel/feedback-loop/internal/spreading"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/nvandessel/feedback-loop/internal/vectorsearch"
@@ -132,7 +133,8 @@ func NewServer(cfg *Config) (*Server, error) {
 		done:                 make(chan struct{}),
 	}
 
-	// Initialize local embedding client if configured
+	// Initialize local embedding client.
+	// Priority: explicit config > auto-detect from ~/.floop/
 	if floopCfg.LLM.Provider == "local" {
 		embModelPath := floopCfg.LLM.LocalEmbeddingModelPath
 		if embModelPath == "" {
@@ -148,6 +150,21 @@ func NewServer(cfg *Config) (*Server, error) {
 			if localClient.Available() {
 				s.llmClient = localClient
 				modelName := filepath.Base(embModelPath)
+				s.embedder = vectorsearch.NewEmbedder(localClient.Embed, modelName)
+			}
+		}
+	}
+	// Auto-detect: if no embedder from config, check ~/.floop/ for installed deps
+	if s.embedder == nil {
+		detected := setup.DetectInstalled(setup.DefaultFloopDir())
+		if detected.Available {
+			localClient := llm.NewLocalClient(llm.LocalConfig{
+				LibPath:            detected.LibPath,
+				EmbeddingModelPath: detected.ModelPath,
+			})
+			if localClient.Available() {
+				s.llmClient = localClient
+				modelName := filepath.Base(detected.ModelPath)
 				s.embedder = vectorsearch.NewEmbedder(localClient.Embed, modelName)
 			}
 		}
