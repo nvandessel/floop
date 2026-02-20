@@ -136,7 +136,7 @@ floop uses a two-stage retrieval pipeline:
 1. **Vector pre-filter** — Embed the current context (file, task, language) and find the top-K most similar behaviors via brute-force cosine similarity over stored embeddings
 2. **Spreading activation** — Apply the full activation pipeline (seeding, spreading, lateral inhibition, relevance scoring) to the pre-filtered candidates
 
-This is analogous to how modern search engines use embedding retrieval for recall and then re-rank with more expensive models. At floop's scale (~200 behaviors × 384 dimensions), brute-force search completes in microseconds, so approximate nearest neighbor indices aren't needed.
+This is analogous to how modern search engines use embedding retrieval for recall and then re-rank with more expensive models. At floop's scale (~200 behaviors × 768 dimensions), brute-force search completes in microseconds, so approximate nearest neighbor indices aren't needed.
 
 ### Embedding Model
 

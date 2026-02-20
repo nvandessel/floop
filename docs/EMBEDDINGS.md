@@ -81,11 +81,11 @@ floop config set llm.local_embedding_model_path ~/.floop/models/nomic-embed-text
 
 ### Storage
 
-Embeddings are stored as BLOB columns in the behaviors SQLite table (384 dimensions x 4 bytes = 1,536 bytes per behavior). The embedding model name is tracked alongside each embedding for staleness detection.
+Embeddings are stored as BLOB columns in the behaviors SQLite table (768 dimensions x 4 bytes = 3,072 bytes per behavior). The embedding model name is tracked alongside each embedding for staleness detection.
 
 ### Performance
 
-At typical scales (~200 behaviors x 384 dimensions), brute-force vector search completes in microseconds. No approximate nearest neighbor indices are needed.
+At typical scales (~200 behaviors x 768 dimensions), brute-force vector search completes in microseconds. No approximate nearest neighbor indices are needed.
 
 ## Troubleshooting
 
@@ -125,6 +125,6 @@ The system falls back to predicate matching and spreading activation (identical 
 - **Model:** nomic-embed-text-v1.5 (Q4_K_M quantization), 768-dimension output, 2048-token context
 - **Runtime:** llama.cpp via [yzma](https://github.com/hybridgroup/yzma) purego bindings (no CGo)
 - **Task prefixes:** `search_document:` for behavior text, `search_query:` for context queries (required by nomic-embed-text)
-- **Storage:** SQLite BLOB column, ~1.5 KB per behavior
+- **Storage:** SQLite BLOB column, ~3 KB per behavior
 
 For the theory behind embedding-based retrieval, see [SCIENCE.md](SCIENCE.md).
