@@ -2,6 +2,8 @@ module github.com/nvandessel/feedback-loop
 
 go 1.25
 
+toolchain go1.25.7
+
 require (
 	github.com/modelcontextprotocol/go-sdk v1.3.0
 	github.com/spf13/cobra v1.10.2
