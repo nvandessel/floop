@@ -392,6 +392,33 @@ func TestComputeTagSimilarity(t *testing.T) {
 	}
 }
 
+func TestCountSharedTags(t *testing.T) {
+	tests := []struct {
+		name string
+		a    []string
+		b    []string
+		want int
+	}{
+		{"both nil", nil, nil, 0},
+		{"both empty", []string{}, []string{}, 0},
+		{"a empty", []string{}, []string{"go"}, 0},
+		{"b empty", []string{"go"}, []string{}, 0},
+		{"no overlap", []string{"go", "cli"}, []string{"python", "web"}, 0},
+		{"one shared", []string{"go", "cli"}, []string{"go", "web"}, 1},
+		{"two shared", []string{"go", "cli", "errors"}, []string{"go", "errors", "web"}, 2},
+		{"identical", []string{"go", "cli"}, []string{"go", "cli"}, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CountSharedTags(tt.a, tt.b)
+			if got != tt.want {
+				t.Errorf("CountSharedTags() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValuesEqual(t *testing.T) {
 	tests := []struct {
 		name string

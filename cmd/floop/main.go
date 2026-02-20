@@ -111,6 +111,7 @@ context-aware behavior activation for consistent agent operation.`,
 		newActivateCmd(),
 		// Graph management commands
 		newConnectCmd(),
+		newDeriveEdgesCmd(),
 		// Backup/restore commands
 		newBackupCmd(),
 		newRestoreFromBackupCmd(),

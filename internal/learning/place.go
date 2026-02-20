@@ -293,29 +293,7 @@ func (p *graphPlacer) determineEdges(ctx context.Context, behavior *models.Behav
 }
 
 // isMoreSpecific returns true if a has all of b's conditions plus additional ones.
+// Delegates to the public similarity.IsMoreSpecific for reuse by other packages.
 func (p *graphPlacer) isMoreSpecific(a, b map[string]interface{}) bool {
-	// a is more specific than b if:
-	// 1. a has more conditions than b
-	// 2. a includes all of b's conditions with the same values
-	if len(a) <= len(b) {
-		return false
-	}
-
-	// Empty when means "unscoped" (applies everywhere), not "less specific".
-	// A scoped behavior is not a specialization of an unscoped one.
-	if len(b) == 0 {
-		return false
-	}
-
-	for key, valueB := range b {
-		valueA, exists := a[key]
-		if !exists {
-			return false
-		}
-		if !similarity.ValuesEqual(valueA, valueB) {
-			return false
-		}
-	}
-
-	return true
+	return similarity.IsMoreSpecific(a, b)
 }

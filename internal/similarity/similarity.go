@@ -42,6 +42,24 @@ func ComputeWhenOverlap(a, b map[string]interface{}) float64 {
 	return float64(matches) / float64(total)
 }
 
+// CountSharedTags returns the number of tags that appear in both slices.
+func CountSharedTags(a, b []string) int {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	set := make(map[string]bool, len(a))
+	for _, t := range a {
+		set[t] = true
+	}
+	count := 0
+	for _, t := range b {
+		if set[t] {
+			count++
+		}
+	}
+	return count
+}
+
 // ComputeTagSimilarity computes tag Jaccard similarity with a -1.0 sentinel
 // for missing signals. Returns -1.0 when either slice is empty or nil,
 // indicating that the tag signal is absent and its weight should be
