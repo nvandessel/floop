@@ -1,43 +1,28 @@
 #!/usr/bin/env node
 // Focus mode test: verifies node fade on click, BFS distances, and clear on background click.
+// Usage: NODE_PATH=build/node_modules node scripts/tests/test-focus.js <input.html>
 
-const { chromium } = require("playwright");
 const path = require("path");
+const { makeCounter, launchBrowser, waitForGraph, SCREENSHOT_DIR } = require("./helpers");
 
 const input = process.argv[2];
 if (!input) {
-  console.error("Usage: node scripts/test-focus.js <input.html>");
+  console.error("Usage: node scripts/tests/test-focus.js <input.html>");
   process.exit(1);
 }
 const inputPath = path.resolve(input);
 
 async function testFocus() {
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 1920, height: 1080 });
+  const { browser, page } = await launchBrowser();
+  const { assert, summary } = makeCounter();
 
+  try {
     const logs = [];
     page.on("console", (msg) => logs.push(`[${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => logs.push(`[ERROR] ${err.message}`));
 
     await page.goto(`file://${inputPath}`, { waitUntil: "networkidle" });
-    await new Promise((r) => setTimeout(r, 4000));
-
-    let passed = true;
-    let testCount = 0;
-    let failCount = 0;
-
-    function assert(condition, msg) {
-      testCount++;
-      if (!condition) {
-        failCount++;
-        passed = false;
-        console.log(`  FAIL: ${msg}`);
-      } else {
-        console.log(`  ok: ${msg}`);
-      }
-    }
+    await waitForGraph(page);
 
     // --- Test 1: Initial state has no focus ---
     console.log("\n=== Test 1: Initial focus state ===");
@@ -53,7 +38,6 @@ async function testFocus() {
       const links = g.graphData().links;
       if (nodes.length === 0) return { error: "no nodes" };
 
-      // Find a node that has at least one connection for meaningful BFS
       const connectedIds = new Set();
       links.forEach((l) => {
         connectedIds.add(l.source.id || l.source);
@@ -85,7 +69,7 @@ async function testFocus() {
       "focused node has distance 0"
     );
 
-    // Check BFS correctness: neighbors should have distance 1
+    // --- Test 3: BFS distance correctness ---
     console.log("\n=== Test 3: BFS distance correctness ===");
     const bfsCheck = await page.evaluate(() => {
       const state = window.__getFocusState();
@@ -94,7 +78,6 @@ async function testFocus() {
       const nodes = g.graphData().nodes;
       const focusId = state.focusedNodeId;
 
-      // Find direct neighbors
       const neighbors = [];
       links.forEach((l) => {
         const src = l.source.id || l.source;
@@ -108,7 +91,6 @@ async function testFocus() {
         distance: state.distances[id],
       }));
 
-      // Count nodes at each distance
       const distCounts = {};
       for (const id in state.distances) {
         const d = state.distances[id];
@@ -145,7 +127,6 @@ async function testFocus() {
 
       const focusedOpacity = window.__getNodeOpacity(state.focusedNodeId);
 
-      // Find a node at distance 1, 2, and unreachable
       let d1Node = null, d2Node = null, unreachableNode = null;
       for (const n of nodes) {
         const d = state.distances[n.id];
@@ -173,7 +154,7 @@ async function testFocus() {
       assert(opacityCheck.unreachableOpacity === 0.12, "unreachable node opacity is 0.12");
     }
 
-    await page.screenshot({ path: "/tmp/focus-test-programmatic.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/focus-programmatic.png` });
 
     // --- Test 4: Clear focus via __clearFocus ---
     console.log("\n=== Test 4: Clear focus ===");
@@ -184,7 +165,6 @@ async function testFocus() {
     assert(clearResult.focusedNodeId === null, "focusedNodeId is null after clear");
     assert(clearResult.distances === null, "distances is null after clear");
 
-    // Verify opacity returns to 1.0 when no focus
     const noFocusOpacity = await page.evaluate(() => {
       const nodes = window.__graph.graphData().nodes;
       return window.__getNodeOpacity(nodes[0].id);
@@ -193,12 +173,11 @@ async function testFocus() {
 
     // --- Test 5: Click node via screen coords ---
     console.log("\n=== Test 5: Click node via screen coords ===");
-    await page.screenshot({ path: "/tmp/focus-test-before-click.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/focus-before-click.png` });
 
     const clickTarget = await page.evaluate(() => {
       const g = window.__graph;
       const nodes = g.graphData().nodes;
-      // Find node closest to center
       let best = nodes[0], bestDist = Infinity;
       for (const n of nodes) {
         const d = n.x * n.x + n.y * n.y;
@@ -223,11 +202,10 @@ async function testFocus() {
       );
     }
 
-    await page.screenshot({ path: "/tmp/focus-test-focused.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/focus-focused.png` });
 
     // --- Test 6: Click background to clear focus ---
     console.log("\n=== Test 6: Click background to clear ===");
-    // Click far corner — guaranteed to be background
     await page.mouse.click(10, 10);
     await new Promise((r) => setTimeout(r, 500));
 
@@ -235,11 +213,10 @@ async function testFocus() {
     assert(afterBgClick.focusedNodeId === null, "focusedNodeId is null after background click");
     assert(afterBgClick.distances === null, "distances is null after background click");
 
-    await page.screenshot({ path: "/tmp/focus-test-cleared.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/focus-cleared.png` });
 
     // --- Test 7: closePanel clears focus state ---
     console.log("\n=== Test 7: Panel close clears focus ===");
-    // Set focus programmatically, then call closePanel
     const panelTest = await page.evaluate(() => {
       const nodes = window.__graph.graphData().nodes;
       window.__setFocusNode(nodes[0].id);
@@ -275,7 +252,7 @@ async function testFocus() {
         distA_A: stateA.distances[idA],
         focusedB: stateB.focusedNodeId,
         distB_B: stateB.distances[idB],
-        distB_A: stateB.distances[idA], // A's distance from B
+        distB_A: stateB.distances[idA],
       };
     });
     if (!refocusTest.skip) {
@@ -286,7 +263,6 @@ async function testFocus() {
       assert(refocusTest.focusedB !== refocusTest.focusedA, "focus actually changed nodes");
     }
 
-    // Clean up for next test
     await page.evaluate(() => window.__clearFocus());
 
     // --- Test 8: __setFocusNode rejects invalid node IDs ---
@@ -308,7 +284,6 @@ async function testFocus() {
       window.__setFocusNode(nodes[0].id);
       const beforeScope = window.__getFocusState();
 
-      // Click the "Local" scope button
       const btn = document.querySelector('#scope-filter button[data-scope="local"]');
       if (btn) btn.click();
 
@@ -323,7 +298,6 @@ async function testFocus() {
     assert(scopeTest.afterFocused === null, "scope change clears focusedNodeId");
     assert(scopeTest.afterDistances === null, "scope change clears distances");
 
-    // Reset scope to "all" for clean state
     await page.evaluate(() => {
       const btn = document.querySelector('#scope-filter button[data-scope="all"]');
       if (btn) btn.click();
@@ -339,10 +313,8 @@ async function testFocus() {
       logs.forEach((l) => console.log("  " + l));
     }
 
-    console.log(`\nScreenshots: /tmp/focus-test-{before-click,programmatic,focused,cleared}.png`);
-    console.log(`\n${testCount} assertions, ${failCount} failures`);
-    console.log(passed ? "\nPASS" : "\nFAIL");
-    process.exit(passed ? 0 : 1);
+    console.log(`\nScreenshots: ${SCREENSHOT_DIR}/focus-*.png`);
+    process.exit(summary());
   } finally {
     await browser.close();
   }
