@@ -1,29 +1,28 @@
 #!/usr/bin/env node
-// Diagnostic test: captures detailed state before/during/after mouse interaction.
+// Diagnostic test: captures detailed state before/during/after mouse drag interaction.
+// Usage: NODE_PATH=build/node_modules node scripts/tests/test-drag.js <input.html>
 
-const { chromium } = require("playwright");
 const path = require("path");
+const { makeCounter, launchBrowser, waitForGraph, SCREENSHOT_DIR } = require("./helpers");
 
 const input = process.argv[2];
 if (!input) {
-  console.error("Usage: node scripts/test-drag.js <input.html>");
+  console.error("Usage: node scripts/tests/test-drag.js <input.html>");
   process.exit(1);
 }
 const inputPath = path.resolve(input);
 
 async function testDrag() {
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const page = await browser.newPage();
-    await page.setViewportSize({ width: 1920, height: 1080 });
+  const { browser, page } = await launchBrowser();
+  const { assert, summary } = makeCounter();
 
-    // Capture all console output
+  try {
     const logs = [];
     page.on("console", (msg) => logs.push(`[${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => logs.push(`[ERROR] ${err.message}`));
 
     await page.goto(`file://${inputPath}`, { waitUntil: "networkidle" });
-    await new Promise((r) => setTimeout(r, 4000));
+    await waitForGraph(page);
 
     // Diagnostic: check graph state
     const state = await page.evaluate(() => {
@@ -33,7 +32,6 @@ async function testDrag() {
       const data = g.graphData();
       const nodes = data.nodes || [];
 
-      // Sample first 5 nodes' positions
       const samples = nodes.slice(0, 5).map((n) => ({
         id: n.id.substring(0, 30),
         x: n.x, y: n.y,
@@ -41,7 +39,6 @@ async function testDrag() {
         vx: n.vx, vy: n.vy,
       }));
 
-      // Check for NaN/Infinity
       const badNodes = nodes.filter(
         (n) => !isFinite(n.x) || !isFinite(n.y)
       ).length;
@@ -83,7 +80,7 @@ async function testDrag() {
 
     console.log(`\nTarget: screen=(${target.sx.toFixed(0)}, ${target.sy.toFixed(0)}) graph=(${target.gx.toFixed(1)}, ${target.gy.toFixed(1)})`);
 
-    // Inject drag event listener to check if drag fires
+    // Inject drag event listener
     await page.evaluate(() => {
       window.__dragEvents = [];
       const canvas = document.querySelector("canvas");
@@ -98,15 +95,13 @@ async function testDrag() {
         });
       }
 
-      // Hook into force-graph's drag handler (onNodeDrag only — avoid
-      // overriding onNodeDragEnd which is configured in the production template)
       const g = window.__graph;
       g.onNodeDrag((node) => {
         window.__dragEvents.push({ type: "onNodeDrag", nodeId: node.id, ts: Date.now() });
       });
     });
 
-    await page.screenshot({ path: "/tmp/drag-test-before.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/drag-before.png` });
 
     // Perform the drag
     const sx = Math.round(target.sx);
@@ -116,7 +111,6 @@ async function testDrag() {
     await page.mouse.move(sx, sy);
     await page.mouse.down();
 
-    // Move in small steps
     for (let i = 1; i <= 15; i++) {
       await page.mouse.move(sx + i * 10, sy);
       await new Promise((r) => setTimeout(r, 30));
@@ -183,19 +177,19 @@ async function testDrag() {
       console.log(`  ${s.id}: (${s.x?.toFixed(1)}, ${s.y?.toFixed(1)})`);
     }
 
-    await page.screenshot({ path: "/tmp/drag-test-after.png" });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/drag-after.png` });
 
-    // Console logs
+    // Assertions
+    assert(duringState.dragFired, "onNodeDrag event fired during drag");
+    assert(afterState.badNodes === 0, "no NaN/Infinity nodes after drag");
+
     if (logs.length > 0) {
       console.log("\n=== CONSOLE LOGS ===");
       logs.forEach((l) => console.log("  " + l));
     }
 
-    console.log("\nScreenshots: /tmp/drag-test-before.png, /tmp/drag-test-after.png");
-
-    const passed = duringState.dragFired && afterState.badNodes === 0;
-    console.log(passed ? "\nPASS" : "\nFAIL");
-    process.exit(passed ? 0 : 1);
+    console.log(`\nScreenshots: ${SCREENSHOT_DIR}/drag-*.png`);
+    process.exit(summary());
   } finally {
     await browser.close();
   }

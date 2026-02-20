@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean docs-validate graph-html graph-screenshot graph-preview graph-serve
+.PHONY: build test test-coverage lint lint-fix fmt fmt-check vet vuln ci clean docs-validate graph-html graph-screenshot graph-preview graph-serve graph-test
 
 VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -71,6 +71,10 @@ graph-screenshot: graph-html
 graph-preview: graph-screenshot
 	@echo "Preview: build/graph/graph.html (open in browser)"
 	@echo "Screenshot: build/graph/graph.png"
+
+graph-test:
+	@command -v node >/dev/null 2>&1 || (echo "node required (install Node.js)" && exit 1)
+	bash scripts/tests/run-all.sh
 
 graph-serve:
 	GOWORK=off go build -o ./floop ./cmd/floop
