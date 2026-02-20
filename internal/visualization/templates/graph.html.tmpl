@@ -517,9 +517,8 @@
         // Seed node: expanding ripple rings — neural origin pulse
         if (node.id === electricState.seedNodeId) {
           var rippleP = getElectricProgressCached();
-          var now = Date.now();
           for (var ri = 0; ri < 3; ri++) {
-            var ripplePhase = ((now / 3000) + ri * 0.33) % 1.0;
+            var ripplePhase = ((_frameNow / 3000) + ri * 0.33) % 1.0;
             var rippleR = r * 1.5 + ripplePhase * r * 7;
             var rippleAlpha = (1 - ripplePhase) * (1 - ripplePhase) * 0.3 * rippleP.fade;
             ctx.beginPath();
@@ -609,8 +608,12 @@
       // Advance memoization frame counter so caches invalidate
       _progressFrameCounter++;
       _edgeEnergyCacheFrame = -1;
+      _frameNow = Date.now(); // single timestamp per frame for ripple phase
 
       if (!electricState.active || !electricState.steps) return;
+
+      // UI update (merged from electricUILoop — single animation loop)
+      updateElectricUI();
 
       var links = graph.graphData().links;
       var p = getElectricProgressCached();
@@ -662,48 +665,36 @@
         var flowForward = (srcFirst <= tgtFirst);
         var pos = flowForward ? sparkPos : 1.0 - sparkPos;
 
-        // ── Progressive edge illumination — wire lights up behind the spark ──
-        var litPos = Math.max(0.01, Math.min(0.99, pos));
+        // ── Progressive edge illumination — solid color behind the spark ──
+        // (Gradient-free: uses clipped line segment instead of LinearGradient)
         var litAlpha = (sparkBright * 0.5).toFixed(3);
-        var edgeGrad = ctx.createLinearGradient(src.x, src.y, tgt.x, tgt.y);
-        if (flowForward) {
-          edgeGrad.addColorStop(0, 'rgba(34,211,238,' + litAlpha + ')');
-          edgeGrad.addColorStop(litPos, 'rgba(34,211,238,' + litAlpha + ')');
-          edgeGrad.addColorStop(Math.min(1, litPos + 0.06), 'rgba(34,211,238,0)');
-          edgeGrad.addColorStop(1, 'rgba(34,211,238,0)');
-        } else {
-          edgeGrad.addColorStop(0, 'rgba(34,211,238,0)');
-          edgeGrad.addColorStop(Math.max(0, litPos - 0.06), 'rgba(34,211,238,0)');
-          edgeGrad.addColorStop(litPos, 'rgba(34,211,238,' + litAlpha + ')');
-          edgeGrad.addColorStop(1, 'rgba(34,211,238,' + litAlpha + ')');
+        var litEnd = flowForward ? pos : 1.0 - pos;
+        var litLen = Math.min(litEnd, 1.0);
+        if (litLen > 0.01) {
+          var lx0 = flowForward ? src.x : (src.x + dx * (1.0 - litLen));
+          var ly0 = flowForward ? src.y : (src.y + dy * (1.0 - litLen));
+          var lx1 = flowForward ? (src.x + dx * litLen) : tgt.x;
+          var ly1 = flowForward ? (src.y + dy * litLen) : tgt.y;
+          ctx.beginPath();
+          ctx.moveTo(lx0, ly0);
+          ctx.lineTo(lx1, ly1);
+          ctx.strokeStyle = 'rgba(34,211,238,' + litAlpha + ')';
+          ctx.lineWidth = 4;
+          ctx.lineCap = 'round';
+          ctx.stroke();
         }
-        ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = edgeGrad;
-        ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
-        ctx.stroke();
 
-        // ── Comet trail — gradient from transparent to bright at tip ──
+        // ── Comet trail — solid bright segment behind spark tip ──
         var trail = 0.20;
         var ts0 = flowForward ? Math.max(0, pos - trail) : pos;
         var ts1 = flowForward ? pos : Math.min(1, pos + trail);
         var ts0x = src.x + dx * ts0, ts0y = src.y + dy * ts0;
         var ts1x = src.x + dx * ts1, ts1y = src.y + dy * ts1;
-        var trailGrad = ctx.createLinearGradient(ts0x, ts0y, ts1x, ts1y);
-        if (flowForward) {
-          trailGrad.addColorStop(0, 'rgba(255,255,255,0)');
-          trailGrad.addColorStop(1, 'rgba(255,255,255,' + (sparkBright * 0.85).toFixed(3) + ')');
-        } else {
-          trailGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.85).toFixed(3) + ')');
-          trailGrad.addColorStop(1, 'rgba(255,255,255,0)');
-        }
         ctx.beginPath();
         ctx.moveTo(ts0x, ts0y);
         ctx.lineTo(ts1x, ts1y);
-        ctx.strokeStyle = trailGrad;
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(255,255,255,' + (sparkBright * 0.65).toFixed(3) + ')';
+        ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.stroke();
 
@@ -735,11 +726,11 @@
         ctx.fill();
 
         // ── Trailing ember particles ──
-        for (var ei = 1; ei <= 4; ei++) {
+        for (var ei = 1; ei <= 2; ei++) {
           var eOffset = ei * 0.05;
           var ePos = flowForward ? (pos - eOffset) : (pos + eOffset);
           if (ePos < 0 || ePos > 1) continue;
-          var eFade = 1.0 - (ei / 5);
+          var eFade = 1.0 - (ei / 3);
           var jitter = Math.sin(wavePos * 7 + ei * 2.3) * 1.5;
           var ex = src.x + dx * ePos + nx * jitter;
           var ey = src.y + dy * ePos + ny * jitter;
@@ -1062,6 +1053,10 @@
     return base;
   }
 
+  // Frame-level timestamp — set once per frame in onRenderFramePost,
+  // used by ripple phase in nodeCanvasObject to avoid repeated Date.now() calls.
+  var _frameNow = Date.now();
+
   // Memoization: getElectricProgress is called ~970 times per frame
   // but returns the same value within a single frame. Cache it.
   var _cachedProgress = null;
@@ -1123,11 +1118,7 @@
     playBtn.classList.toggle('active', electricState.playing);
   }
 
-  function electricUILoop() {
-    if (!electricState.active) return;
-    updateElectricUI();
-    electricState.uiFrameId = requestAnimationFrame(electricUILoop);
-  }
+  // electricUILoop merged into onRenderFramePost — single animation loop
 
   function getElectricActivation(nodeId) {
     if (!electricState.active || !electricState.steps) return 0;
@@ -1259,7 +1250,6 @@
 
         updateElectricUI();
         showElectricToolbar();
-        electricState.uiFrameId = requestAnimationFrame(electricUILoop);
 
         // Auto-zoom into the seed node's neighborhood for better visibility
         var seedNode = graph.graphData().nodes.find(function(n) { return n.id === nodeId; });
@@ -1283,11 +1273,6 @@
 
     // Restore idle rendering (no redraws when physics settled)
     graph.autoPauseRedraw(true);
-
-    if (electricState.uiFrameId) {
-      cancelAnimationFrame(electricState.uiFrameId);
-      electricState.uiFrameId = null;
-    }
 
     // Restore focus state
     if (electricState.savedFocus) {
@@ -1316,7 +1301,6 @@
       // Resume: restart time tracking from saved position
       electricState.startTime = performance.now();
       electricState.playing = true;
-      electricState.uiFrameId = requestAnimationFrame(electricUILoop);
     }
     updateElectricUI();
   }

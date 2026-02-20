@@ -707,6 +707,85 @@ func TestRenderHTML_AutoPauseRedrawDefault(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_NoLinearGradientsInSparkLoop(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Edge wire illumination and comet trail gradients should be replaced with
+	// solid rgba() colors. createLinearGradient in the spark loop was allocating
+	// ~9,600 gradient objects per second.
+	if strings.Contains(htmlStr, "createLinearGradient") {
+		t.Error("createLinearGradient found in HTML — edge wire and comet trail should use solid rgba() colors")
+	}
+}
+
+func TestRenderHTML_NoSeparateElectricUILoop(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// electricUILoop should be merged into onRenderFramePost, eliminating
+	// the dual animation loop. No separate requestAnimationFrame(electricUILoop).
+	if strings.Contains(htmlStr, "requestAnimationFrame(electricUILoop)") {
+		t.Error("separate electricUILoop rAF still present — should be merged into onRenderFramePost")
+	}
+}
+
+func TestRenderHTML_FrameLevelTimestamp(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// The ripple phase should use a frame-level timestamp variable instead of
+	// calling Date.now() inside the per-node rendering loop.
+	if !strings.Contains(htmlStr, "_frameNow") {
+		t.Error("expected _frameNow frame-level timestamp variable in HTML")
+	}
+}
+
+func TestRenderHTML_EmberParticleCount(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Ember particles should be reduced from 4 to 2 per edge
+	if strings.Contains(htmlStr, "ei <= 4") {
+		t.Error("ember loop still uses 4 particles — should be reduced to 2")
+	}
+	if !strings.Contains(htmlStr, "ei <= 2") {
+		t.Error("expected ember loop to use 2 particles (ei <= 2)")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string
