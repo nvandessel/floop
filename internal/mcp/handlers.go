@@ -316,10 +316,11 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	if s.embedder != nil && s.embedder.Available() {
 		nodes, err = vectorRetrieve(ctx, s.embedder, s.store, actCtx, vectorRetrieveTopK)
 		if err != nil {
+			nodes = nil // distinguish error from empty results
 			fmt.Fprintf(os.Stderr, "warning: vector retrieval failed, falling back to full scan: %v\n", err)
 		}
 	}
-	if len(nodes) == 0 {
+	if nodes == nil {
 		nodes, err = s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
 		if err != nil {
 			return nil, FloopActiveOutput{}, fmt.Errorf("failed to query behaviors: %w", err)

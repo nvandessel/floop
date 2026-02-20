@@ -1,4 +1,4 @@
-package llm
+package vecmath
 
 import "math"
 
@@ -27,8 +27,8 @@ func CosineSimilarity(a, b []float32) float64 {
 	return dot / (magA * magB)
 }
 
-// normalize performs in-place L2 normalization of a float32 vector.
-func normalize(vec []float32) {
+// Normalize performs in-place L2 normalization of a float32 vector.
+func Normalize(vec []float32) {
 	var sum float64
 	for _, v := range vec {
 		sum += float64(v) * float64(v)

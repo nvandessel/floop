@@ -8,6 +8,7 @@ import (
 
 	"github.com/hybridgroup/yzma/pkg/llama"
 	"github.com/nvandessel/feedback-loop/internal/models"
+	"github.com/nvandessel/feedback-loop/internal/vecmath"
 )
 
 // Package-level library initialization. llama.Load() and llama.Init() are
@@ -199,7 +200,7 @@ func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error)
 	// Copy + L2 normalize (rawVec points to memory owned by lctx)
 	vec := make([]float32, len(rawVec))
 	copy(vec, rawVec)
-	normalize(vec)
+	vecmath.Normalize(vec)
 
 	return vec, nil
 }
@@ -214,7 +215,7 @@ func (c *LocalClient) CompareEmbeddings(ctx context.Context, a, b string) (float
 	if err != nil {
 		return 0, fmt.Errorf("embedding text b: %w", err)
 	}
-	return CosineSimilarity(embA, embB), nil
+	return vecmath.CosineSimilarity(embA, embB), nil
 }
 
 // CompareBehaviors compares two behaviors using embedding-based cosine similarity.

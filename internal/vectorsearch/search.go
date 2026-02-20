@@ -1,10 +1,10 @@
 package vectorsearch
 
 import (
-	"math"
 	"sort"
 
 	"github.com/nvandessel/feedback-loop/internal/store"
+	"github.com/nvandessel/feedback-loop/internal/vecmath"
 )
 
 // SearchResult pairs a behavior ID with its similarity score.
@@ -22,7 +22,7 @@ func BruteForceSearch(queryVec []float32, candidates []store.BehaviorEmbedding, 
 
 	results := make([]SearchResult, 0, len(candidates))
 	for _, c := range candidates {
-		score := cosineSimilarity(queryVec, c.Embedding)
+		score := vecmath.CosineSimilarity(queryVec, c.Embedding)
 		results = append(results, SearchResult{
 			BehaviorID: c.BehaviorID,
 			Score:      score,
@@ -40,26 +40,3 @@ func BruteForceSearch(queryVec []float32, candidates []store.BehaviorEmbedding, 
 	return results[:topK]
 }
 
-// cosineSimilarity computes cosine similarity between two float32 vectors.
-// Returns 0.0 for zero-magnitude or mismatched-length vectors.
-func cosineSimilarity(a, b []float32) float64 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0.0
-	}
-
-	var dot, magA, magB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		magA += float64(a[i]) * float64(a[i])
-		magB += float64(b[i]) * float64(b[i])
-	}
-
-	magA = math.Sqrt(magA)
-	magB = math.Sqrt(magB)
-
-	if magA == 0 || magB == 0 {
-		return 0.0
-	}
-
-	return dot / (magA * magB)
-}

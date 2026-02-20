@@ -5,68 +5,8 @@ import (
 	"testing"
 
 	"github.com/nvandessel/feedback-loop/internal/store"
+	"github.com/nvandessel/feedback-loop/internal/vecmath"
 )
-
-func TestCosineSimilarity(t *testing.T) {
-	tests := []struct {
-		name string
-		a    []float32
-		b    []float32
-		want float64
-	}{
-		{
-			name: "identical vectors",
-			a:    []float32{1, 2, 3},
-			b:    []float32{1, 2, 3},
-			want: 1.0,
-		},
-		{
-			name: "orthogonal vectors",
-			a:    []float32{1, 0},
-			b:    []float32{0, 1},
-			want: 0.0,
-		},
-		{
-			name: "opposite vectors",
-			a:    []float32{1, 2, 3},
-			b:    []float32{-1, -2, -3},
-			want: -1.0,
-		},
-		{
-			name: "different lengths",
-			a:    []float32{1, 2},
-			b:    []float32{1, 2, 3},
-			want: 0.0,
-		},
-		{
-			name: "empty vectors",
-			a:    []float32{},
-			b:    []float32{},
-			want: 0.0,
-		},
-		{
-			name: "nil vectors",
-			a:    nil,
-			b:    nil,
-			want: 0.0,
-		},
-		{
-			name: "zero magnitude vector",
-			a:    []float32{0, 0, 0},
-			b:    []float32{1, 2, 3},
-			want: 0.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := cosineSimilarity(tt.a, tt.b)
-			if math.Abs(got-tt.want) > 1e-6 {
-				t.Errorf("cosineSimilarity() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestBruteForceSearch_Ordering(t *testing.T) {
 	// Query vector points in the direction of [1, 0, 0]
@@ -182,7 +122,7 @@ func TestBruteForceSearch_SingleCandidate(t *testing.T) {
 	}
 
 	// Score should be cosine similarity of [1,0,0] and [0.5,0.5,0]
-	expectedScore := cosineSimilarity(queryVec, candidates[0].Embedding)
+	expectedScore := vecmath.CosineSimilarity(queryVec, candidates[0].Embedding)
 	if math.Abs(results[0].Score-expectedScore) > 1e-6 {
 		t.Errorf("expected score %f, got %f", expectedScore, results[0].Score)
 	}
