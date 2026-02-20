@@ -125,6 +125,34 @@ When the learning pipeline places a new behavior, it evaluates `isMoreSpecific(a
 
 Behaviors with empty `when` maps (`{}`) are treated as **unscoped** — they apply everywhere and are not considered "less specific" than scoped behaviors. This means no override edges are created from scoped behaviors to unscoped ones. Without this distinction, every scoped behavior would override every unscoped one, producing O(n*m) spurious edges that inflate outDegree denominators and dilute spreading activation.
 
+## Embedding-Based Retrieval
+
+While spreading activation excels at exploiting graph structure, it requires behaviors to be reachable via edges from seed nodes. Embedding-based retrieval complements this by finding semantically relevant behaviors through vector similarity, even when no graph path exists.
+
+### Architecture
+
+floop uses a two-stage retrieval pipeline:
+
+1. **Vector pre-filter** — Embed the current context (file, task, language) and find the top-K most similar behaviors via brute-force cosine similarity over stored embeddings
+2. **Spreading activation** — Apply the full activation pipeline (seeding, spreading, lateral inhibition, relevance scoring) to the pre-filtered candidates
+
+This is analogous to how modern search engines use embedding retrieval for recall and then re-rank with more expensive models. At floop's scale (~200 behaviors × 768 dimensions), brute-force search completes in microseconds, so approximate nearest neighbor indices aren't needed.
+
+### Embedding Model
+
+floop uses **nomic-embed-text-v1.5** (Q4_K_M quantization, ~81 MB), a 768-dimension model with a 2048-token context window. It runs locally via llama.cpp (purego bindings, no CGo required), so no API keys or network access are needed.
+
+nomic-embed-text requires task-type prefixes on all inputs:
+- `search_document: <text>` — used when embedding behavior canonical text at learn-time
+- `search_query: <text>` — used when embedding the context query at retrieval-time
+
+### Lifecycle
+
+- **Learn-time:** When a new behavior is created via `floop_learn`, its canonical text is embedded and stored alongside the behavior in SQLite (as a BLOB column)
+- **Startup:** Behaviors without embeddings are backfilled in a background goroutine
+- **Retrieval-time:** `floop_active` embeds the current context, searches stored embeddings, and includes all unembedded behaviors as a safety net
+- **Fallback:** When no embedding model is available, the system loads all behaviors and relies entirely on predicate matching and spreading activation (identical to pre-embedding behavior)
+
 ## Related Work
 
 - **HippoRAG** ([github.com/OSU-NLP-Group/HippoRAG](https://github.com/OSU-NLP-Group/HippoRAG)) — Episodic memory organization for LLMs inspired by hippocampal indexing

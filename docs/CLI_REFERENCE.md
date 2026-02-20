@@ -40,6 +40,8 @@ Configures Claude Code hook settings to use native `floop hook` subcommands, see
 | `--project` | bool | `false` | Install hooks for this project (`.claude/`) |
 | `--hooks` | string | `""` | Which hooks to enable: `all`, `injection-only` (default in non-interactive: `all`) |
 | `--token-budget` | int | `2000` | Token budget for behavior injection |
+| `--embeddings` | bool | `false` | Download and enable local embeddings for semantic retrieval |
+| `--no-embeddings` | bool | `false` | Skip local embeddings setup |
 
 **Examples:**
 
@@ -55,6 +57,12 @@ floop init --project
 
 # Both scopes with explicit options
 floop init --global --project --hooks=all --token-budget 2000
+
+# Enable local embeddings (downloads ~130 MB on first run)
+floop init --global --embeddings
+
+# Skip embeddings setup
+floop init --global --no-embeddings
 ```
 
 **See also:** [upgrade](#upgrade), [config](#config)
