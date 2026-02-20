@@ -15,16 +15,37 @@ import (
 // coActivationTracker tracks co-activation counts between behavior pairs.
 // It gates edge creation: a new co-activated edge is only created after
 // CreationGate co-occurrences within CreationWindow.
+//
+// When a CoActivationStore is provided, entries are persisted to SQLite and
+// survive across MCP server restarts. Otherwise, falls back to in-memory only.
 type coActivationTracker struct {
 	mu      sync.Mutex
-	entries map[string][]time.Time // key: "behaviorA:behaviorB" → timestamps of co-activations
+	store   store.CoActivationStore // nil = in-memory fallback
+	entries map[string][]time.Time  // used when store is nil
 }
 
-// newCoActivationTracker creates a new co-activation tracker.
+// newCoActivationTracker creates an in-memory co-activation tracker.
 func newCoActivationTracker() *coActivationTracker {
 	return &coActivationTracker{
 		entries: make(map[string][]time.Time),
 	}
+}
+
+// newPersistentCoActivationTracker creates a co-activation tracker backed by SQLite.
+func newPersistentCoActivationTracker(s store.CoActivationStore) *coActivationTracker {
+	return &coActivationTracker{
+		store: s,
+	}
+}
+
+// initCoActivationTracker creates a persistent tracker if the local store supports
+// CoActivationStore, otherwise falls back to in-memory.
+func initCoActivationTracker(graphStore *store.MultiGraphStore) *coActivationTracker {
+	localStore := graphStore.LocalStore()
+	if coStore, ok := localStore.(store.CoActivationStore); ok {
+		return newPersistentCoActivationTracker(coStore)
+	}
+	return newCoActivationTracker()
 }
 
 // pairKey returns a canonical key for a behavior pair.
@@ -42,7 +63,23 @@ func (t *coActivationTracker) record(pair spreading.CoActivationPair, cfg spread
 	key := pairKey(pair.BehaviorA, pair.BehaviorB)
 	now := time.Now()
 
-	// Append and expire old entries outside the window
+	// Persistent path: write through to SQLite and query count.
+	if t.store != nil {
+		ctx := context.Background()
+		if err := t.store.RecordCoActivation(ctx, key, now); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: co-activation: record: %v\n", err)
+			return false
+		}
+		cutoff := now.Add(-cfg.CreationWindow)
+		times, err := t.store.GetCoActivations(ctx, key, cutoff)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: co-activation: get: %v\n", err)
+			return false
+		}
+		return len(times) >= cfg.CreationGate
+	}
+
+	// In-memory fallback path.
 	entries := t.entries[key]
 	cutoff := now.Add(-cfg.CreationWindow)
 	fresh := make([]time.Time, 0, len(entries)+1)

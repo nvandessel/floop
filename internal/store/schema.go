@@ -9,7 +9,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target);
+
+-- Co-activation tracking for Hebbian learning (persisted across sessions)
+CREATE TABLE IF NOT EXISTS co_activations (
+    pair_key TEXT NOT NULL,
+    activated_at TEXT NOT NULL,
+    PRIMARY KEY (pair_key, activated_at)
+);
+CREATE INDEX IF NOT EXISTS idx_co_activations_pair ON co_activations(pair_key);
 
 -- Dirty tracking for incremental export
 CREATE TABLE IF NOT EXISTS dirty_behaviors (
@@ -268,6 +276,11 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
 	if currentVersion < 4 {
 		if err := migrateV3ToV4(ctx, db); err != nil {
 			return fmt.Errorf("migrate v3 to v4: %w", err)
+		}
+	}
+	if currentVersion < 5 {
+		if err := migrateV4ToV5(ctx, db); err != nil {
+			return fmt.Errorf("migrate v4 to v5: %w", err)
 		}
 	}
 	return nil
@@ -442,6 +455,41 @@ func migrateV3ToV4(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
+// migrateV4ToV5 adds the co_activations table for persistent Hebbian tracking.
+func migrateV4ToV5(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS co_activations (
+		    pair_key TEXT NOT NULL,
+		    activated_at TEXT NOT NULL,
+		    PRIMARY KEY (pair_key, activated_at)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create co_activations table: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_co_activations_pair ON co_activations(pair_key)
+	`)
+	if err != nil {
+		return fmt.Errorf("create co_activations index: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`, 5)
+	if err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // validateStructuralIntegrity checks for SQLite database corruption.
 // It only runs PRAGMA integrity_check — not foreign_key_check.
 // Use ValidateIntegrity for full validation including FK checks.
@@ -513,6 +561,7 @@ func ValidateIntegrity(ctx context.Context, db *sql.DB) error {
 func ResetSchema(ctx context.Context, db *sql.DB) error {
 	// Drop all tables
 	tables := []string{
+		"co_activations",
 		"dirty_behaviors",
 		"behavior_stats",
 		"behavior_when",

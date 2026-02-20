@@ -100,3 +100,16 @@ type ExtendedGraphStore interface {
 	// ValidateBehaviorGraph checks the graph for consistency issues.
 	ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error)
 }
+
+// CoActivationStore provides persistence for Hebbian co-activation tracking.
+// Implemented by SQLiteGraphStore. Used via type assertion from the MCP server.
+type CoActivationStore interface {
+	// RecordCoActivation records a co-activation timestamp for a behavior pair.
+	RecordCoActivation(ctx context.Context, pairKey string, at time.Time) error
+
+	// GetCoActivations returns co-activation timestamps for a pair since the cutoff.
+	GetCoActivations(ctx context.Context, pairKey string, since time.Time) ([]time.Time, error)
+
+	// PruneCoActivations removes entries older than the given cutoff. Returns count removed.
+	PruneCoActivations(ctx context.Context, before time.Time) (int, error)
+}

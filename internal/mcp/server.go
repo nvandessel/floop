@@ -119,7 +119,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		retentionPolicy:      retPolicy,
 		workerPool:           make(chan struct{}, maxBackgroundWorkers),
 		confirmedThisSession: make(map[string]struct{}),
-		coActivationTracker:  newCoActivationTracker(),
+		coActivationTracker:  initCoActivationTracker(graphStore),
 		hebbianConfig:        spreading.DefaultHebbianConfig(),
 		done:                 make(chan struct{}),
 	}
