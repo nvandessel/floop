@@ -601,7 +601,7 @@
           var alpha = 0.15 + energy * 0.85;
           return 'rgba(34,211,238,' + alpha.toFixed(3) + ')';
         }
-        return 'rgba(108,112,134,0.10)'; // dim but always visible
+        return 'rgba(108,112,134,0.18)'; // dim but always visible
       }
       var base = edgeColors[l.kind] || defaultEdgeColor;
       var lo = getLinkOpacity(l);
@@ -737,20 +737,20 @@
         // ── Spark tip — bright moving dot with halo ──
         var tipX = src.x + dx * pos;
         var tipY = src.y + dy * pos;
-        var dotR = 6 + sparkBright * 6;
+        var dotR = 3 + sparkBright * 3;
 
         // Outer halo (large, soft bloom)
-        var haloGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR * 2.5);
-        haloGrad.addColorStop(0, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
-        haloGrad.addColorStop(0.4, 'rgba(34,211,238,' + (sparkBright * 0.15).toFixed(3) + ')');
+        var haloGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR * 1.8);
+        haloGrad.addColorStop(0, 'rgba(34,211,238,' + (sparkBright * 0.3).toFixed(3) + ')');
+        haloGrad.addColorStop(0.4, 'rgba(34,211,238,' + (sparkBright * 0.1).toFixed(3) + ')');
         haloGrad.addColorStop(1, 'rgba(34,211,238,0)');
         ctx.beginPath();
-        ctx.arc(tipX, tipY, dotR * 2.5, 0, 2 * Math.PI);
+        ctx.arc(tipX, tipY, dotR * 1.8, 0, 2 * Math.PI);
         ctx.fillStyle = haloGrad;
         ctx.fill();
 
         // Core glow (shadow-free — enlarged gradient radius replaces shadowBlur)
-        var coreR = dotR * 1.8;
+        var coreR = dotR * 1.2;
         var coreGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, coreR);
         coreGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.95).toFixed(3) + ')');
         coreGrad.addColorStop(0.2, 'rgba(200,240,255,' + (sparkBright * 0.8).toFixed(3) + ')');
@@ -1306,14 +1306,14 @@
       energy = 1.0;
     } else {
       // Decay: dims over ~1.5 steps after wave passes
-      energy = Math.max(0, 1.0 - (dist - 0.4) * 0.45);
+      energy = Math.max(0.06, 1.0 - (dist - 0.4) * 0.45);
       energy = energy * energy; // ease-out for smooth fade
     }
 
     // Residual glow when both endpoints are active — keeps edges faintly alive
     var srcAct = getElectricActivation(srcId);
     var tgtAct = getElectricActivation(tgtId);
-    var residual = Math.min(srcAct, tgtAct) * 0.15;
+    var residual = Math.min(srcAct, tgtAct) * 0.25;
 
     return Math.max(energy * p.fade, residual);
   }
