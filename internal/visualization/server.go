@@ -104,7 +104,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(html)
+	if _, err := w.Write(html); err != nil {
+		return // client disconnected
+	}
 }
 
 // handleActivate runs spreading activation for a seed node and returns step snapshots.
@@ -140,5 +142,7 @@ func (s *Server) handleActivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(steps)
+	if err := json.NewEncoder(w).Encode(steps); err != nil {
+		return // client disconnected or encoding error
+	}
 }
