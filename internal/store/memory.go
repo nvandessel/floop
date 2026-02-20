@@ -6,18 +6,26 @@ import (
 	"sync"
 )
 
+// embeddingEntry stores an embedding and the model that produced it.
+type embeddingEntry struct {
+	embedding []float32
+	modelName string
+}
+
 // InMemoryGraphStore implements GraphStore for testing and development.
 type InMemoryGraphStore struct {
-	mu    sync.RWMutex
-	nodes map[string]Node
-	edges []Edge
+	mu         sync.RWMutex
+	nodes      map[string]Node
+	edges      []Edge
+	embeddings map[string]embeddingEntry
 }
 
 // NewInMemoryGraphStore creates a new in-memory store.
 func NewInMemoryGraphStore() *InMemoryGraphStore {
 	return &InMemoryGraphStore{
-		nodes: make(map[string]Node),
-		edges: make([]Edge, 0),
+		nodes:      make(map[string]Node),
+		edges:      make([]Edge, 0),
+		embeddings: make(map[string]embeddingEntry),
 	}
 }
 
@@ -203,6 +211,53 @@ func (s *InMemoryGraphStore) traverseRecursive(current string, edgeKinds []strin
 			s.traverseRecursive(next, edgeKinds, direction, maxDepth, depth+1, visited, results)
 		}
 	}
+}
+
+// StoreEmbedding stores an embedding vector for a behavior.
+func (s *InMemoryGraphStore) StoreEmbedding(ctx context.Context, behaviorID string, embedding []float32, modelName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.nodes[behaviorID]; !exists {
+		return fmt.Errorf("behavior not found: %s", behaviorID)
+	}
+
+	s.embeddings[behaviorID] = embeddingEntry{
+		embedding: embedding,
+		modelName: modelName,
+	}
+	return nil
+}
+
+// GetAllEmbeddings returns all behaviors that have embeddings.
+func (s *InMemoryGraphStore) GetAllEmbeddings(ctx context.Context) ([]BehaviorEmbedding, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var results []BehaviorEmbedding
+	for id, entry := range s.embeddings {
+		results = append(results, BehaviorEmbedding{
+			BehaviorID: id,
+			Embedding:  entry.embedding,
+		})
+	}
+	return results, nil
+}
+
+// GetBehaviorIDsWithoutEmbeddings returns IDs of behaviors that do not have embeddings.
+func (s *InMemoryGraphStore) GetBehaviorIDsWithoutEmbeddings(ctx context.Context) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var ids []string
+	for id, node := range s.nodes {
+		if node.Kind == "behavior" {
+			if _, has := s.embeddings[id]; !has {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids, nil
 }
 
 // Sync is a no-op for in-memory storage.

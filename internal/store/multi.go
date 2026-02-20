@@ -484,6 +484,89 @@ func (m *MultiGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]Validati
 	return allErrors, nil
 }
 
+// StoreEmbedding stores an embedding in whichever store contains the behavior.
+func (m *MultiGraphStore) StoreEmbedding(ctx context.Context, behaviorID string, embedding []float32, modelName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.withEmbeddingStore(ctx, behaviorID, func(es EmbeddingStore) error {
+		return es.StoreEmbedding(ctx, behaviorID, embedding, modelName)
+	})
+}
+
+// GetAllEmbeddings returns embeddings from both stores, merged.
+func (m *MultiGraphStore) GetAllEmbeddings(ctx context.Context) ([]BehaviorEmbedding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var all []BehaviorEmbedding
+	if es, ok := m.localStore.(EmbeddingStore); ok {
+		embeddings, err := es.GetAllEmbeddings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("local GetAllEmbeddings: %w", err)
+		}
+		all = append(all, embeddings...)
+	}
+	if es, ok := m.globalStore.(EmbeddingStore); ok {
+		embeddings, err := es.GetAllEmbeddings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("global GetAllEmbeddings: %w", err)
+		}
+		all = append(all, embeddings...)
+	}
+	return all, nil
+}
+
+// GetBehaviorIDsWithoutEmbeddings returns IDs from both stores, merged.
+func (m *MultiGraphStore) GetBehaviorIDsWithoutEmbeddings(ctx context.Context) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var all []string
+	if es, ok := m.localStore.(EmbeddingStore); ok {
+		ids, err := es.GetBehaviorIDsWithoutEmbeddings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("local GetBehaviorIDsWithoutEmbeddings: %w", err)
+		}
+		all = append(all, ids...)
+	}
+	if es, ok := m.globalStore.(EmbeddingStore); ok {
+		ids, err := es.GetBehaviorIDsWithoutEmbeddings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("global GetBehaviorIDsWithoutEmbeddings: %w", err)
+		}
+		all = append(all, ids...)
+	}
+	return all, nil
+}
+
+// withEmbeddingStore finds the store containing the given behavior and calls fn
+// with the EmbeddingStore that owns it. Tries local first, then global.
+// The caller must hold m.mu.
+func (m *MultiGraphStore) withEmbeddingStore(ctx context.Context, behaviorID string, fn func(EmbeddingStore) error) error {
+	if es, ok := m.localStore.(EmbeddingStore); ok {
+		node, err := m.localStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking local store: %w", err)
+		}
+		if node != nil {
+			return fn(es)
+		}
+	}
+
+	if es, ok := m.globalStore.(EmbeddingStore); ok {
+		node, err := m.globalStore.GetNode(ctx, behaviorID)
+		if err != nil {
+			return fmt.Errorf("error checking global store: %w", err)
+		}
+		if node != nil {
+			return fn(es)
+		}
+	}
+
+	return fmt.Errorf("behavior not found in either store: %s", behaviorID)
+}
+
 // mergeNodes merges two slices of nodes, with local winning on ID conflicts.
 func mergeNodes(local, global []Node) []Node {
 	// Build map of local IDs

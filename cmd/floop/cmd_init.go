@@ -15,8 +15,10 @@ import (
 	"github.com/nvandessel/feedback-loop/internal/constants"
 	"github.com/nvandessel/feedback-loop/internal/hooks"
 	"github.com/nvandessel/feedback-loop/internal/seed"
+	"github.com/nvandessel/feedback-loop/internal/setup"
 	"github.com/nvandessel/feedback-loop/internal/store"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newInitCmd() *cobra.Command {
@@ -47,21 +49,25 @@ Examples:
 			tokenBudget, _ := cmd.Flags().GetInt("token-budget")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			root, _ := cmd.Flags().GetString("root")
+			embeddingsFlag, _ := cmd.Flags().GetBool("embeddings")
+			noEmbeddingsFlag, _ := cmd.Flags().GetBool("no-embeddings")
 
 			// Determine if we're in interactive or non-interactive mode.
 			// Any meaningful flag makes it non-interactive.
 			interactive := !globalFlag && !projectFlag &&
 				!cmd.Flags().Changed("hooks") && !cmd.Flags().Changed("token-budget") &&
-				!cmd.Flags().Changed("root")
+				!cmd.Flags().Changed("root") && !cmd.Flags().Changed("embeddings") &&
+				!cmd.Flags().Changed("no-embeddings")
 
 			var doGlobal, doProject bool
+			var doEmbeddings bool
 
 			if interactive {
 				if jsonOut {
 					return fmt.Errorf("--json requires explicit scope flags (--global and/or --project)")
 				}
 				var err error
-				doGlobal, doProject, hooksFlag, tokenBudget, err = runInteractiveInit()
+				doGlobal, doProject, hooksFlag, tokenBudget, doEmbeddings, err = runInteractiveInit()
 				if err != nil {
 					return err
 				}
@@ -75,6 +81,7 @@ Examples:
 				if hooksFlag == "" {
 					hooksFlag = "all"
 				}
+				doEmbeddings = embeddingsFlag && !noEmbeddingsFlag
 			}
 
 			result := map[string]interface{}{
@@ -97,6 +104,26 @@ Examples:
 				result["project"] = projectResult
 			}
 
+			// Set up local embeddings if requested
+			if doEmbeddings {
+				embResult, err := setupEmbeddings(jsonOut)
+				if err != nil {
+					if embeddingsFlag {
+						// Explicitly requested via --embeddings; fail the command
+						return fmt.Errorf("embedding setup failed: %w", err)
+					}
+					// Interactive mode — warn but continue
+					if jsonOut {
+						result["embeddings_error"] = err.Error()
+					} else {
+						fmt.Fprintf(os.Stderr, "warning: embedding setup failed: %v\n", err)
+						fmt.Println("You can retry later with: floop init --embeddings")
+					}
+				} else {
+					result["embeddings"] = embResult
+				}
+			}
+
 			if jsonOut {
 				json.NewEncoder(os.Stdout).Encode(result)
 			} else {
@@ -111,6 +138,8 @@ Examples:
 	cmd.Flags().Bool("project", false, "Install hooks for this project (.claude/)")
 	cmd.Flags().String("hooks", "", "Which hooks to enable: all, injection-only (default: all)")
 	cmd.Flags().Int("token-budget", config.Default().TokenBudget.Default, "Token budget for behavior injection")
+	cmd.Flags().Bool("embeddings", false, "Download and enable local embeddings for semantic retrieval")
+	cmd.Flags().Bool("no-embeddings", false, "Skip local embeddings setup")
 
 	return cmd
 }
@@ -228,7 +257,7 @@ func initScope(scope constants.Scope, projectRoot string, hooksMode string, toke
 }
 
 // runInteractiveInit prompts the user for init configuration.
-func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudget int, err error) {
+func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudget int, doEmbeddings bool, err error) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("\nWelcome to floop! Let's set up behavior learning for your AI agents.")
@@ -249,7 +278,7 @@ func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudg
 		doGlobal = true
 		doProject = true
 	default:
-		return false, false, "", 0, fmt.Errorf("invalid scope choice: %s", scopeChoice)
+		return false, false, "", 0, false, fmt.Errorf("invalid scope choice: %s", scopeChoice)
 	}
 
 	// Hooks
@@ -264,7 +293,7 @@ func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudg
 	case "2":
 		hooksMode = "injection-only"
 	default:
-		return false, false, "", 0, fmt.Errorf("invalid hooks choice: %s", hookChoice)
+		return false, false, "", 0, false, fmt.Errorf("invalid hooks choice: %s", hookChoice)
 	}
 
 	// Token budget
@@ -284,14 +313,132 @@ func runInteractiveInit() (doGlobal, doProject bool, hooksMode string, tokenBudg
 		customBudget := readLine(reader)
 		tokenBudget, err = strconv.Atoi(customBudget)
 		if err != nil {
-			return false, false, "", 0, fmt.Errorf("invalid token budget: %s", customBudget)
+			return false, false, "", 0, false, fmt.Errorf("invalid token budget: %s", customBudget)
 		}
 	default:
-		return false, false, "", 0, fmt.Errorf("invalid budget choice: %s", budgetChoice)
+		return false, false, "", 0, false, fmt.Errorf("invalid budget choice: %s", budgetChoice)
+	}
+
+	// Embeddings
+	detected := setup.DetectInstalled(setup.DefaultFloopDir())
+	if detected.Available {
+		fmt.Println("\n  Local embeddings already installed.")
+		doEmbeddings = false
+	} else {
+		fmt.Println("\n? Enable local embeddings for semantic behavior retrieval?")
+		fmt.Println("  Local embeddings run a small model (~130 MB download) on your machine.")
+		fmt.Println("  This improves behavior matching by understanding meaning, not just keywords.")
+		fmt.Println("  1) Yes — download and enable (recommended)")
+		fmt.Println("  2) No — skip for now (can enable later with `floop init --embeddings`)")
+		fmt.Print("  Choose [1]: ")
+		embChoice := readLine(reader)
+		switch embChoice {
+		case "", "1":
+			doEmbeddings = true
+		case "2":
+			doEmbeddings = false
+		default:
+			return false, false, "", 0, false, fmt.Errorf("invalid embeddings choice: %s", embChoice)
+		}
 	}
 
 	fmt.Println()
-	return doGlobal, doProject, hooksMode, tokenBudget, nil
+	return doGlobal, doProject, hooksMode, tokenBudget, doEmbeddings, nil
+}
+
+// setupEmbeddings downloads llama.cpp libraries and the embedding model,
+// then updates the floop config to enable local embeddings.
+func setupEmbeddings(jsonOut bool) (map[string]interface{}, error) {
+	floopDir := setup.DefaultFloopDir()
+	if floopDir == "" {
+		return nil, fmt.Errorf("cannot determine home directory")
+	}
+
+	libDir := filepath.Join(floopDir, "lib")
+	modelsDir := filepath.Join(floopDir, "models")
+
+	result := map[string]interface{}{}
+
+	// Check if already installed
+	detected := setup.DetectInstalled(floopDir)
+	if detected.Available {
+		if !jsonOut {
+			fmt.Println("Local embeddings already installed.")
+		}
+		result["status"] = "already_installed"
+		result["lib_path"] = detected.LibPath
+		result["model_path"] = detected.ModelPath
+		return result, nil
+	}
+
+	// Download libraries if needed
+	if detected.LibPath == "" {
+		if !jsonOut {
+			fmt.Println("Downloading llama.cpp libraries...")
+		}
+		if err := setup.DownloadLibraries(context.Background(), libDir); err != nil {
+			return nil, fmt.Errorf("downloading libraries: %w", err)
+		}
+		result["lib_path"] = libDir
+	} else {
+		result["lib_path"] = detected.LibPath
+	}
+
+	// Download model if needed
+	if detected.ModelPath == "" {
+		if !jsonOut {
+			fmt.Println("Downloading embedding model (nomic-embed-text-v1.5, ~81 MB)...")
+		}
+		if err := setup.DownloadEmbeddingModel(context.Background(), modelsDir); err != nil {
+			return nil, fmt.Errorf("downloading model: %w", err)
+		}
+		// Re-detect to find the actual model path
+		redetected := setup.DetectInstalled(floopDir)
+		result["model_path"] = redetected.ModelPath
+	} else {
+		result["model_path"] = detected.ModelPath
+	}
+
+	// Update config to enable local provider
+	configPath := filepath.Join(floopDir, "config.yaml")
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+	}
+	cfg.LLM.Provider = "local"
+	cfg.LLM.LocalLibPath = libDir
+	cfg.LLM.Enabled = true
+
+	// Find the model path from the fresh detection
+	finalSetup := setup.DetectInstalled(floopDir)
+	if finalSetup.ModelPath != "" {
+		cfg.LLM.LocalEmbeddingModelPath = finalSetup.ModelPath
+	}
+
+	if err := writeConfig(configPath, cfg); err != nil {
+		return nil, fmt.Errorf("updating config: %w", err)
+	}
+
+	if !jsonOut {
+		fmt.Println("Local embeddings enabled.")
+	}
+	result["status"] = "installed"
+	result["config_path"] = configPath
+	return result, nil
+}
+
+// writeConfig writes the floop config to a YAML file.
+func writeConfig(path string, cfg *config.FloopConfig) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	return os.WriteFile(path, data, 0600)
 }
 
 // readLine reads a line from the reader, trimming whitespace.

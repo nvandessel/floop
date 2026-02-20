@@ -200,6 +200,34 @@ floop restore <behavior-id>
 floop merge <source-id> <target-id>
 ```
 
+## Local Embeddings
+
+floop can use local embeddings to semantically match behaviors to your current context. When enabled, `floop_active` uses vector similarity search as a pre-filter before spreading activation, finding behaviors by meaning rather than just keyword matching.
+
+### Setup
+
+```bash
+# During initial setup (interactive prompt)
+floop init
+
+# Or explicitly enable embeddings
+floop init --global --embeddings
+```
+
+This downloads two runtime dependencies (~130 MB total, cached in `~/.floop/`):
+- **llama.cpp shared libraries** — inference runtime
+- **nomic-embed-text-v1.5** (Q4_K_M) — embedding model
+
+### How It Works
+
+1. **At learn-time:** New behaviors are embedded and stored alongside the behavior
+2. **At retrieval-time:** The current context (file, task, language) is embedded and compared against stored behavior embeddings using cosine similarity
+3. **Fallback:** When embeddings are unavailable, floop uses the standard predicate-matching pipeline
+
+Behaviors without embeddings are always included in candidates — no behavior is silently dropped during migration.
+
+For setup details, see [EMBEDDINGS.md](EMBEDDINGS.md). For the theory behind vector retrieval, see [SCIENCE.md](SCIENCE.md).
+
 ## What to Capture
 
 ### DO capture:

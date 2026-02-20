@@ -1195,7 +1195,7 @@ func TestSQLiteGraphStore_SchemaV3Migration(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Verify schema version is current (v2→v3→v4 migrations all ran)
+	// Verify schema version is current (v2→v3→v4→v5 migrations all ran)
 	var version int
 	err = store.db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version)
 	if err != nil {
@@ -1836,6 +1836,212 @@ func TestSQLiteGraphStore_PruneWeakEdges_NoneToRemove(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("PruneWeakEdges() pruned %d, want 0", n)
+	}
+}
+
+func TestEncodeDecodeEmbedding(t *testing.T) {
+	tests := []struct {
+		name string
+		vec  []float32
+	}{
+		{"simple values", []float32{1.0, 2.0, 3.0}},
+		{"negative values", []float32{-1.0, 0.0, 1.0}},
+		{"small values", []float32{0.001, 0.002, 0.003}},
+		{"empty", []float32{}},
+		{"single", []float32{42.0}},
+		{"large dimension", func() []float32 {
+			v := make([]float32, 1536)
+			for i := range v {
+				v[i] = float32(i) * 0.001
+			}
+			return v
+		}()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encoded := encodeEmbedding(tt.vec)
+			decoded := decodeEmbedding(encoded)
+
+			if len(decoded) != len(tt.vec) {
+				t.Fatalf("decoded length = %d, want %d", len(decoded), len(tt.vec))
+			}
+			for i, v := range decoded {
+				if v != tt.vec[i] {
+					t.Errorf("decoded[%d] = %v, want %v", i, v, tt.vec[i])
+				}
+			}
+		})
+	}
+}
+
+func TestEncodeDecodeEmbedding_InvalidData(t *testing.T) {
+	// Data that is not a multiple of 4 bytes should return nil
+	result := decodeEmbedding([]byte{0x00, 0x01, 0x02})
+	if result != nil {
+		t.Errorf("decodeEmbedding(3 bytes) = %v, want nil", result)
+	}
+
+	// Nil data should return empty/nil slice
+	result = decodeEmbedding(nil)
+	if result != nil {
+		t.Errorf("decodeEmbedding(nil) = %v, want nil", result)
+	}
+}
+
+func TestStoreAndGetEmbeddings(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior
+	_, err = s.AddNode(ctx, Node{
+		ID:   "emb-1",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "Embedding Test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Test embedding storage",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	// Store an embedding
+	vec := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+	err = s.StoreEmbedding(ctx, "emb-1", vec, "text-embedding-3-small")
+	if err != nil {
+		t.Fatalf("StoreEmbedding() error = %v", err)
+	}
+
+	// Get all embeddings
+	embeddings, err := s.GetAllEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetAllEmbeddings() error = %v", err)
+	}
+
+	if len(embeddings) != 1 {
+		t.Fatalf("GetAllEmbeddings() returned %d, want 1", len(embeddings))
+	}
+
+	if embeddings[0].BehaviorID != "emb-1" {
+		t.Errorf("BehaviorID = %s, want emb-1", embeddings[0].BehaviorID)
+	}
+
+	if len(embeddings[0].Embedding) != len(vec) {
+		t.Fatalf("embedding length = %d, want %d", len(embeddings[0].Embedding), len(vec))
+	}
+
+	for i, v := range embeddings[0].Embedding {
+		if v != vec[i] {
+			t.Errorf("embedding[%d] = %v, want %v", i, v, vec[i])
+		}
+	}
+}
+
+func TestGetBehaviorIDsWithoutEmbeddings(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add two behaviors
+	for _, id := range []string{"emb-yes", "emb-no"} {
+		_, err = s.AddNode(ctx, Node{
+			ID:   id,
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": id + " content",
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("AddNode(%s) error = %v", id, err)
+		}
+	}
+
+	// Embed only the first one
+	err = s.StoreEmbedding(ctx, "emb-yes", []float32{0.1, 0.2, 0.3}, "text-embedding-3-small")
+	if err != nil {
+		t.Fatalf("StoreEmbedding() error = %v", err)
+	}
+
+	// Get behaviors without embeddings
+	ids, err := s.GetBehaviorIDsWithoutEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetBehaviorIDsWithoutEmbeddings() error = %v", err)
+	}
+
+	if len(ids) != 1 {
+		t.Fatalf("GetBehaviorIDsWithoutEmbeddings() returned %d, want 1", len(ids))
+	}
+
+	if ids[0] != "emb-no" {
+		t.Errorf("unembedded ID = %s, want emb-no", ids[0])
+	}
+}
+
+func TestStoreEmbedding_NullHandling(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add two behaviors, embed only one
+	for _, id := range []string{"has-emb", "no-emb"} {
+		_, err = s.AddNode(ctx, Node{
+			ID:   id,
+			Kind: "behavior",
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": id + " content",
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("AddNode(%s) error = %v", id, err)
+		}
+	}
+
+	// Embed only one
+	err = s.StoreEmbedding(ctx, "has-emb", []float32{1.0, 2.0, 3.0}, "test-model")
+	if err != nil {
+		t.Fatalf("StoreEmbedding() error = %v", err)
+	}
+
+	// GetAllEmbeddings should return only the embedded behavior
+	embeddings, err := s.GetAllEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetAllEmbeddings() error = %v", err)
+	}
+
+	if len(embeddings) != 1 {
+		t.Fatalf("GetAllEmbeddings() returned %d, want 1 (should skip NULL embeddings)", len(embeddings))
+	}
+
+	if embeddings[0].BehaviorID != "has-emb" {
+		t.Errorf("BehaviorID = %s, want has-emb", embeddings[0].BehaviorID)
 	}
 }
 

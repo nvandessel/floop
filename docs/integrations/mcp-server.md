@@ -79,6 +79,8 @@ Get active behaviors for the current context.
 }
 ```
 
+**Vector pre-filtering:** When local embeddings are configured (see [EMBEDDINGS.md](../EMBEDDINGS.md)), `floop_active` uses vector similarity search to pre-filter candidate behaviors before applying spreading activation. This finds semantically relevant behaviors even when their `when` predicates don't exactly match the current context. The system falls back to loading all behaviors when embeddings are unavailable.
+
 **Example Response:**
 ```json
 {

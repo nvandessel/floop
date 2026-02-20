@@ -220,6 +220,121 @@ func TestInitSchema_MigratesDespiteIntegrityFailure(t *testing.T) {
 	}
 }
 
+func TestMigrateV4ToV5(t *testing.T) {
+	// Scenario: DB at schema v4 (stats trigger already applied).
+	// After InitSchema, behaviors table should have embedding and embedding_model columns.
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create the pre-schema_version tables (v1 base)
+	if _, err := db.ExecContext(ctx, preSchemaVersionDDL); err != nil {
+		t.Fatalf("create pre-schema tables: %v", err)
+	}
+
+	// Add schema_version table
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_version (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+
+	// Add v2 columns manually (behavior_type, metadata_extra, content_hash)
+	for _, col := range []string{
+		"ALTER TABLE behaviors ADD COLUMN behavior_type TEXT",
+		"ALTER TABLE behaviors ADD COLUMN metadata_extra TEXT",
+		"ALTER TABLE behaviors ADD COLUMN content_hash TEXT",
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil {
+			t.Fatalf("add v2 column: %v", err)
+		}
+	}
+
+	// Add v3 columns to edges (weight, created_at, last_activated)
+	for _, col := range []string{
+		"ALTER TABLE edges ADD COLUMN weight REAL DEFAULT 1.0",
+		"ALTER TABLE edges ADD COLUMN created_at TEXT",
+		"ALTER TABLE edges ADD COLUMN last_activated TEXT",
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil {
+			t.Fatalf("add v3 column: %v", err)
+		}
+	}
+
+	// Add v4 stats trigger
+	if _, err := db.ExecContext(ctx, `
+		CREATE TRIGGER IF NOT EXISTS behavior_stats_dirty
+		AFTER UPDATE ON behavior_stats
+		BEGIN
+		    INSERT OR REPLACE INTO dirty_behaviors (behavior_id, operation, dirty_at)
+		    VALUES (NEW.behavior_id, 'update', datetime('now'));
+		END
+	`); err != nil {
+		t.Fatalf("add v4 trigger: %v", err)
+	}
+
+	// Record as v4
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (4, datetime('now'))`); err != nil {
+		t.Fatalf("insert version: %v", err)
+	}
+
+	// Verify embedding columns don't exist yet
+	cols := getColumns(t, db, "behaviors")
+	if cols["embedding"] {
+		t.Fatal("embedding should not exist before migration")
+	}
+	if cols["embedding_model"] {
+		t.Fatal("embedding_model should not exist before migration")
+	}
+
+	// Run InitSchema — this should detect v4 and migrate to v5
+	if err := InitSchema(ctx, db); err != nil {
+		t.Fatalf("InitSchema failed: %v", err)
+	}
+
+	// Verify embedding and embedding_model were added
+	cols = getColumns(t, db, "behaviors")
+	if !cols["embedding"] {
+		t.Error("embedding column was not added after InitSchema")
+	}
+	if !cols["embedding_model"] {
+		t.Error("embedding_model column was not added after InitSchema")
+	}
+
+	// Verify schema version was updated to 5
+	var version int
+	err = db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version)
+	if err != nil {
+		t.Fatalf("get schema version: %v", err)
+	}
+	if version != SchemaVersion {
+		t.Errorf("schema version = %d, want %d", version, SchemaVersion)
+	}
+
+	// Verify we can INSERT with embedding columns
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO behaviors (id, name, kind, content_canonical, embedding, embedding_model, created_at, updated_at)
+		VALUES ('test-v5', 'test', 'behavior', 'test content', X'0000803F', 'text-embedding-3-small', '2024-01-01', '2024-01-01')
+	`)
+	if err != nil {
+		t.Errorf("INSERT with embedding columns failed: %v", err)
+	}
+
+	// Verify nullable: embedding can be NULL
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO behaviors (id, name, kind, content_canonical, created_at, updated_at)
+		VALUES ('test-v5-null', 'test2', 'behavior', 'test content null', '2024-01-01', '2024-01-01')
+	`)
+	if err != nil {
+		t.Errorf("INSERT with NULL embedding failed: %v", err)
+	}
+}
+
 // getColumns returns a map of column names for the given table.
 func getColumns(t *testing.T, db *sql.DB, table string) map[string]bool {
 	t.Helper()
