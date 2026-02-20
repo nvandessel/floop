@@ -26,3 +26,6 @@ build/
 
 # GoReleaser output
 dist/
+
+# Node.js (Playwright test dependencies)
+node_modules/

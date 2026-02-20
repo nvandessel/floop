@@ -314,29 +314,40 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 type htmlTemplateData struct {
 	ForceGraphSrc template.URL
 	GraphJSON     template.JS
+	// APIBaseURL is the base URL for the activation API (e.g., "http://localhost:PORT").
+	// When empty, electric mode is disabled and click falls back to focus mode.
+	APIBaseURL string
 }
 
 // RenderHTML produces a self-contained HTML file with an interactive force-directed graph.
+// Electric mode is disabled (no API base URL) — click behavior uses focus mode.
 func RenderHTML(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData) ([]byte, error) {
-	// Get enriched graph data
+	return renderHTMLInternal(ctx, gs, enrichment, "")
+}
+
+// RenderHTMLForServer produces an HTML file configured for server mode with electric activation.
+// The apiBaseURL is embedded so JavaScript can fetch activation data from the Go server.
+func RenderHTMLForServer(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData, apiBaseURL string) ([]byte, error) {
+	return renderHTMLInternal(ctx, gs, enrichment, apiBaseURL)
+}
+
+// renderHTMLInternal is the shared implementation for RenderHTML and RenderHTMLForServer.
+func renderHTMLInternal(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData, apiBaseURL string) ([]byte, error) {
 	graphData, err := RenderEnrichedJSON(ctx, gs, enrichment)
 	if err != nil {
 		return nil, fmt.Errorf("render enriched JSON: %w", err)
 	}
 
-	// Marshal graph data to JSON for embedding
 	graphJSON, err := json.Marshal(graphData)
 	if err != nil {
 		return nil, fmt.Errorf("marshal graph data: %w", err)
 	}
 
-	// Load force-graph library
 	jsBytes, err := assets.ReadFile("assets/force-graph.min.js")
 	if err != nil {
 		return nil, fmt.Errorf("read force-graph.min.js: %w", err)
 	}
 
-	// Load and parse HTML template
 	tmplBytes, err := templates.ReadFile("templates/graph.html.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("read HTML template: %w", err)
@@ -359,6 +370,9 @@ func RenderHTML(ctx context.Context, gs store.GraphStore, enrichment *Enrichment
 		ForceGraphSrc: template.URL("data:text/javascript;base64," + base64.StdEncoding.EncodeToString(jsBytes)), // #nosec G203
 		// GraphJSON: pre-sanitized via json.HTMLEscape — </script> breakout impossible.
 		GraphJSON: template.JS(escaped.String()), // #nosec G203
+		// APIBaseURL: constructed from localhost:PORT in server mode, empty in static mode.
+		// html/template JS-escapes this in the <script> context.
+		APIBaseURL: apiBaseURL,
 	}
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("execute HTML template: %w", err)

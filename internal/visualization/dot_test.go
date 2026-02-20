@@ -824,6 +824,228 @@ func TestRenderEnrichedJSON_ZeroPriorityOmitted(t *testing.T) {
 	}
 }
 
+func TestRenderHTML_ElectricModeMarkers(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	enrichment := &EnrichmentData{
+		PageRank: map[string]float64{"b1": 0.5},
+	}
+
+	html, err := RenderHTML(ctx, gs, enrichment)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Static mode (no API base URL) should have electric toolbar hidden by default
+	if !strings.Contains(htmlStr, "electric-toolbar") {
+		t.Error("expected electric-toolbar element in HTML")
+	}
+	if !strings.Contains(htmlStr, "electricActivate") {
+		t.Error("expected electricActivate function in HTML")
+	}
+	if !strings.Contains(htmlStr, "__electricSim") {
+		t.Error("expected __electricSim test helper in HTML")
+	}
+}
+
+func TestRenderHTMLForServer_HasAPIBaseURL(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	enrichment := &EnrichmentData{
+		PageRank: map[string]float64{"b1": 0.5},
+	}
+
+	html, err := RenderHTMLForServer(ctx, gs, enrichment, "http://localhost:9999")
+	if err != nil {
+		t.Fatalf("RenderHTMLForServer: %v", err)
+	}
+	htmlStr := string(html)
+
+	// html/template JS-escapes the URL; check for key parts
+	if !strings.Contains(htmlStr, "localhost") || !strings.Contains(htmlStr, "9999") {
+		t.Error("expected API base URL components (localhost, 9999) in server-mode HTML")
+	}
+	// Electric mode should be enabled (toolbar not hidden)
+	if !strings.Contains(htmlStr, "electric-toolbar") {
+		t.Error("expected electric-toolbar in server-mode HTML")
+	}
+}
+
+func TestRenderHTML_FPSDiagnostic(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__getElectricFPS") {
+		t.Error("expected __getElectricFPS test helper in HTML")
+	}
+}
+
+func TestRenderHTML_ProgressMemoization(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__testProgressMemoization") {
+		t.Error("expected __testProgressMemoization test helper in HTML")
+	}
+}
+
+func TestRenderHTML_NoShadowBlurInElectricMode(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// shadowBlur should not appear anywhere in the electric rendering sections.
+	// It's the heaviest Canvas 2D compositing operation and was replaced with
+	// gradient-only equivalents.
+	if strings.Contains(htmlStr, "shadowBlur") {
+		t.Error("shadowBlur found in HTML — should be eliminated from electric mode rendering")
+	}
+}
+
+func TestRenderHTML_EdgeEnergyCacheHelper(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	if !strings.Contains(htmlStr, "__testEdgeEnergyCache") {
+		t.Error("expected __testEdgeEnergyCache test helper in HTML")
+	}
+}
+
+func TestRenderHTML_AutoPauseRedrawDefault(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// The default should be autoPauseRedraw(true) for idle CPU savings
+	if !strings.Contains(htmlStr, ".autoPauseRedraw(true)") {
+		t.Error("expected .autoPauseRedraw(true) as default in HTML")
+	}
+}
+
+func TestRenderHTML_NoLinearGradientsInSparkLoop(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Edge wire illumination and comet trail gradients should be replaced with
+	// solid rgba() colors. createLinearGradient in the spark loop was allocating
+	// ~9,600 gradient objects per second.
+	if strings.Contains(htmlStr, "createLinearGradient") {
+		t.Error("createLinearGradient found in HTML — edge wire and comet trail should use solid rgba() colors")
+	}
+}
+
+func TestRenderHTML_NoSeparateElectricUILoop(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// electricUILoop should be merged into onRenderFramePost, eliminating
+	// the dual animation loop. No separate requestAnimationFrame(electricUILoop).
+	if strings.Contains(htmlStr, "requestAnimationFrame(electricUILoop)") {
+		t.Error("separate electricUILoop rAF still present — should be merged into onRenderFramePost")
+	}
+}
+
+func TestRenderHTML_FrameLevelTimestamp(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// The ripple phase should use a frame-level timestamp variable instead of
+	// calling Date.now() inside the per-node rendering loop.
+	if !strings.Contains(htmlStr, "_frameNow") {
+		t.Error("expected _frameNow frame-level timestamp variable in HTML")
+	}
+}
+
+func TestRenderHTML_EmberParticleCount(t *testing.T) {
+	gs := setupTestStore(t)
+	ctx := context.Background()
+
+	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
+
+	html, err := RenderHTML(ctx, gs, nil)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	htmlStr := string(html)
+
+	// Ember particles should be reduced from 4 to 2 per edge
+	if strings.Contains(htmlStr, "ei <= 4") {
+		t.Error("ember loop still uses 4 particles — should be reduced to 2")
+	}
+	if !strings.Contains(htmlStr, "ei <= 2") {
+		t.Error("expected ember loop to use 2 particles (ei <= 2)")
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	tests := []struct {
 		name   string

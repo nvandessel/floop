@@ -199,6 +199,55 @@
   .source-learned { background: rgba(166,227,161,0.2); color: var(--green); }
   .source-manual { background: rgba(137,180,250,0.2); color: var(--blue); }
   .source-imported { background: rgba(249,226,175,0.2); color: var(--yellow); }
+
+  /* Electric mode toolbar */
+  #electric-toolbar {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface0);
+    border: 1px solid var(--surface2);
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-size: 12px;
+    z-index: 300;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.3);
+    transition: bottom 0.3s ease;
+  }
+  #electric-toolbar.visible { bottom: 16px; }
+  #electric-toolbar button {
+    background: var(--surface1);
+    border: 1px solid var(--surface2);
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  #electric-toolbar button:hover { background: var(--surface2); }
+  #electric-toolbar button.active { background: var(--blue); color: var(--base); }
+  #electric-toolbar .et-label { color: var(--subtext0); font-size: 11px; }
+  #electric-toolbar .et-step { color: var(--text); font-weight: 500; min-width: 60px; text-align: center; }
+  #electric-toolbar input[type="range"] {
+    width: 80px;
+    accent-color: var(--blue);
+    cursor: pointer;
+  }
+  #electric-toolbar .et-close {
+    background: none;
+    border: none;
+    color: var(--subtext0);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+  }
+  #electric-toolbar .et-close:hover { color: var(--red); }
 </style>
 </head>
 <body>
@@ -245,6 +294,14 @@
   <div class="legend-row"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#cba6f7" stroke-width="1.5"/></svg><span class="legend-label">both</span></div>
 </div>
 
+<div id="electric-toolbar">
+  <button id="et-play" title="Play/Pause">&#9654;</button>
+  <span class="et-label">Speed</span>
+  <input type="range" id="et-speed" min="0.5" max="3" step="0.25" value="1">
+  <span class="et-step" id="et-step-label">Step 0/0</span>
+  <button class="et-close" id="et-clear" title="Exit electric mode">&times;</button>
+</div>
+
 <script src="{{.ForceGraphSrc}}"></script>
 <script>
 (function() {
@@ -252,6 +309,7 @@
 
   // Graph data injected by Go template
   var graphData = {{.GraphJSON}};
+  var apiBaseURL = '{{.APIBaseURL}}';
 
   // Color palette (Catppuccin Mocha)
   var kindColors = {
@@ -434,6 +492,80 @@
         ctx.stroke();
       }
 
+      // Electric mode glow — nodes illuminate when activation wave reaches them
+      if (electricState.active && electricState.steps) {
+        var eAct = getElectricActivation(node.id);
+        if (eAct > 0.01) {
+          var isSeed = node.id === electricState.seedNodeId;
+          var glowAlpha = Math.min(1.0, eAct);
+          var rgbStr = isSeed ? '249,226,175' : '34,211,238';
+          var glowHex = isSeed ? '#f9e2af' : '#22d3ee';
+
+          var savedAlpha = ctx.globalAlpha;
+          ctx.globalAlpha = 1.0;
+
+          // Smooth radial gradient glow — single gradient replaces discrete rings
+          var glowR = r * 5;
+          var grad = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, glowR);
+          grad.addColorStop(0, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.85).toFixed(3) + ')');
+          grad.addColorStop(0.15, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.45).toFixed(3) + ')');
+          grad.addColorStop(0.4, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.15).toFixed(3) + ')');
+          grad.addColorStop(0.7, 'rgba(' + rgbStr + ',' + (glowAlpha * 0.05).toFixed(3) + ')');
+          grad.addColorStop(1, 'rgba(' + rgbStr + ',0)');
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, glowR, 0, 2 * Math.PI);
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          // Bright core fill (shadow-free — radial gradient above already produces the glow)
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(' + rgbStr + ',' + (glowAlpha * 0.8).toFixed(3) + ')';
+          ctx.fill();
+
+          // Wave-front flash — brief flare when activation first reaches this node
+          var firstStep = electricState.nodeFirstStep[node.id];
+          if (firstStep !== undefined) {
+            var flashP = getElectricProgressCached();
+            var stepsSince = (flashP.step + flashP.frac) - firstStep;
+            if (stepsSince >= 0 && stepsSince < 1.2) {
+              var flash = Math.max(0, 1.0 - stepsSince / 1.2);
+              flash = flash * flash * flashP.fade;
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r * 2.5, 0, 2 * Math.PI);
+              ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.25).toFixed(3) + ')';
+              ctx.fill();
+              // Soft radial flash glow (shadow-free replacement)
+              var flashR = r * 2;
+              var flashGrad = ctx.createRadialGradient(node.x, node.y, r * 0.3, node.x, node.y, flashR);
+              flashGrad.addColorStop(0, 'rgba(255,255,255,' + (flash * 0.35).toFixed(3) + ')');
+              flashGrad.addColorStop(0.5, 'rgba(255,255,255,' + (flash * 0.12).toFixed(3) + ')');
+              flashGrad.addColorStop(1, 'rgba(255,255,255,0)');
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, flashR, 0, 2 * Math.PI);
+              ctx.fillStyle = flashGrad;
+              ctx.fill();
+            }
+          }
+
+          ctx.globalAlpha = savedAlpha;
+        }
+        // Seed node: expanding ripple rings — neural origin pulse
+        if (node.id === electricState.seedNodeId) {
+          var rippleP = getElectricProgressCached();
+          for (var ri = 0; ri < 3; ri++) {
+            var ripplePhase = ((_frameNow / 3000) + ri * 0.33) % 1.0;
+            var rippleR = r * 1.5 + ripplePhase * r * 7;
+            var rippleAlpha = (1 - ripplePhase) * (1 - ripplePhase) * 0.3 * rippleP.fade;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, rippleR, 0, 2 * Math.PI);
+            ctx.strokeStyle = 'rgba(249,226,175,' + rippleAlpha.toFixed(3) + ')';
+            ctx.lineWidth = 1.5 * (1 - ripplePhase * 0.7);
+            ctx.stroke();
+          }
+        }
+      }
+
       // Match label opacity to node (dimmed labels on dimmed nodes)
       // Labels appear when zoomed in
       if (globalScale > 5) {
@@ -458,13 +590,32 @@
       ctx.fill();
     })
     .enableNodeDrag(true)
-    .autoPauseRedraw(false)
+    .autoPauseRedraw(true)
     .linkColor(function(l) {
+      // Electric mode: edges pulse with wave-front energy
+      if (electricState.active && electricState.steps) {
+        var src = l.source.id || l.source;
+        var tgt = l.target.id || l.target;
+        var energy = getEdgeWaveEnergyCached(src, tgt);
+        if (energy > 0.02) {
+          var alpha = 0.15 + energy * 0.85;
+          return 'rgba(34,211,238,' + alpha.toFixed(3) + ')';
+        }
+        return 'rgba(108,112,134,0.18)'; // dim but always visible
+      }
       var base = edgeColors[l.kind] || defaultEdgeColor;
       var lo = getLinkOpacity(l);
       return lo !== null ? withAlpha(base, lo) : base;
     })
     .linkWidth(function(l) {
+      // Electric mode: edges thicken with wave-front energy
+      if (electricState.active && electricState.steps) {
+        var src = l.source.id || l.source;
+        var tgt = l.target.id || l.target;
+        var energy = getEdgeWaveEnergyCached(src, tgt);
+        if (energy > 0.02) return 0.5 + energy * 2;
+        return 0.5; // thin but visible
+      }
       var w = edgeWidth[l.kind] || 1;
       if (getLinkOpacity(l) !== null) w *= 0.5;
       return w;
@@ -473,14 +624,162 @@
     .linkDirectionalArrowLength(5)
     .linkDirectionalArrowRelPos(0.92)
     .linkDirectionalArrowColor(function(l) {
+      if (electricState.active) return 'rgba(0,0,0,0)';
       var base = 'rgba(147,153,178,0.6)';
       var lo = getLinkOpacity(l);
       return lo !== null ? withAlpha(base, lo) : base;
     })
+    .onRenderFramePost(function(ctx, globalScale) {
+      // FPS measurement
+      var now = performance.now();
+      if (fpsState.lastFrameTime > 0) {
+        fpsState.frameTimes[fpsState.frameIndex] = now - fpsState.lastFrameTime;
+        fpsState.frameIndex = (fpsState.frameIndex + 1) % fpsState.frameTimes.length;
+      }
+      fpsState.lastFrameTime = now;
+      if (fpsState.overlayVisible) {
+        fpsOverlay.textContent = window.__getElectricFPS() + ' FPS';
+      }
+
+      // Advance memoization frame counter so caches invalidate
+      _progressFrameCounter++;
+      _edgeEnergyCacheFrame = -1;
+      _frameNow = Date.now(); // single timestamp per frame for ripple phase
+
+      if (!electricState.active || !electricState.steps) return;
+
+      // UI update (merged from electricUILoop — single animation loop)
+      updateElectricUI();
+
+      var links = graph.graphData().links;
+      var p = getElectricProgressCached();
+      var wavePos = p.step + p.frac;
+
+      for (var li = 0; li < links.length; li++) {
+        var link = links[li];
+        var src = link.source;
+        var tgt = link.target;
+        if (!src || !tgt || src.x == null || tgt.x == null) continue;
+
+        var dx = tgt.x - src.x;
+        var dy = tgt.y - src.y;
+        var len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1) continue;
+
+        var nx = -dy / len;
+        var ny = dx / len;
+
+        // Ambient glow bloom on active edges
+        var energy = getEdgeWaveEnergyCached(src.id, tgt.id);
+        if (energy > 0.02) {
+          ctx.beginPath();
+          ctx.moveTo(src.x, src.y);
+          ctx.lineTo(tgt.x, tgt.y);
+          ctx.strokeStyle = 'rgba(34,211,238,' + (energy * 0.3).toFixed(3) + ')';
+          ctx.lineWidth = energy * 8;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+        }
+
+        // ── Directional sparks — electricity flowing along edges ──
+        var srcFirst = electricState.nodeFirstStep[src.id];
+        var tgtFirst = electricState.nodeFirstStep[tgt.id];
+        if (srcFirst === undefined || tgtFirst === undefined) continue;
+
+        var edgeFireStep = Math.max(srcFirst, tgtFirst);
+        var dist = wavePos - edgeFireStep;
+
+        var sparkT = dist + 1.0;
+        if (sparkT < -0.1 || sparkT > 1.6) continue;
+
+        var sparkBright = Math.min(1.0, sparkT * 2.5);
+        if (sparkT > 1.0) sparkBright *= Math.max(0, (1.6 - sparkT) / 0.6);
+        sparkBright *= p.fade;
+        if (sparkBright < 0.03) continue;
+
+        var sparkPos = Math.min(1.0, sparkT);
+        var flowForward = (srcFirst <= tgtFirst);
+        var pos = flowForward ? sparkPos : 1.0 - sparkPos;
+
+        // ── Progressive edge illumination — solid color behind the spark ──
+        // (Gradient-free: uses clipped line segment instead of LinearGradient)
+        var litAlpha = (sparkBright * 0.5).toFixed(3);
+        var litEnd = flowForward ? pos : 1.0 - pos;
+        var litLen = Math.min(litEnd, 1.0);
+        if (litLen > 0.01) {
+          var lx0 = flowForward ? src.x : (src.x + dx * (1.0 - litLen));
+          var ly0 = flowForward ? src.y : (src.y + dy * (1.0 - litLen));
+          var lx1 = flowForward ? (src.x + dx * litLen) : tgt.x;
+          var ly1 = flowForward ? (src.y + dy * litLen) : tgt.y;
+          ctx.beginPath();
+          ctx.moveTo(lx0, ly0);
+          ctx.lineTo(lx1, ly1);
+          ctx.strokeStyle = 'rgba(34,211,238,' + litAlpha + ')';
+          ctx.lineWidth = 4;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+        }
+
+        // ── Comet trail — solid bright segment behind spark tip ──
+        var trail = 0.20;
+        var ts0 = flowForward ? Math.max(0, pos - trail) : pos;
+        var ts1 = flowForward ? pos : Math.min(1, pos + trail);
+        var ts0x = src.x + dx * ts0, ts0y = src.y + dy * ts0;
+        var ts1x = src.x + dx * ts1, ts1y = src.y + dy * ts1;
+        ctx.beginPath();
+        ctx.moveTo(ts0x, ts0y);
+        ctx.lineTo(ts1x, ts1y);
+        ctx.strokeStyle = 'rgba(255,255,255,' + (sparkBright * 0.65).toFixed(3) + ')';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // ── Spark tip — bright moving dot with halo ──
+        var tipX = src.x + dx * pos;
+        var tipY = src.y + dy * pos;
+        var dotR = 3 + sparkBright * 3;
+
+        // Outer halo (large, soft bloom)
+        var haloGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, dotR * 1.8);
+        haloGrad.addColorStop(0, 'rgba(34,211,238,' + (sparkBright * 0.3).toFixed(3) + ')');
+        haloGrad.addColorStop(0.4, 'rgba(34,211,238,' + (sparkBright * 0.1).toFixed(3) + ')');
+        haloGrad.addColorStop(1, 'rgba(34,211,238,0)');
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, dotR * 1.8, 0, 2 * Math.PI);
+        ctx.fillStyle = haloGrad;
+        ctx.fill();
+
+        // Core glow (shadow-free — enlarged gradient radius replaces shadowBlur)
+        var coreR = dotR * 1.2;
+        var coreGrad = ctx.createRadialGradient(tipX, tipY, 0, tipX, tipY, coreR);
+        coreGrad.addColorStop(0, 'rgba(255,255,255,' + (sparkBright * 0.95).toFixed(3) + ')');
+        coreGrad.addColorStop(0.2, 'rgba(200,240,255,' + (sparkBright * 0.8).toFixed(3) + ')');
+        coreGrad.addColorStop(0.45, 'rgba(34,211,238,' + (sparkBright * 0.4).toFixed(3) + ')');
+        coreGrad.addColorStop(1, 'rgba(34,211,238,0)');
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, coreR, 0, 2 * Math.PI);
+        ctx.fillStyle = coreGrad;
+        ctx.fill();
+
+        // ── Trailing ember particles ──
+        for (var ei = 1; ei <= 2; ei++) {
+          var eOffset = ei * 0.05;
+          var ePos = flowForward ? (pos - eOffset) : (pos + eOffset);
+          if (ePos < 0 || ePos > 1) continue;
+          var eFade = 1.0 - (ei / 3);
+          var jitter = Math.sin(wavePos * 7 + ei * 2.3) * 1.5;
+          var ex = src.x + dx * ePos + nx * jitter;
+          var ey = src.y + dy * ePos + ny * jitter;
+          ctx.beginPath();
+          ctx.arc(ex, ey, 2 * eFade, 0, 2 * Math.PI);
+          ctx.fillStyle = 'rgba(34,211,238,' + (sparkBright * eFade * 0.7).toFixed(3) + ')';
+          ctx.fill();
+        }
+      }
+    })
     .d3AlphaDecay(0.02)
     .d3VelocityDecay(0.4)
     .warmupTicks(300)
-    .cooldownTime(Infinity)
     .onNodeDragEnd(function(node) {
       // Release the node so it rejoins the simulation
       node.fx = undefined;
@@ -509,14 +808,21 @@
     })
     .onNodeClick(function(node) {
       graph.__nodeClickTime = Date.now();
-      focusedNodeId = node.id;
-      focusDistances = calculateFocusDistances(node.id, adjacencyMap);
+      if (electricEnabled()) {
+        electricActivate(node.id);
+      } else {
+        focusedNodeId = node.id;
+        focusDistances = calculateFocusDistances(node.id, adjacencyMap);
+      }
       showDetail(node);
     })
     .onBackgroundClick(function() {
       // Ignore if a node was just clicked (force-graph fires both events)
       if (graph.__nodeClickTime && Date.now() - graph.__nodeClickTime < 200) return;
-      closePanel(); // also clears focus state
+      if (electricState.active) {
+        electricDeactivate();
+      }
+      closePanel();
     })
     .onEngineStop(function() {
       // Auto-fit once when simulation first settles, capped at zoom=1
@@ -566,8 +872,11 @@
 
   // --- Scope filtering ---
   var activeScope = 'all';
+  // Hook called before scope filter runs (electric mode uses this to deactivate)
+  var beforeScopeFilter = null;
 
   function filterByScope(scope) {
+    if (beforeScopeFilter) beforeScopeFilter();
     activeScope = scope;
 
     // Update button states
@@ -787,6 +1096,457 @@
   };
   window.__getNodeOpacity = function(nodeId) {
     return getNodeOpacity(nodeId);
+  };
+
+  // --- FPS diagnostic counter ---
+  var fpsState = {
+    frameTimes: new Float64Array(60),
+    frameIndex: 0,
+    lastFrameTime: 0,
+    overlayVisible: false
+  };
+
+  window.__getElectricFPS = function() {
+    var sum = 0, count = 0;
+    for (var i = 0; i < fpsState.frameTimes.length; i++) {
+      if (fpsState.frameTimes[i] > 0) { sum += fpsState.frameTimes[i]; count++; }
+    }
+    if (count === 0) return 0;
+    return Math.round(1000 / (sum / count));
+  };
+
+  // FPS overlay toggled by 'F' key
+  var fpsOverlay = document.createElement('div');
+  fpsOverlay.id = 'fps-overlay';
+  fpsOverlay.style.cssText = 'position:absolute;top:56px;left:16px;background:var(--surface0);border:1px solid var(--surface2);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--green);z-index:50;display:none;font-family:monospace';
+  document.body.appendChild(fpsOverlay);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'F' || e.key === 'f') {
+      fpsState.overlayVisible = !fpsState.overlayVisible;
+      fpsOverlay.style.display = fpsState.overlayVisible ? 'block' : 'none';
+    }
+  });
+
+  // --- Electric mode (spreading activation visualization) ---
+  var electricState = {
+    active: false,
+    seedNodeId: null,
+    steps: null,
+    playing: false,
+    speed: 1.0,
+    startTime: 0,      // performance.now() when play started/resumed
+    elapsed: 0,        // accumulated animation time (speed-scaled ms)
+    uiFrameId: null,   // requestAnimationFrame for UI updates
+    savedFocus: null,  // {focusedNodeId, focusDistances} saved before electric mode
+    savedZoom: null,   // {x, y, z} saved camera position to restore on deactivate
+    nodeFirstStep: {}  // nodeId -> step index where node first activates (for flash)
+  };
+
+  var electricToolbar = document.getElementById('electric-toolbar');
+
+  function electricEnabled() {
+    return apiBaseURL !== '';
+  }
+
+  function showElectricToolbar() {
+    electricToolbar.classList.add('visible');
+  }
+
+  function hideElectricToolbar() {
+    electricToolbar.classList.remove('visible');
+  }
+
+  function getAnimTime() {
+    if (!electricState.active) return 0;
+    var base = electricState.elapsed;
+    if (electricState.playing) {
+      base += (performance.now() - electricState.startTime) * electricState.speed;
+    }
+    return base;
+  }
+
+  // Frame-level timestamp — set once per frame in onRenderFramePost,
+  // used by ripple phase in nodeCanvasObject to avoid repeated Date.now() calls.
+  var _frameNow = Date.now();
+
+  // Memoization: getElectricProgress is called ~970 times per frame
+  // but returns the same value within a single frame. Cache it.
+  var _cachedProgress = null;
+  var _cachedProgressFrame = -1;
+  var _progressFrameCounter = 0;
+
+  function getElectricProgressCached() {
+    if (_cachedProgressFrame === _progressFrameCounter) return _cachedProgress;
+    _cachedProgress = getElectricProgress();
+    _cachedProgressFrame = _progressFrameCounter;
+    return _cachedProgress;
+  }
+
+  window.__testProgressMemoization = function() {
+    _progressFrameCounter++;
+    var a = getElectricProgressCached();
+    var b = getElectricProgressCached();
+    return a === b; // should be true — same object reference within frame
+  };
+
+  function getElectricProgress() {
+    if (!electricState.steps || electricState.steps.length < 2) return { step: 0, frac: 0, fade: 1.0 };
+    var animTime = getAnimTime();
+    var stepDuration = 2000; // ms per activation step
+    var totalSteps = electricState.steps.length - 1;
+    // Extra step at end for smooth fade-out before loop restarts
+    var cycleDuration = stepDuration * (totalSteps + 1);
+    if (cycleDuration <= 0) return { step: 0, frac: 0, fade: 1.0 };
+    var loopedTime = animTime % cycleDuration;
+    var fractionalStep = loopedTime / stepDuration;
+    var step = Math.floor(fractionalStep);
+    var frac = fractionalStep - step;
+    var fade = 1.0;
+    var fadeFloor = 0.15; // never fully die — keeps subtle electric ambiance
+    if (step === 0 && frac < 0.5) {
+      // Fade-in during first half-step — smooth ramp from residual
+      var fi = frac * 2; // remap 0→0.5 to 0→1
+      fi = fi * fi * (3 - 2 * fi); // smoothstep
+      fade = fadeFloor + (1.0 - fadeFloor) * fi;
+    } else if (step >= totalSteps) {
+      // Fade-out period — smooth ease to residual level
+      step = totalSteps - 1;
+      frac = 1.0;
+      var fadeProgress = fractionalStep - totalSteps;
+      var fo = Math.max(0, 1.0 - fadeProgress);
+      fo = fo * fo * (3 - 2 * fo); // smoothstep for gentle fade
+      fade = fadeFloor + (1.0 - fadeFloor) * fo;
+    }
+    return { step: step, frac: frac, fade: fade };
+  }
+
+  function updateElectricUI() {
+    if (!electricState.steps) return;
+    var total = electricState.steps.length - 1;
+    var p = getElectricProgressCached();
+    document.getElementById('et-step-label').textContent = 'Step ' + p.step + '/' + total;
+    var playBtn = document.getElementById('et-play');
+    playBtn.innerHTML = electricState.playing ? '&#9646;&#9646;' : '&#9654;';
+    playBtn.classList.toggle('active', electricState.playing);
+  }
+
+  // electricUILoop merged into onRenderFramePost — single animation loop
+
+  function getElectricActivation(nodeId) {
+    if (!electricState.active || !electricState.steps) return 0;
+    var p = getElectricProgressCached();
+    var curr = electricState.steps[p.step];
+    var nextIdx = Math.min(p.step + 1, electricState.steps.length - 1);
+    var next = electricState.steps[nextIdx];
+    var a0 = (curr && curr.activation) ? (curr.activation[nodeId] || 0) : 0;
+    var a1 = (next && next.activation) ? (next.activation[nodeId] || 0) : 0;
+
+    // Smooth hermite interpolation — organic transitions, no harsh delays
+    var t = p.frac;
+    t = t * t * (3 - 2 * t); // smoothstep for buttery S-curve
+
+    var raw = a0 + (a1 - a0) * t;
+    // Amplify for visual display — engine values are often very low (0.02–0.16).
+    // pow(x, 0.4) maps: 1.0→1.0, 0.16→0.44, 0.05→0.27, 0.002→0.07
+    if (raw <= 0) return 0;
+    return Math.pow(raw, 0.4) * p.fade;
+  }
+
+  // Edge energy cache — getEdgeWaveEnergy is called 3x per edge per frame
+  // (linkColor, linkWidth, onRenderFramePost). Cache results per frame.
+  var _edgeEnergyCache = {};
+  var _edgeEnergyCacheFrame = -1;
+
+  function getEdgeWaveEnergyCached(srcId, tgtId) {
+    if (_edgeEnergyCacheFrame !== _progressFrameCounter) {
+      _edgeEnergyCache = {};
+      _edgeEnergyCacheFrame = _progressFrameCounter;
+    }
+    var key = srcId + '|' + tgtId;
+    if (_edgeEnergyCache[key] !== undefined) return _edgeEnergyCache[key];
+    var val = getEdgeWaveEnergy(srcId, tgtId);
+    _edgeEnergyCache[key] = val;
+    return val;
+  }
+
+  window.__testEdgeEnergyCache = function() {
+    return typeof getEdgeWaveEnergyCached === 'function';
+  };
+
+  // Wave-front based edge energy — edges pulse as the wave passes, then fade
+  function getEdgeWaveEnergy(srcId, tgtId) {
+    if (!electricState.active || !electricState.steps) return 0;
+
+    var srcFirst = electricState.nodeFirstStep[srcId];
+    var tgtFirst = electricState.nodeFirstStep[tgtId];
+    if (srcFirst === undefined && tgtFirst === undefined) return 0;
+
+    // Edge fires when the later endpoint first activates
+    var edgeFireStep = Math.max(
+      srcFirst !== undefined ? srcFirst : 999,
+      tgtFirst !== undefined ? tgtFirst : 999
+    );
+    if (edgeFireStep >= 999) return 0;
+
+    var p = getElectricProgressCached();
+    var wavePos = p.step + p.frac;
+    var dist = wavePos - edgeFireStep;
+
+    // Pulse shape: ramp up → peak → decay
+    var energy;
+    if (dist < -0.5) {
+      energy = 0;
+    } else if (dist < 0) {
+      // Leading edge: ramp up as wave approaches
+      energy = (dist + 0.5) / 0.5;
+      energy = energy * energy; // ease-in for smooth arrival
+    } else if (dist < 0.4) {
+      // Peak: full brightness while wave is here
+      energy = 1.0;
+    } else {
+      // Decay: dims over ~1.5 steps after wave passes
+      energy = Math.max(0.06, 1.0 - (dist - 0.4) * 0.45);
+      energy = energy * energy; // ease-out for smooth fade
+    }
+
+    // Residual glow when both endpoints are active — keeps edges faintly alive
+    var srcAct = getElectricActivation(srcId);
+    var tgtAct = getElectricActivation(tgtId);
+    var residual = Math.min(srcAct, tgtAct) * 0.25;
+
+    return Math.max(energy * p.fade, residual);
+  }
+
+
+  function electricActivate(nodeId) {
+    if (!electricEnabled()) return;
+    var url = apiBaseURL + '/api/activate?seed=' + encodeURIComponent(nodeId);
+    return fetch(url)
+      .then(function(r) {
+        if (!r.ok) throw new Error('Activation failed: ' + r.status);
+        return r.json();
+      })
+      .then(function(steps) {
+        // Enable continuous rendering for electric animation
+        graph.autoPauseRedraw(false);
+
+        // Save current focus state
+        electricState.savedFocus = {
+          focusedNodeId: focusedNodeId,
+          focusDistances: focusDistances
+        };
+
+        electricState.steps = steps;
+        electricState.seedNodeId = nodeId;
+        electricState.active = true;
+
+        // Pre-compute which step each node first activates (for flash effect)
+        electricState.nodeFirstStep = {};
+        for (var s = 0; s < steps.length; s++) {
+          var act = steps[s].activation || {};
+          for (var nid in act) {
+            if (act[nid] > 0 && electricState.nodeFirstStep[nid] === undefined) {
+              electricState.nodeFirstStep[nid] = s;
+            }
+          }
+        }
+
+        // Auto-play from the start
+        electricState.elapsed = 0;
+        electricState.startTime = performance.now();
+        electricState.playing = true;
+
+        // Clear focus mode (electric replaces it)
+        focusedNodeId = null;
+        focusDistances = null;
+
+        updateElectricUI();
+        showElectricToolbar();
+
+        // Auto-zoom into the seed node's neighborhood for better visibility
+        var seedNode = graph.graphData().nodes.find(function(n) { return n.id === nodeId; });
+        if (seedNode) {
+          // Save current view so we can restore on deactivate
+          electricState.savedZoom = { x: graph.centerAt().x, y: graph.centerAt().y, z: graph.zoom() };
+          graph.centerAt(seedNode.x, seedNode.y, 800);
+          setTimeout(function() { graph.zoom(3, 800); }, 100);
+        }
+
+        return steps;
+      });
+  }
+
+  function electricDeactivate() {
+    electricState.active = false;
+    electricState.steps = null;
+    electricState.seedNodeId = null;
+    electricState.playing = false;
+    electricState.elapsed = 0;
+
+    // Restore idle rendering (no redraws when physics settled)
+    graph.autoPauseRedraw(true);
+
+    // Restore focus state
+    if (electricState.savedFocus) {
+      focusedNodeId = electricState.savedFocus.focusedNodeId;
+      focusDistances = electricState.savedFocus.focusDistances;
+      electricState.savedFocus = null;
+    }
+
+    hideElectricToolbar();
+
+    // Restore zoom to overview
+    if (electricState.savedZoom) {
+      graph.centerAt(electricState.savedZoom.x, electricState.savedZoom.y, 800);
+      setTimeout(function() { graph.zoom(electricState.savedZoom.z, 800); }, 100);
+      electricState.savedZoom = null;
+    }
+  }
+
+  function electricTogglePlay() {
+    if (!electricState.active) return;
+    if (electricState.playing) {
+      // Pause: save accumulated animation time
+      electricState.elapsed += (performance.now() - electricState.startTime) * electricState.speed;
+      electricState.playing = false;
+    } else {
+      // Resume: restart time tracking from saved position
+      electricState.startTime = performance.now();
+      electricState.playing = true;
+    }
+    updateElectricUI();
+  }
+
+  // Toolbar button bindings
+  document.getElementById('et-play').addEventListener('click', electricTogglePlay);
+  document.getElementById('et-speed').addEventListener('input', function(e) {
+    // Save current animation position before changing speed
+    if (electricState.playing) {
+      electricState.elapsed += (performance.now() - electricState.startTime) * electricState.speed;
+      electricState.startTime = performance.now();
+    }
+    electricState.speed = parseFloat(e.target.value);
+  });
+  document.getElementById('et-clear').addEventListener('click', function() {
+    electricDeactivate();
+  });
+
+  // Override nodeCanvasObject to include electric mode glow
+  var origGetNodeOpacity = getNodeOpacity;
+  getNodeOpacity = function(nodeId) {
+    if (electricState.active && electricState.steps) {
+      var act = getElectricActivation(nodeId);
+      var ep = getElectricProgressCached();
+      if (nodeId === electricState.seedNodeId) return 1.0;
+      // Dim non-active nodes, blend partially back during fade transitions
+      // Cap recovery at 80% to avoid flash — nodes stay subtly dimmed
+      var dimmed = Math.max(0.12, act * 0.6);
+      var recovery = Math.max(0, 1.0 - ep.fade) * 0.8;
+      return dimmed + (1.0 - dimmed) * recovery;
+    }
+    return origGetNodeOpacity(nodeId);
+  };
+
+  // Integrate with scope filter — deactivate electric mode first
+  beforeScopeFilter = function() {
+    if (electricState.active) {
+      electricDeactivate();
+    }
+  };
+
+  // Test helpers for electric mode
+  window.__electricSim = function(nodeId) {
+    return electricActivate(nodeId);
+  };
+  window.__electricDeactivate = function() {
+    electricDeactivate();
+  };
+  window.__electricGetStep = function() {
+    return getElectricProgress().step;
+  };
+  window.__electricSetStep = function(step) {
+    // Set animation time to place us at the start of the given step
+    electricState.elapsed = step * 2000;
+    electricState.startTime = performance.now();
+    updateElectricUI();
+  };
+  window.__electricIsActive = function() {
+    return electricState.active;
+  };
+  window.__electricGetActivation = function(nodeId) {
+    return getElectricActivation(nodeId);
+  };
+  window.__sparkDiag = function() {
+    if (!electricState.active || !electricState.steps) return { error: 'not active' };
+    var p = getElectricProgress();
+    var links = graph.graphData().links;
+    var results = [];
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      var src = link.source;
+      var tgt = link.target;
+      var srcId = src.id || src;
+      var tgtId = tgt.id || tgt;
+      var srcFirst = electricState.nodeFirstStep[srcId];
+      var tgtFirst = electricState.nodeFirstStep[tgtId];
+      var edgeFireStep = Math.max(
+        srcFirst !== undefined ? srcFirst : 999,
+        tgtFirst !== undefined ? tgtFirst : 999
+      );
+      var wavePos = p.step + p.frac;
+      var dist = wavePos - edgeFireStep;
+      var sparkT = dist + 1.0;
+      var sparkBright = Math.min(1.0, Math.max(0, sparkT * 2.5));
+      if (sparkT > 1.0) sparkBright *= Math.max(0, (1.6 - sparkT) / 0.6);
+      sparkBright *= p.fade;
+      var hasCoords = src.x != null && tgt.x != null;
+      results.push({
+        srcId: srcId.substring(0, 20),
+        tgtId: tgtId.substring(0, 20),
+        srcFirst: srcFirst,
+        tgtFirst: tgtFirst,
+        edgeFireStep: edgeFireStep,
+        sparkT: +sparkT.toFixed(3),
+        sparkBright: +sparkBright.toFixed(4),
+        inRange: sparkT >= -0.1 && sparkT <= 1.6,
+        visible: sparkBright >= 0.03,
+        hasCoords: hasCoords
+      });
+    }
+    // Raw step data stats
+    var stepStats = [];
+    if (electricState.steps) {
+      for (var si = 0; si < electricState.steps.length; si++) {
+        var stepAct = electricState.steps[si].activation || {};
+        var keys = Object.keys(stepAct);
+        var maxAct = 0, minAct = Infinity;
+        keys.forEach(function(k) {
+          if (stepAct[k] > maxAct) maxAct = stepAct[k];
+          if (stepAct[k] < minAct) minAct = stepAct[k];
+        });
+        stepStats.push({
+          step: si,
+          nodeCount: keys.length,
+          maxAct: +maxAct.toFixed(6),
+          minAct: keys.length > 0 ? +minAct.toFixed(6) : 0,
+          final: !!electricState.steps[si].final
+        });
+      }
+    }
+    return {
+      progress: { step: p.step, frac: +p.frac.toFixed(3), fade: +p.fade.toFixed(3) },
+      nodeFirstStepCount: Object.keys(electricState.nodeFirstStep).length,
+      nodeFirstStepEntries: Object.keys(electricState.nodeFirstStep).slice(0, 5).map(function(k) {
+        return { id: k.substring(0, 20), step: electricState.nodeFirstStep[k] };
+      }),
+      totalNodes: graph.graphData().nodes.length,
+      totalLinks: links.length,
+      stepStats: stepStats,
+      sparksInRange: results.filter(function(r) { return r.inRange; }).length,
+      sparksVisible: results.filter(function(r) { return r.visible; }).length,
+      edges: results.slice(0, 10)
+    };
   };
 })();
 </script>
