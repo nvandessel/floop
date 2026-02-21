@@ -5,7 +5,7 @@ go 1.25
 toolchain go1.25.7
 
 require (
-	github.com/hybridgroup/yzma v1.7.0
+	github.com/hybridgroup/yzma v1.9.0
 	github.com/modelcontextprotocol/go-sdk v1.3.0
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1

@@ -325,8 +325,8 @@ func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.Deduplicator
 	crossCfg := cfg
 	crossCfg.AutoMerge = !dryRun
 
-	// Create cross-store deduplicator
-	deduplicator := dedup.NewCrossStoreDeduplicatorWithConfig(localStore, globalStore, merger, crossCfg)
+	// Create cross-store deduplicator with LLM client for embedding-based comparison
+	deduplicator := dedup.NewCrossStoreDeduplicatorWithLLM(localStore, globalStore, merger, crossCfg, llmClient)
 
 	// Run deduplication
 	results, err := deduplicator.DeduplicateAcrossStores(ctx)
