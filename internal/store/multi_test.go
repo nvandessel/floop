@@ -792,3 +792,269 @@ func TestMultiGraphStore_ValidateBehaviorGraph_Valid(t *testing.T) {
 		t.Errorf("expected no validation errors, got %d: %v", len(errors), errors)
 	}
 }
+
+func TestMultiGraphStore_AddEdge_CrossStoreRoutesToGlobal(t *testing.T) {
+	localRoot, globalRoot, cleanup := setupTestStores(t)
+	defer cleanup()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", globalRoot)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add source node to local store
+	store.localStore.AddNode(ctx, Node{
+		ID:   "local-node",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "local-node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "local content",
+			},
+		},
+	})
+
+	// Add target node to global store
+	store.globalStore.AddNode(ctx, Node{
+		ID:   "global-node",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "global content",
+			},
+		},
+	})
+
+	// Add cross-store edge (local source → global target)
+	edge := Edge{
+		Source:    "local-node",
+		Target:    "global-node",
+		Kind:      "similar-to",
+		Weight:    0.8,
+		CreatedAt: time.Now(),
+	}
+	if err := store.AddEdge(ctx, edge); err != nil {
+		t.Fatalf("AddEdge() failed: %v", err)
+	}
+
+	// Edge should be in global store, NOT local store
+	globalEdges, err := store.globalStore.GetEdges(ctx, "local-node", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("global GetEdges() failed: %v", err)
+	}
+	localEdges, err := store.localStore.GetEdges(ctx, "local-node", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("local GetEdges() failed: %v", err)
+	}
+
+	if len(globalEdges) != 1 {
+		t.Errorf("expected 1 edge in global store, got %d", len(globalEdges))
+	}
+	if len(localEdges) != 0 {
+		t.Errorf("expected 0 edges in local store, got %d", len(localEdges))
+	}
+}
+
+func TestMultiGraphStore_AddEdge_SameStoreStaysLocal(t *testing.T) {
+	localRoot, globalRoot, cleanup := setupTestStores(t)
+	defer cleanup()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", globalRoot)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add both nodes to local store
+	store.localStore.AddNode(ctx, Node{
+		ID:   "local-a",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "local-a",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "content a",
+			},
+		},
+	})
+	store.localStore.AddNode(ctx, Node{
+		ID:   "local-b",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "local-b",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "content b",
+			},
+		},
+	})
+
+	// Add same-store edge (local → local)
+	edge := Edge{
+		Source:    "local-a",
+		Target:    "local-b",
+		Kind:      "similar-to",
+		Weight:    0.9,
+		CreatedAt: time.Now(),
+	}
+	if err := store.AddEdge(ctx, edge); err != nil {
+		t.Fatalf("AddEdge() failed: %v", err)
+	}
+
+	// Edge should stay in local store
+	localEdges, err := store.localStore.GetEdges(ctx, "local-a", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("local GetEdges() failed: %v", err)
+	}
+	globalEdges, err := store.globalStore.GetEdges(ctx, "local-a", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("global GetEdges() failed: %v", err)
+	}
+
+	if len(localEdges) != 1 {
+		t.Errorf("expected 1 edge in local store, got %d", len(localEdges))
+	}
+	if len(globalEdges) != 0 {
+		t.Errorf("expected 0 edges in global store, got %d", len(globalEdges))
+	}
+}
+
+func TestMultiGraphStore_ValidateBehaviorGraph_CrossStoreEdgeInGlobal(t *testing.T) {
+	localRoot, globalRoot, cleanup := setupTestStores(t)
+	defer cleanup()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", globalRoot)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior to local store
+	store.localStore.AddNode(ctx, Node{
+		ID:   "local-behavior",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "local-behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "local content",
+			},
+		},
+	})
+
+	// Add a behavior to global store
+	store.globalStore.AddNode(ctx, Node{
+		ID:   "global-behavior",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "global content",
+			},
+		},
+	})
+
+	// Add cross-store edge in global store (references local behavior as target)
+	crossEdge := Edge{
+		Source:    "global-behavior",
+		Target:    "local-behavior",
+		Kind:      "similar-to",
+		Weight:    0.85,
+		CreatedAt: time.Now(),
+	}
+	if err := store.globalStore.AddEdge(ctx, crossEdge); err != nil {
+		t.Fatalf("failed to add cross-store edge: %v", err)
+	}
+
+	// Validate — should find 0 errors (local-behavior exists, just in another store)
+	errors, err := store.ValidateBehaviorGraph(ctx)
+	if err != nil {
+		t.Fatalf("ValidateBehaviorGraph() failed: %v", err)
+	}
+
+	if len(errors) != 0 {
+		t.Errorf("expected 0 validation errors for cross-store edge, got %d: %v", len(errors), errors)
+	}
+}
+
+func TestMultiGraphStore_ValidateBehaviorGraph_TrulyDanglingStillCaught(t *testing.T) {
+	localRoot, globalRoot, cleanup := setupTestStores(t)
+	defer cleanup()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", globalRoot)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewMultiGraphStore(localRoot)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add a behavior to global store
+	store.globalStore.AddNode(ctx, Node{
+		ID:   "global-behavior",
+		Kind: "behavior",
+		Content: map[string]interface{}{
+			"name": "global-behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "global content",
+			},
+		},
+	})
+
+	// Add edge in global store targeting a truly nonexistent ID
+	danglingEdge := Edge{
+		Source:    "global-behavior",
+		Target:    "truly-nonexistent",
+		Kind:      "similar-to",
+		Weight:    0.7,
+		CreatedAt: time.Now(),
+	}
+	if err := store.globalStore.AddEdge(ctx, danglingEdge); err != nil {
+		t.Fatalf("failed to add dangling edge: %v", err)
+	}
+
+	// Validate — should catch the truly dangling reference
+	errors, err := store.ValidateBehaviorGraph(ctx)
+	if err != nil {
+		t.Fatalf("ValidateBehaviorGraph() failed: %v", err)
+	}
+
+	// Should find exactly 1 dangling error
+	danglingErrors := 0
+	for _, e := range errors {
+		if e.Issue == "dangling" {
+			danglingErrors++
+		}
+	}
+	if danglingErrors != 1 {
+		t.Errorf("expected 1 dangling error, got %d. All errors: %v", danglingErrors, errors)
+	}
+}

@@ -672,6 +672,70 @@ func TestValidateBehaviorGraph_ZeroCreatedAtEdge(t *testing.T) {
 	}
 }
 
+func TestSQLiteGraphStore_ValidateWithExternalIDs(t *testing.T) {
+	tests := []struct {
+		name        string
+		externalIDs map[string]bool
+		wantErrors  int
+	}{
+		{
+			name:        "external ID present — no dangling error",
+			externalIDs: map[string]bool{"external-behavior": true},
+			wantErrors:  0,
+		},
+		{
+			name:        "external ID absent — dangling error",
+			externalIDs: nil,
+			wantErrors:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, cleanup := setupTestSQLiteStore(t)
+			defer cleanup()
+
+			ctx := context.Background()
+
+			// Add a local behavior
+			localBehavior := createTestBehavior("local-behavior", "Local Behavior")
+			if _, err := store.AddNode(ctx, localBehavior); err != nil {
+				t.Fatalf("failed to add behavior: %v", err)
+			}
+
+			// Add edge targeting an ID that only exists externally
+			edge := Edge{
+				Source:    "local-behavior",
+				Target:    "external-behavior",
+				Kind:      "similar-to",
+				Weight:    0.8,
+				CreatedAt: time.Now(),
+			}
+			if err := store.AddEdge(ctx, edge); err != nil {
+				t.Fatalf("failed to add edge: %v", err)
+			}
+
+			// Validate with external IDs
+			errors, err := store.ValidateWithExternalIDs(ctx, tt.externalIDs)
+			if err != nil {
+				t.Fatalf("ValidateWithExternalIDs() failed: %v", err)
+			}
+
+			// Count dangling errors only (ignore edge-property issues)
+			danglingCount := 0
+			for _, e := range errors {
+				if e.Issue == "dangling" {
+					danglingCount++
+				}
+			}
+
+			if danglingCount != tt.wantErrors {
+				t.Errorf("expected %d dangling errors, got %d. All errors: %v", tt.wantErrors, danglingCount, errors)
+			}
+		})
+	}
+}
+
 // Helper functions for tests
 
 func createTestBehavior(id, name string) Node {
