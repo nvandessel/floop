@@ -475,9 +475,8 @@ func (m *MultiGraphStore) PruneWeakEdges(ctx context.Context, kind string, thres
 }
 
 // ValidateBehaviorGraph validates both stores with cross-store awareness.
-// Local store validates with nil externalIDs (all edges should be local-local).
-// Global store validates with local IDs as externalIDs (cross-store edges
-// reference local behaviors).
+// Each store validates with the other store's IDs as externalIDs, so
+// cross-store edges aren't falsely reported as dangling.
 // Errors from local store are prefixed with "local:" and global with "global:".
 func (m *MultiGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error) {
 	m.mu.RLock()
