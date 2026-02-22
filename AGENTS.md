@@ -13,6 +13,8 @@ mcp__floop__floop_learn(wrong="what you did", right="what to do instead")
 
 Do NOT wait for permission. Capture learnings proactively. The hooks will also auto-detect corrections, but explicit capture is more reliable.
 
+For non-Claude agents, see `docs/integrations/agent-prompt-template.md`.
+
 **Available MCP tools:**
 - `floop_active` - See currently active behaviors for this context
 - `floop_learn` - Capture a correction (USE PROACTIVELY)
