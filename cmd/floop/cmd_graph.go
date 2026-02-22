@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/nvandessel/feedback-loop/internal/ranking"
@@ -33,6 +32,11 @@ func newGraphCmd() *cobra.Command {
 				return fmt.Errorf("open store: %w", err)
 			}
 			defer gs.Close()
+
+			// --serve implies HTML format
+			if serve {
+				format = string(visualization.FormatHTML)
+			}
 
 			ctx := context.Background()
 
@@ -127,7 +131,7 @@ func runGraphServer(cmd *cobra.Command, ctx context.Context, gs store.GraphStore
 
 	// Handle SIGINT/SIGTERM for graceful shutdown
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	notifySignals(sigCh)
 	defer signal.Stop(sigCh)
 
 	go func() {
