@@ -197,30 +197,50 @@ func (m *MultiGraphStore) QueryNodes(ctx context.Context, predicate map[string]i
 	return mergeNodes(localResult.nodes, globalResult.nodes), nil
 }
 
-// AddEdge adds an edge to the store containing the source node.
+// AddEdge adds an edge, routing it based on endpoint locations:
+//   - Both endpoints in same store → store edge there
+//   - Endpoints in different stores → store edge in global store
 func (m *MultiGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Find which store has the source node
-	localNode, err := m.localStore.GetNode(ctx, edge.Source)
+	// Determine which store(s) have source and target
+	srcLocal, err := m.localStore.GetNode(ctx, edge.Source)
 	if err != nil {
-		return fmt.Errorf("error checking local store: %w", err)
+		return fmt.Errorf("error checking local store for source: %w", err)
 	}
-	if localNode != nil {
-		return m.localStore.AddEdge(ctx, edge)
+	srcGlobal, err := m.globalStore.GetNode(ctx, edge.Source)
+	if err != nil {
+		return fmt.Errorf("error checking global store for source: %w", err)
+	}
+	tgtLocal, err := m.localStore.GetNode(ctx, edge.Target)
+	if err != nil {
+		return fmt.Errorf("error checking local store for target: %w", err)
+	}
+	tgtGlobal, err := m.globalStore.GetNode(ctx, edge.Target)
+	if err != nil {
+		return fmt.Errorf("error checking global store for target: %w", err)
 	}
 
-	// Try global
-	globalNode, err := m.globalStore.GetNode(ctx, edge.Source)
-	if err != nil {
-		return fmt.Errorf("error checking global store: %w", err)
+	srcInLocal := srcLocal != nil
+	srcInGlobal := srcGlobal != nil
+	tgtInLocal := tgtLocal != nil
+	tgtInGlobal := tgtGlobal != nil
+
+	// Both in local → local store
+	if srcInLocal && tgtInLocal {
+		return m.localStore.AddEdge(ctx, edge)
 	}
-	if globalNode != nil {
+	// Both in global → global store
+	if srcInGlobal && tgtInGlobal {
+		return m.globalStore.AddEdge(ctx, edge)
+	}
+	// Cross-store → global store
+	if (srcInLocal || srcInGlobal) && (tgtInLocal || tgtInGlobal) {
 		return m.globalStore.AddEdge(ctx, edge)
 	}
 
-	return fmt.Errorf("source node not found in either store: %s", edge.Source)
+	return fmt.Errorf("source or target not found in either store: source=%s, target=%s", edge.Source, edge.Target)
 }
 
 // RemoveEdge removes an edge from both stores.
@@ -454,33 +474,58 @@ func (m *MultiGraphStore) PruneWeakEdges(ctx context.Context, kind string, thres
 	return total, nil
 }
 
-// ValidateBehaviorGraph validates both stores and combines errors.
+// ValidateBehaviorGraph validates both stores with cross-store awareness.
+// Each store validates with the other store's IDs as externalIDs, so
+// cross-store edges aren't falsely reported as dangling.
 // Errors from local store are prefixed with "local:" and global with "global:".
 func (m *MultiGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var allErrors []ValidationError
-	for _, pair := range []struct {
-		store GraphStore
-		scope string
-	}{
-		{m.localStore, "local"},
-		{m.globalStore, "global"},
-	} {
-		es, ok := pair.store.(ExtendedGraphStore)
-		if !ok {
-			continue
-		}
-		errors, err := es.ValidateBehaviorGraph(ctx)
+	// Collect IDs from both stores for cross-store resolution
+	var localIDs, globalIDs map[string]bool
+
+	if sqlStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		var err error
+		localIDs, err = sqlStore.AllBehaviorIDs(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to validate %s store: %w", pair.scope, err)
+			return nil, fmt.Errorf("failed to get local behavior IDs: %w", err)
+		}
+	}
+	if sqlStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		var err error
+		globalIDs, err = sqlStore.AllBehaviorIDs(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get global behavior IDs: %w", err)
+		}
+	}
+
+	var allErrors []ValidationError
+
+	// Local store: validate with global IDs as external (in case of any cross-store edges)
+	if sqlStore, ok := m.localStore.(*SQLiteGraphStore); ok {
+		errors, err := sqlStore.ValidateWithExternalIDs(ctx, globalIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate local store: %w", err)
 		}
 		for _, e := range errors {
-			e.BehaviorID = pair.scope + ":" + e.BehaviorID
+			e.BehaviorID = "local:" + e.BehaviorID
 			allErrors = append(allErrors, e)
 		}
 	}
+
+	// Global store: validate with local IDs as external (cross-store edges reference local behaviors)
+	if sqlStore, ok := m.globalStore.(*SQLiteGraphStore); ok {
+		errors, err := sqlStore.ValidateWithExternalIDs(ctx, localIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate global store: %w", err)
+		}
+		for _, e := range errors {
+			e.BehaviorID = "global:" + e.BehaviorID
+			allErrors = append(allErrors, e)
+		}
+	}
+
 	return allErrors, nil
 }
 

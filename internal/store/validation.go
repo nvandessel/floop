@@ -27,6 +27,13 @@ func (e ValidationError) String() string {
 // - Cycles in requires graph (A requires B, B requires A)
 // - Self-references (behavior references itself)
 func (s *SQLiteGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error) {
+	return s.ValidateWithExternalIDs(ctx, nil)
+}
+
+// ValidateWithExternalIDs validates the graph, treating externalIDs as valid targets.
+// This allows cross-store validation: edges referencing IDs in another store
+// won't be reported as dangling if those IDs appear in the externalIDs set.
+func (s *SQLiteGraphStore) ValidateWithExternalIDs(ctx context.Context, externalIDs map[string]bool) ([]ValidationError, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -38,10 +45,13 @@ func (s *SQLiteGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]Validat
 		return nil, fmt.Errorf("failed to get behaviors: %w", err)
 	}
 
-	// Build set of all behavior IDs for dangling reference detection
+	// Build set of all known IDs: own behaviors + external IDs
 	allIDs := make(map[string]bool)
 	for _, b := range behaviors {
 		allIDs[b.id] = true
+	}
+	for id := range externalIDs {
+		allIDs[id] = true
 	}
 
 	// Build requires graph for cycle detection
@@ -144,6 +154,24 @@ func (s *SQLiteGraphStore) ValidateBehaviorGraph(ctx context.Context) ([]Validat
 	}
 
 	return errors, nil
+}
+
+// AllBehaviorIDs returns the set of all behavior IDs in this store.
+// Used by MultiGraphStore for cross-store validation.
+func (s *SQLiteGraphStore) AllBehaviorIDs(ctx context.Context) (map[string]bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	behaviors, err := s.getAllBehaviorsForValidation(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get behaviors: %w", err)
+	}
+
+	ids := make(map[string]bool, len(behaviors))
+	for _, b := range behaviors {
+		ids[b.id] = true
+	}
+	return ids, nil
 }
 
 // validateEdges checks all edges in the edges table for dangling references.
