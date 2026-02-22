@@ -123,14 +123,14 @@ func TestHookFirstPrompt(t *testing.T) {
 		t.Fatalf("init failed: %v", err)
 	}
 
-	// Use a unique session ID to avoid collisions with previous test runs
-	sessionID := fmt.Sprintf("test-dedup-%d", time.Now().UnixNano())
+	// Use a unique session ID to avoid collisions with concurrent test runs
+	sessionID := fmt.Sprintf("test-dedup-%d-%d", os.Getpid(), time.Now().UnixNano())
 	stdinJSON := fmt.Sprintf(`{"session_id":"%s"}`, sessionID)
 
-	// Clean up marker if it exists from a prior run
+	// Clean up marker directory if it exists from a prior run
 	marker := filepath.Join(os.TempDir(), fmt.Sprintf("floop-session-%s", sessionID))
-	os.Remove(marker)
-	t.Cleanup(func() { os.Remove(marker) })
+	os.RemoveAll(marker)
+	t.Cleanup(func() { os.RemoveAll(marker) })
 
 	// First call should produce output
 	rootCmd := newTestRootCmd()

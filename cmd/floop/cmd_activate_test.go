@@ -181,16 +181,21 @@ func TestBehaviorContentFallbacks(t *testing.T) {
 }
 
 func TestSessionStateDir(t *testing.T) {
+	// Isolate HOME so sessionStateDir reads a predictable value
+	tmpDir := t.TempDir()
+	tmpHome := filepath.Join(tmpDir, "home")
+	if err := os.MkdirAll(tmpHome, 0700); err != nil {
+		t.Fatalf("failed to create temp home: %v", err)
+	}
+	t.Setenv("HOME", tmpHome)
+
 	dir := sessionStateDir("test-session-123")
 	if !strings.Contains(dir, "floop-session-test-session-123") {
 		t.Errorf("unexpected session dir: %s", dir)
 	}
 	// Session state should be under ~/.floop/sessions/, not os.TempDir()
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		if !strings.HasPrefix(dir, filepath.Join(homeDir, ".floop", "sessions")) {
-			t.Errorf("session dir should be under ~/.floop/sessions/, got: %s", dir)
-		}
+	if !strings.HasPrefix(dir, filepath.Join(tmpHome, ".floop", "sessions")) {
+		t.Errorf("session dir should be under ~/.floop/sessions/, got: %s", dir)
 	}
 }
 
