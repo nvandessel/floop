@@ -8,6 +8,8 @@ floop integrates with AI coding tools through 3 methods:
 2. **Hooks** — Tool-specific lifecycle hooks (e.g., Claude Code PreToolUse). Auto-inject behaviors at session start. Read-only.
 3. **Static Instructions** — Paste `floop prompt` output into tool's instruction files (AGENTS.md, .cursorrules, etc.). Simplest but manual refresh needed.
 
+**Ready-to-paste instructions**: For the agent prompt text to copy into your tool's instruction file, see [agent-prompt-template.md](./agent-prompt-template.md).
+
 ## Compatibility Matrix
 
 | Tool | MCP | Hooks | Static | Status |
