@@ -167,7 +167,9 @@ func deriveEdgesForStore(ctx context.Context, graphStore store.GraphStore, scope
 		result.ClearedEdges = clearDerivedEdges(ctx, graphStore, behaviors)
 	}
 
-	// Build existing edge set for dedup
+	// Build existing edge set for dedup.
+	// For bidirectional edge kinds (similar-to), register both directions
+	// so the check works regardless of behavior iteration order.
 	existingEdges := make(map[string]bool)
 	for _, b := range behaviors {
 		edges, err := graphStore.GetEdges(ctx, b.ID, store.DirectionOutbound, "")
@@ -177,6 +179,10 @@ func deriveEdgesForStore(ctx context.Context, graphStore store.GraphStore, scope
 		for _, e := range edges {
 			key := e.Source + ":" + e.Target + ":" + e.Kind
 			existingEdges[key] = true
+			if e.Kind == "similar-to" {
+				reverseKey := e.Target + ":" + e.Source + ":" + e.Kind
+				existingEdges[reverseKey] = true
+			}
 		}
 		result.ExistingEdges += len(edges)
 	}

@@ -25,18 +25,15 @@ func newTestRootCmd() *cobra.Command {
 }
 
 // isolateHome sets HOME to a temp directory to avoid touching real ~/.floop/
-// MUST be called for any test that creates stores
+// MUST be called for any test that creates stores.
+// Uses t.Setenv for thread-safe env var handling and automatic cleanup.
 func isolateHome(t *testing.T, tmpDir string) {
 	t.Helper()
 	tmpHome := filepath.Join(tmpDir, "home")
 	if err := os.MkdirAll(tmpHome, 0700); err != nil {
 		t.Fatalf("Failed to create temp home: %v", err)
 	}
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() {
-		os.Setenv("HOME", oldHome)
-	})
+	t.Setenv("HOME", tmpHome)
 }
 
 func TestSplitLines(t *testing.T) {
