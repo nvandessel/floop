@@ -4,7 +4,9 @@
 
 ## Overview
 
-floop captures corrections, extracts reusable behaviors, and activates them in context. It works via two interfaces:
+floop captures corrections, extracts reusable behaviors, and activates them in context. New to floop? Start with the [5-minute walkthrough](WALKTHROUGH.md) to see the full learning loop in action.
+
+It works via two interfaces:
 - **MCP tools** (recommended) — Direct integration with AI tools like Claude Code, Cursor, etc.
 - **CLI commands** — Full control from the terminal, useful for scripting and manual management
 
