@@ -134,7 +134,7 @@ func TestInMemoryGraphStore_DeleteNode(t *testing.T) {
 
 	node := Node{ID: "test-1", Kind: "behavior"}
 	s.AddNode(ctx, node)
-	s.AddEdge(ctx, Edge{Source: "test-1", Target: "test-2", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "test-1", Target: "test-2", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	err := s.DeleteNode(ctx, "test-1")
 	if err != nil {
@@ -188,9 +188,9 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 
 	// Add edges
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Get outbound edges
 	edges, err := s.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -211,7 +211,7 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	}
 
 	// Get edges filtered by kind
-	edges, err = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, err = s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if err != nil {
 		t.Errorf("GetEdges() error = %v", err)
 	}
@@ -220,12 +220,12 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	}
 
 	// Remove edge
-	err = s.RemoveEdge(ctx, "a", "b", "requires")
+	err = s.RemoveEdge(ctx, "a", "b", EdgeKindRequires)
 	if err != nil {
 		t.Errorf("RemoveEdge() error = %v", err)
 	}
 
-	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 0 {
 		t.Errorf("RemoveEdge() edge should be removed, got %d", len(edges))
 	}
@@ -241,12 +241,12 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 	s.AddNode(ctx, Node{ID: "d", Kind: "behavior"})
 
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse outbound with maxDepth 2 (should get a, b, c)
-	results, err := s.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
+	results, err := s.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 2)
 	if err != nil {
 		t.Errorf("Traverse() error = %v", err)
 	}
@@ -255,7 +255,7 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	}
 
 	// Traverse inbound from d (should get all)
-	results, err = s.Traverse(ctx, "d", []string{"requires"}, DirectionInbound, 10)
+	results, err = s.Traverse(ctx, "d", []EdgeKind{EdgeKindRequires}, DirectionInbound, 10)
 	if err != nil {
 		t.Errorf("Traverse() error = %v", err)
 	}

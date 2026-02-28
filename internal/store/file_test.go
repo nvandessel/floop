@@ -144,7 +144,7 @@ func TestFileGraphStore_DeleteNode(t *testing.T) {
 	store.AddNode(ctx, node)
 
 	// Add an edge involving this node
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Delete
 	err = store.DeleteNode(ctx, "test-1")
@@ -201,8 +201,8 @@ func TestFileGraphStore_Edges(t *testing.T) {
 	store.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
 
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Test outbound
 	edges, _ := store.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -217,13 +217,13 @@ func TestFileGraphStore_Edges(t *testing.T) {
 	}
 
 	// Test with kind filter
-	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 1 {
 		t.Errorf("GetEdges(requires) = %d, want 1", len(edges))
 	}
 
 	// Test remove
-	store.RemoveEdge(ctx, "a", "b", "requires")
+	store.RemoveEdge(ctx, "a", "b", EdgeKindRequires)
 	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, "")
 	if len(edges) != 1 {
 		t.Errorf("After RemoveEdge, GetEdges = %d, want 1", len(edges))
@@ -243,17 +243,17 @@ func TestFileGraphStore_Traverse(t *testing.T) {
 	store.AddNode(ctx, Node{ID: "a", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
 	store.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse from a with depth 2
-	results, _ := store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
+	results, _ := store.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 2)
 	if len(results) != 3 {
 		t.Errorf("Traverse() = %d nodes, want 3", len(results))
 	}
 
 	// Traverse from a with depth 1
-	results, _ = store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 1)
+	results, _ = store.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 1)
 	if len(results) != 2 {
 		t.Errorf("Traverse(depth=1) = %d nodes, want 2", len(results))
 	}
@@ -270,7 +270,7 @@ func TestFileGraphStore_Persistence(t *testing.T) {
 
 	ctx := context.Background()
 	store1.AddNode(ctx, Node{ID: "persist-1", Kind: "behavior", Content: map[string]interface{}{"name": "Test"}})
-	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Close to persist
 	if err := store1.Close(); err != nil {

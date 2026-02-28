@@ -54,7 +54,7 @@ type PlacementDecision struct {
 type ProposedEdge struct {
 	From string
 	To   string
-	Kind string // "requires", "overrides", "conflicts", "similar-to"
+	Kind store.EdgeKind // e.g. store.EdgeKindOverrides, store.EdgeKindSimilarTo
 }
 
 // SimilarityMatch represents a similar existing behavior.
@@ -264,7 +264,7 @@ func (p *graphPlacer) determineEdges(ctx context.Context, behavior *models.Behav
 			edges = append(edges, ProposedEdge{
 				From: behavior.ID,
 				To:   e.ID,
-				Kind: "overrides",
+				Kind: store.EdgeKindOverrides,
 			})
 		}
 
@@ -274,7 +274,7 @@ func (p *graphPlacer) determineEdges(ctx context.Context, behavior *models.Behav
 			edges = append(edges, ProposedEdge{
 				From: e.ID,
 				To:   behavior.ID,
-				Kind: "overrides",
+				Kind: store.EdgeKindOverrides,
 			})
 		}
 
@@ -284,7 +284,7 @@ func (p *graphPlacer) determineEdges(ctx context.Context, behavior *models.Behav
 			edges = append(edges, ProposedEdge{
 				From: behavior.ID,
 				To:   e.ID,
-				Kind: "similar-to",
+				Kind: store.EdgeKindSimilarTo,
 			})
 		}
 	}

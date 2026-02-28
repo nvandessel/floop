@@ -229,7 +229,7 @@ func TestDeriveEdgesForSubset_CreatesNewNew(t *testing.T) {
 	// Both new behaviors share 2 tags ("git", "worktree") -> similar-to edge
 	foundNewNew := false
 	for _, pe := range result.ProposedEdges {
-		if pe.Kind == "similar-to" &&
+		if pe.Kind == store.EdgeKindSimilarTo &&
 			((pe.Source == "b-new-1" && pe.Target == "b-new-2") ||
 				(pe.Source == "b-new-2" && pe.Target == "b-new-1")) {
 			foundNewNew = true
@@ -313,9 +313,9 @@ func TestClearDerivedEdges(t *testing.T) {
 	}
 
 	// Add edges of different kinds
-	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: "similar-to", Weight: 0.8, CreatedAt: now})
-	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: "overrides", Weight: 1.0, CreatedAt: now})
-	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: "requires", Weight: 0.5, CreatedAt: now})
+	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: store.EdgeKindSimilarTo, Weight: 0.8, CreatedAt: now})
+	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: store.EdgeKindOverrides, Weight: 1.0, CreatedAt: now})
+	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: store.EdgeKindRequires, Weight: 0.5, CreatedAt: now})
 
 	cleared := ClearDerivedEdges(ctx, s, behaviors)
 
@@ -325,17 +325,17 @@ func TestClearDerivedEdges(t *testing.T) {
 	}
 
 	// Verify requires edge still exists
-	requiresEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, "requires")
+	requiresEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, store.EdgeKindRequires)
 	if len(requiresEdges) != 1 {
 		t.Errorf("requires edges = %d, want 1 (should not be cleared)", len(requiresEdges))
 	}
 
 	// Verify similar-to and overrides are gone
-	similarEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, "similar-to")
+	similarEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, store.EdgeKindSimilarTo)
 	if len(similarEdges) != 0 {
 		t.Errorf("similar-to edges = %d, want 0 (should be cleared)", len(similarEdges))
 	}
-	overridesEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, "overrides")
+	overridesEdges, _ := s.GetEdges(ctx, "b-1", store.DirectionOutbound, store.EdgeKindOverrides)
 	if len(overridesEdges) != 0 {
 		t.Errorf("overrides edges = %d, want 0 (should be cleared)", len(overridesEdges))
 	}
@@ -358,7 +358,7 @@ func TestComputeConnectivity(t *testing.T) {
 	}
 
 	// Add edge between b-1 and b-2 only
-	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: "similar-to", Weight: 0.8, CreatedAt: now})
+	s.AddEdge(ctx, store.Edge{Source: "b-1", Target: "b-2", Kind: store.EdgeKindSimilarTo, Weight: 0.8, CreatedAt: now})
 
 	info := ComputeConnectivity(ctx, s, behaviors)
 

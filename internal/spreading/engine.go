@@ -145,7 +145,7 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			energy := nodeAct * e.config.SpreadFactor * effectiveWeight / outDegree
 			energy *= e.config.DecayFactor
 
-			if edge.Kind == "conflicts" {
+			if edge.Kind == store.EdgeKindConflicts {
 				// Conflict edges inhibit: subtract energy from neighbor.
 				newActivation[neighbor] -= energy
 				if newActivation[neighbor] < 0 {

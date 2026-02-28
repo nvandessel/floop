@@ -348,7 +348,7 @@ func TestInstall_EdgesInstalled(t *testing.T) {
 		{
 			Source:    "b-edge-1",
 			Target:    "b-edge-2",
-			Kind:      "similar-to",
+			Kind:      store.EdgeKindSimilarTo,
 			Weight:    0.8,
 			CreatedAt: time.Now(),
 		},

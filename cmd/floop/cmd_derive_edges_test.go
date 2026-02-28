@@ -195,7 +195,7 @@ func TestDeriveEdgesSkipsExisting(t *testing.T) {
 	s.AddEdge(ctx, store.Edge{
 		Source:    "b-a",
 		Target:    "b-b",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: now,
 	})
@@ -208,7 +208,7 @@ func TestDeriveEdgesSkipsExisting(t *testing.T) {
 
 	// The similar-to edge should be skipped (already exists)
 	for _, pe := range result.ProposedEdges {
-		if pe.Source == "b-a" && pe.Target == "b-b" && pe.Kind == "similar-to" {
+		if pe.Source == "b-a" && pe.Target == "b-b" && pe.Kind == store.EdgeKindSimilarTo {
 			t.Error("expected similar-to edge b-a -> b-b to be skipped (already exists)")
 		}
 	}
@@ -245,7 +245,7 @@ func TestDeriveEdgesConnectivity(t *testing.T) {
 	s.AddEdge(ctx, store.Edge{
 		Source:    "b-1",
 		Target:    "b-2",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: now,
 	})
@@ -315,7 +315,7 @@ func TestDeriveEdgesHistogram(t *testing.T) {
 
 	// Score >= 0.9 means NO similar-to edge (above upper bound)
 	for _, pe := range result.ProposedEdges {
-		if pe.Kind == "similar-to" {
+		if pe.Kind == store.EdgeKindSimilarTo {
 			t.Errorf("unexpected similar-to edge for identical behaviors (score >= 0.9): %+v", pe)
 		}
 	}
@@ -342,11 +342,11 @@ func TestDeriveEdgesClear(t *testing.T) {
 	}
 
 	s.AddEdge(ctx, store.Edge{
-		Source: "b-x", Target: "b-y", Kind: "similar-to",
+		Source: "b-x", Target: "b-y", Kind: store.EdgeKindSimilarTo,
 		Weight: 0.8, CreatedAt: now,
 	})
 	s.AddEdge(ctx, store.Edge{
-		Source: "b-x", Target: "b-y", Kind: "requires",
+		Source: "b-x", Target: "b-y", Kind: store.EdgeKindRequires,
 		Weight: 0.5, CreatedAt: now,
 	})
 

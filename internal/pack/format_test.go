@@ -35,7 +35,7 @@ func makeTestBackupData() *backup.BackupFormat {
 			{
 				Source: "test-behavior-1",
 				Target: "test-behavior-2",
-				Kind:   "similar-to",
+				Kind:   store.EdgeKindSimilarTo,
 				Weight: 0.8,
 			},
 		},

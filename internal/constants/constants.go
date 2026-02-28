@@ -140,23 +140,6 @@ const (
 	BehaviorKindMerged     = "merged-behavior"     // Result of merging duplicate behaviors
 )
 
-// Edge kind constants
-const (
-	// CoActivatedEdgeKind is the edge kind used for Hebbian co-activation edges.
-	// This is a system-created edge kind, not user-facing.
-	CoActivatedEdgeKind = "co-activated"
-)
-
-// ValidUserEdgeKinds defines the allowed edge kinds for user-facing commands.
-// System edge kinds like CoActivatedEdgeKind are not included.
-var ValidUserEdgeKinds = map[string]bool{
-	"requires":     true,
-	"overrides":    true,
-	"conflicts":    true,
-	"similar-to":   true,
-	"learned-from": true,
-}
-
 // KnownTasks is the vocabulary of task values that detectTaskFromCommand()
 // produces at runtime. Only these are stored in when-conditions — anything
 // else creates dead conditions that never activate.

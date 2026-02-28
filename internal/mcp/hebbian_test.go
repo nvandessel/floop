@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nvandessel/floop/internal/constants"
 	"github.com/nvandessel/floop/internal/spreading"
 	"github.com/nvandessel/floop/internal/store"
 )
@@ -245,7 +244,7 @@ func TestApplyHebbianUpdates_ReturnsChanged(t *testing.T) {
 	}
 
 	// Verify edge actually exists
-	edges, err := server.store.GetEdges(ctx, "behav-a", store.DirectionOutbound, constants.CoActivatedEdgeKind)
+	edges, err := server.store.GetEdges(ctx, "behav-a", store.DirectionOutbound, store.EdgeKindCoActivated)
 	if err != nil {
 		t.Fatalf("GetEdges: %v", err)
 	}
@@ -346,7 +345,7 @@ func TestApplyHebbianUpdates_SyncsEdgesToJSONL(t *testing.T) {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			continue
 		}
-		if rec.Source == "behav-x" && rec.Target == "behav-y" && rec.Kind == constants.CoActivatedEdgeKind {
+		if rec.Source == "behav-x" && rec.Target == "behav-y" && rec.Kind == string(store.EdgeKindCoActivated) {
 			foundEdge = true
 			break
 		}

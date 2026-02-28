@@ -226,7 +226,7 @@ func TestSQLiteGraphStore_DeleteNode(t *testing.T) {
 	store.AddNode(ctx, node)
 
 	// Add an edge involving this node
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Delete
 	err = store.DeleteNode(ctx, "test-1")
@@ -328,8 +328,8 @@ func TestSQLiteGraphStore_Edges(t *testing.T) {
 		})
 	}
 
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Test outbound
 	edges, _ := store.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -344,13 +344,13 @@ func TestSQLiteGraphStore_Edges(t *testing.T) {
 	}
 
 	// Test with kind filter
-	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 1 {
 		t.Errorf("GetEdges(requires) = %d, want 1", len(edges))
 	}
 
 	// Test remove
-	store.RemoveEdge(ctx, "a", "b", "requires")
+	store.RemoveEdge(ctx, "a", "b", EdgeKindRequires)
 	edges, _ = store.GetEdges(ctx, "a", DirectionOutbound, "")
 	if len(edges) != 1 {
 		t.Errorf("After RemoveEdge, GetEdges = %d, want 1", len(edges))
@@ -381,17 +381,17 @@ func TestSQLiteGraphStore_Traverse(t *testing.T) {
 			},
 		})
 	}
-	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse from a with depth 2
-	results, _ := store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
+	results, _ := store.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 2)
 	if len(results) != 3 {
 		t.Errorf("Traverse() = %d nodes, want 3", len(results))
 	}
 
 	// Traverse from a with depth 1
-	results, _ = store.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 1)
+	results, _ = store.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 1)
 	if len(results) != 2 {
 		t.Errorf("Traverse(depth=1) = %d nodes, want 2", len(results))
 	}
@@ -418,7 +418,7 @@ func TestSQLiteGraphStore_Persistence(t *testing.T) {
 			},
 		},
 	})
-	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store1.AddEdge(ctx, Edge{Source: "persist-1", Target: "other", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Close to persist
 	if err := store1.Close(); err != nil {
@@ -804,7 +804,7 @@ func TestValidateIntegrity_WithData(t *testing.T) {
 			},
 		},
 	})
-	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	store.AddEdge(ctx, Edge{Source: "test-1", Target: "other", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Integrity check should still pass
 	if err := ValidateIntegrity(ctx, store.db); err != nil {
@@ -965,7 +965,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source:    "a",
 				Target:    "b",
-				Kind:      "requires",
+				Kind:      EdgeKindRequires,
 				Weight:    0.75,
 				CreatedAt: now,
 			},
@@ -976,7 +976,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source:    "b",
 				Target:    "c",
-				Kind:      "requires",
+				Kind:      EdgeKindRequires,
 				Weight:    1.0,
 				CreatedAt: now,
 			},
@@ -987,7 +987,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source:    "a",
 				Target:    "c",
-				Kind:      "overrides",
+				Kind:      EdgeKindOverrides,
 				Weight:    0,
 				CreatedAt: now,
 			},
@@ -998,7 +998,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source:    "a",
 				Target:    "d",
-				Kind:      "requires",
+				Kind:      EdgeKindRequires,
 				Weight:    -0.5,
 				CreatedAt: now,
 			},
@@ -1009,7 +1009,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source:    "a",
 				Target:    "e",
-				Kind:      "requires",
+				Kind:      EdgeKindRequires,
 				Weight:    1.5,
 				CreatedAt: now,
 			},
@@ -1020,7 +1020,7 @@ func TestSQLiteGraphStore_AddEdgeValidation(t *testing.T) {
 			edge: Edge{
 				Source: "a",
 				Target: "f",
-				Kind:   "similar-to",
+				Kind:   EdgeKindSimilarTo,
 				Weight: 0.5,
 			},
 			wantErr: true,
@@ -1061,7 +1061,7 @@ func TestSQLiteGraphStore_EdgeWeights(t *testing.T) {
 			edge: Edge{
 				Source:        "a",
 				Target:        "b",
-				Kind:          "requires",
+				Kind:          EdgeKindRequires,
 				Weight:        0.75,
 				CreatedAt:     now,
 				LastActivated: &activated,
@@ -1075,7 +1075,7 @@ func TestSQLiteGraphStore_EdgeWeights(t *testing.T) {
 			edge: Edge{
 				Source:    "b",
 				Target:    "c",
-				Kind:      "requires",
+				Kind:      EdgeKindRequires,
 				Weight:    1.0,
 				CreatedAt: now,
 			},
@@ -1314,7 +1314,7 @@ func TestSQLiteGraphStore_EdgeJSONLRoundTrip(t *testing.T) {
 		{
 			Source:        "x",
 			Target:        "y",
-			Kind:          "requires",
+			Kind:          EdgeKindRequires,
 			Weight:        0.8,
 			CreatedAt:     now,
 			LastActivated: &activated,
@@ -1323,7 +1323,7 @@ func TestSQLiteGraphStore_EdgeJSONLRoundTrip(t *testing.T) {
 		{
 			Source:    "y",
 			Target:    "z",
-			Kind:      "similar-to",
+			Kind:      EdgeKindSimilarTo,
 			Weight:    0.5,
 			CreatedAt: now,
 		},
@@ -1358,7 +1358,7 @@ func TestSQLiteGraphStore_EdgeJSONLRoundTrip(t *testing.T) {
 	defer store2.Close()
 
 	// Read back first edge
-	got, err := store2.GetEdges(ctx, "x", DirectionOutbound, "requires")
+	got, err := store2.GetEdges(ctx, "x", DirectionOutbound, EdgeKindRequires)
 	if err != nil {
 		t.Fatalf("GetEdges() error = %v", err)
 	}
@@ -1390,7 +1390,7 @@ func TestSQLiteGraphStore_EdgeJSONLRoundTrip(t *testing.T) {
 	}
 
 	// Read back second edge
-	got2, err := store2.GetEdges(ctx, "y", DirectionOutbound, "similar-to")
+	got2, err := store2.GetEdges(ctx, "y", DirectionOutbound, EdgeKindSimilarTo)
 	if err != nil {
 		t.Fatalf("GetEdges() error = %v", err)
 	}
@@ -1567,9 +1567,9 @@ func TestSQLiteStore_TouchEdges(t *testing.T) {
 	}
 
 	// Add edges: a->b, a->c, c->d (d is not connected to a)
-	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-b", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-c", Kind: "similar-to", Weight: 0.6, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "touch-c", Target: "touch-d", Kind: "requires", Weight: 0.5, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-b", Kind: EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "touch-a", Target: "touch-c", Kind: EdgeKindSimilarTo, Weight: 0.6, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "touch-c", Target: "touch-d", Kind: EdgeKindRequires, Weight: 0.5, CreatedAt: time.Now()})
 
 	// Touch edges for seed ["touch-a"]
 	err = s.TouchEdges(ctx, []string{"touch-a"})
@@ -1589,7 +1589,7 @@ func TestSQLiteStore_TouchEdges(t *testing.T) {
 	}
 
 	// Edge c->d should NOT have last_activated set (touch-c is not in seed list)
-	edges, err = s.GetEdges(ctx, "touch-c", DirectionOutbound, "requires")
+	edges, err = s.GetEdges(ctx, "touch-c", DirectionOutbound, EdgeKindRequires)
 	if err != nil {
 		t.Fatalf("GetEdges() error = %v", err)
 	}
@@ -1784,32 +1784,32 @@ func TestSQLiteGraphStore_BatchUpdateEdgeWeights(t *testing.T) {
 	for _, id := range []string{"a", "b", "c"} {
 		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
 	}
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.5, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "co-activated", Weight: 0.3, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindCoActivated, Weight: 0.5, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindCoActivated, Weight: 0.3, CreatedAt: time.Now()})
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Batch update co-activated edges
 	updates := []EdgeWeightUpdate{
-		{Source: "a", Target: "b", Kind: "co-activated", NewWeight: 0.7},
-		{Source: "b", Target: "c", Kind: "co-activated", NewWeight: 0.4},
+		{Source: "a", Target: "b", Kind: EdgeKindCoActivated, NewWeight: 0.7},
+		{Source: "b", Target: "c", Kind: EdgeKindCoActivated, NewWeight: 0.4},
 	}
 	if err := s.BatchUpdateEdgeWeights(ctx, updates); err != nil {
 		t.Fatalf("BatchUpdateEdgeWeights() error = %v", err)
 	}
 
 	// Verify updates
-	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, "co-activated")
+	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindCoActivated)
 	if len(edges) != 1 || edges[0].Weight != 0.7 {
 		t.Errorf("edge a→b weight = %v, want 0.7", edges)
 	}
 
-	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, "co-activated")
+	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, EdgeKindCoActivated)
 	if len(edges) != 1 || edges[0].Weight != 0.4 {
 		t.Errorf("edge b→c weight = %v, want 0.4", edges)
 	}
 
 	// Verify requires edge was NOT updated
-	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 1 || edges[0].Weight != 1.0 {
 		t.Errorf("requires edge should be unchanged, got %v", edges)
 	}
@@ -1843,13 +1843,13 @@ func TestSQLiteGraphStore_PruneWeakEdges(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d"} {
 		s.AddNode(ctx, Node{ID: id, Kind: "behavior", Content: map[string]interface{}{"name": id}})
 	}
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "co-activated", Weight: 0.005, CreatedAt: time.Now()}) // Below threshold
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "co-activated", Weight: 0.01, CreatedAt: time.Now()})  // At threshold
-	s.AddEdge(ctx, Edge{Source: "a", Target: "d", Kind: "co-activated", Weight: 0.5, CreatedAt: time.Now()})   // Above threshold
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 0.001, CreatedAt: time.Now()})     // Different kind
+	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindCoActivated, Weight: 0.005, CreatedAt: time.Now()}) // Below threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindCoActivated, Weight: 0.01, CreatedAt: time.Now()})  // At threshold
+	s.AddEdge(ctx, Edge{Source: "a", Target: "d", Kind: EdgeKindCoActivated, Weight: 0.5, CreatedAt: time.Now()})   // Above threshold
+	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 0.001, CreatedAt: time.Now()})    // Different kind
 
 	// Prune co-activated edges at or below 0.01
-	n, err := s.PruneWeakEdges(ctx, "co-activated", 0.01)
+	n, err := s.PruneWeakEdges(ctx, EdgeKindCoActivated, 0.01)
 	if err != nil {
 		t.Fatalf("PruneWeakEdges() error = %v", err)
 	}
@@ -1858,7 +1858,7 @@ func TestSQLiteGraphStore_PruneWeakEdges(t *testing.T) {
 	}
 
 	// Verify only the strong co-activated edge remains
-	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, "co-activated")
+	edges, _ := s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindCoActivated)
 	if len(edges) != 1 {
 		t.Errorf("remaining co-activated edges = %d, want 1", len(edges))
 	}
@@ -1867,7 +1867,7 @@ func TestSQLiteGraphStore_PruneWeakEdges(t *testing.T) {
 	}
 
 	// Verify requires edge was NOT pruned (different kind)
-	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, "requires")
+	edges, _ = s.GetEdges(ctx, "b", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 1 {
 		t.Errorf("requires edge should still exist, got %d", len(edges))
 	}
@@ -1881,7 +1881,7 @@ func TestSQLiteGraphStore_PruneWeakEdges_NoneToRemove(t *testing.T) {
 	}
 	defer s.Close()
 
-	n, err := s.PruneWeakEdges(context.Background(), "co-activated", 0.01)
+	n, err := s.PruneWeakEdges(context.Background(), EdgeKindCoActivated, 0.01)
 	if err != nil {
 		t.Fatalf("PruneWeakEdges() error = %v", err)
 	}

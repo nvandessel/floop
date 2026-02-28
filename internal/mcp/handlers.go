@@ -1227,7 +1227,8 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 	}
 
 	// Validate kind
-	if !constants.ValidUserEdgeKinds[args.Kind] {
+	edgeKind := store.EdgeKind(args.Kind)
+	if !store.ValidUserEdgeKinds[edgeKind] {
 		return nil, FloopConnectOutput{}, fmt.Errorf("invalid edge kind: %s (must be one of: requires, overrides, conflicts, similar-to, learned-from)", args.Kind)
 	}
 
@@ -1264,7 +1265,7 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 	}
 
 	// Check for duplicate edge
-	existing, err := s.store.GetEdges(ctx, args.Source, store.DirectionOutbound, args.Kind)
+	existing, err := s.store.GetEdges(ctx, args.Source, store.DirectionOutbound, edgeKind)
 	if err != nil {
 		return nil, FloopConnectOutput{}, fmt.Errorf("failed to check existing edges: %w", err)
 	}
@@ -1279,7 +1280,7 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 	edge := store.Edge{
 		Source:    args.Source,
 		Target:    args.Target,
-		Kind:      args.Kind,
+		Kind:      edgeKind,
 		Weight:    weight,
 		CreatedAt: now,
 	}
@@ -1293,7 +1294,7 @@ func (s *Server) handleFloopConnect(ctx context.Context, req *sdk.CallToolReques
 		reverseEdge := store.Edge{
 			Source:    args.Target,
 			Target:    args.Source,
-			Kind:      args.Kind,
+			Kind:      edgeKind,
 			Weight:    weight,
 			CreatedAt: now,
 		}

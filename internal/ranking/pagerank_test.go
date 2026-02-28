@@ -23,7 +23,7 @@ func addBehaviorNode(t *testing.T, s store.GraphStore, id string) {
 }
 
 // addEdge is a test helper that adds an edge to the store.
-func addEdge(t *testing.T, s store.GraphStore, source, target, kind string) {
+func addEdge(t *testing.T, s store.GraphStore, source, target string, kind store.EdgeKind) {
 	t.Helper()
 	err := s.AddEdge(context.Background(), store.Edge{
 		Source:    source,
@@ -80,8 +80,8 @@ func TestComputePageRank_LinearChain(t *testing.T) {
 	addBehaviorNode(t, s, "A")
 	addBehaviorNode(t, s, "B")
 	addBehaviorNode(t, s, "C")
-	addEdge(t, s, "A", "B", "requires")
-	addEdge(t, s, "B", "C", "requires")
+	addEdge(t, s, "A", "B", store.EdgeKindRequires)
+	addEdge(t, s, "B", "C", store.EdgeKindRequires)
 
 	scores, err := ComputePageRank(ctx, s, DefaultPageRankConfig())
 	if err != nil {
@@ -119,7 +119,7 @@ func TestComputePageRank_Hub(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		leafID := string(rune('a' + i))
 		addBehaviorNode(t, s, leafID)
-		addEdge(t, s, "hub", leafID, "requires")
+		addEdge(t, s, "hub", leafID, store.EdgeKindRequires)
 	}
 
 	scores, err := ComputePageRank(ctx, s, DefaultPageRankConfig())
@@ -159,7 +159,7 @@ func TestComputePageRank_Convergence(t *testing.T) {
 		addBehaviorNode(t, s, ids[i])
 	}
 	for i := 0; i < numNodes; i++ {
-		addEdge(t, s, ids[i], ids[(i+1)%numNodes], "similar-to")
+		addEdge(t, s, ids[i], ids[(i+1)%numNodes], store.EdgeKindSimilarTo)
 	}
 
 	scores, err := ComputePageRank(ctx, s, DefaultPageRankConfig())
@@ -194,14 +194,14 @@ func TestComputePageRank_Disconnected(t *testing.T) {
 	// Subgraph 1: A -- B
 	addBehaviorNode(t, s, "A")
 	addBehaviorNode(t, s, "B")
-	addEdge(t, s, "A", "B", "requires")
+	addEdge(t, s, "A", "B", store.EdgeKindRequires)
 
 	// Subgraph 2: C -- D -- E
 	addBehaviorNode(t, s, "C")
 	addBehaviorNode(t, s, "D")
 	addBehaviorNode(t, s, "E")
-	addEdge(t, s, "C", "D", "similar-to")
-	addEdge(t, s, "D", "E", "similar-to")
+	addEdge(t, s, "C", "D", store.EdgeKindSimilarTo)
+	addEdge(t, s, "D", "E", store.EdgeKindSimilarTo)
 
 	scores, err := ComputePageRank(ctx, s, DefaultPageRankConfig())
 	if err != nil {

@@ -86,8 +86,8 @@ func TestTemporalDecayVsOja(t *testing.T) {
 				err := s.AddEdge(ctx, store.Edge{
 					Source:        "decay-a",
 					Target:        "decay-b",
-					Kind:          "co-activated",
-					Weight:        getEdgeWeightFromStore(t, s, "decay-a", "decay-b", "co-activated"),
+					Kind:          store.EdgeKindCoActivated,
+					Weight:        getEdgeWeightFromStore(t, s, "decay-a", "decay-b", store.EdgeKindCoActivated),
 					CreatedAt:     time.Now().Add(-24 * time.Hour),
 					LastActivated: &fortyEightHoursAgo,
 				})
@@ -104,8 +104,8 @@ func TestTemporalDecayVsOja(t *testing.T) {
 				err := s.AddEdge(ctx, store.Edge{
 					Source:        "decay-a",
 					Target:        "decay-b",
-					Kind:          "co-activated",
-					Weight:        getEdgeWeightFromStore(t, s, "decay-a", "decay-b", "co-activated"),
+					Kind:          store.EdgeKindCoActivated,
+					Weight:        getEdgeWeightFromStore(t, s, "decay-a", "decay-b", store.EdgeKindCoActivated),
 					CreatedAt:     time.Now().Add(-24 * time.Hour),
 					LastActivated: &now,
 				})
@@ -185,7 +185,7 @@ func getBehaviorActivation(sr simulation.SessionResult, behaviorID string) float
 }
 
 // getEdgeWeightFromStore reads the current weight of an edge from the store.
-func getEdgeWeightFromStore(t *testing.T, s *store.SQLiteGraphStore, src, tgt, kind string) float64 {
+func getEdgeWeightFromStore(t *testing.T, s *store.SQLiteGraphStore, src, tgt string, kind store.EdgeKind) float64 {
 	t.Helper()
 	edges, err := s.GetEdges(context.Background(), src, store.DirectionOutbound, kind)
 	if err != nil {

@@ -58,7 +58,7 @@ func (e EdgeSpec) ToEdge() store.Edge {
 	return store.Edge{
 		Source:        e.Source,
 		Target:        e.Target,
-		Kind:          e.Kind,
+		Kind:          store.EdgeKind(e.Kind),
 		Weight:        e.Weight,
 		CreatedAt:     createdAt,
 		LastActivated: e.LastActivated,

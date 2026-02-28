@@ -832,13 +832,13 @@ func TestGraphPlacer_determineEdges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			edges := gp.determineEdges(context.Background(), tt.behavior, tt.existing)
 
-			gotKinds := make(map[string]bool)
+			gotKinds := make(map[store.EdgeKind]bool)
 			for _, e := range edges {
 				gotKinds[e.Kind] = true
 			}
 
 			for _, wantKind := range tt.wantEdgeKinds {
-				if !gotKinds[wantKind] {
+				if !gotKinds[store.EdgeKind(wantKind)] {
 					t.Errorf("determineEdges() missing edge kind %s, got kinds: %v", wantKind, gotKinds)
 				}
 			}

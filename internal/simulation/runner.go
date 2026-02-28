@@ -217,7 +217,7 @@ func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivatio
 	updates := make([]store.EdgeWeightUpdate, 0, len(pairs))
 	for _, pair := range pairs {
 		// Look up the current edge weight.
-		currentWeight := r.getEdgeWeight(ctx, pair.BehaviorA, pair.BehaviorB, "co-activated")
+		currentWeight := r.getEdgeWeight(ctx, pair.BehaviorA, pair.BehaviorB, store.EdgeKindCoActivated)
 		if currentWeight < 0 {
 			if !createEdges {
 				continue
@@ -232,7 +232,7 @@ func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivatio
 			edge := store.Edge{
 				Source:    pair.BehaviorA,
 				Target:    pair.BehaviorB,
-				Kind:      "co-activated",
+				Kind:      store.EdgeKindCoActivated,
 				Weight:    cfg.MinWeight,
 				CreatedAt: TimeAgo(0),
 			}
@@ -247,7 +247,7 @@ func (r *Runner) applyHebbian(ctx context.Context, pairs []spreading.CoActivatio
 		updates = append(updates, store.EdgeWeightUpdate{
 			Source:    pair.BehaviorA,
 			Target:    pair.BehaviorB,
-			Kind:      "co-activated",
+			Kind:      store.EdgeKindCoActivated,
 			NewWeight: newWeight,
 		})
 	}
@@ -271,7 +271,7 @@ func CoActivationKeyFor(a, b string) string {
 }
 
 // getEdgeWeight returns the weight of an edge, or -1 if the edge doesn't exist.
-func (r *Runner) getEdgeWeight(ctx context.Context, src, tgt, kind string) float64 {
+func (r *Runner) getEdgeWeight(ctx context.Context, src, tgt string, kind store.EdgeKind) float64 {
 	edges, err := r.store.GetEdges(ctx, src, store.DirectionOutbound, kind)
 	if err != nil {
 		r.t.Fatalf("getEdgeWeight: GetEdges(%s): %v", src, err)
@@ -295,7 +295,7 @@ func (r *Runner) snapshotEdgeWeights(ctx context.Context, scenario Scenario) map
 			r.t.Fatalf("snapshotEdgeWeights: GetEdges(%s): %v", bs.ID, err)
 		}
 		for _, e := range edges {
-			key := EdgeKey(e.Source, e.Target, e.Kind)
+			key := EdgeKey(e.Source, e.Target, string(e.Kind))
 			if !seen[key] {
 				weights[key] = e.Weight
 				seen[key] = true

@@ -103,7 +103,7 @@ func TestRenderDOT_WithEdges(t *testing.T) {
 
 	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
 	addBehavior(t, gs, "b2", "tdd-workflow", "constraint", 0.9)
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: store.EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestRenderJSON_WithNodesAndEdges(t *testing.T) {
 
 	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
 	addBehavior(t, gs, "b2", "tdd-workflow", "constraint", 0.9)
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "similar-to", Weight: 0.7, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: store.EdgeKindSimilarTo, Weight: 0.7, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestRenderHTML_ProducesValidHTML(t *testing.T) {
 
 	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
 	addBehavior(t, gs, "b2", "tdd-workflow", "constraint", 0.9)
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: store.EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 
@@ -397,10 +397,10 @@ func TestCollectEdges(t *testing.T) {
 	addBehavior(t, gs, "b1", "use-worktrees", "directive", 0.8)
 	addBehavior(t, gs, "b2", "tdd-workflow", "constraint", 0.9)
 	addBehavior(t, gs, "b3", "parallel-work", "procedure", 0.7)
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: store.EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b2", Target: "b3", Kind: "similar-to", Weight: 0.5, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b2", Target: "b3", Kind: store.EdgeKindSimilarTo, Weight: 0.5, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 
@@ -527,11 +527,11 @@ func TestRenderEnrichedJSON_IncludesEdgeScope(t *testing.T) {
 	addBehaviorWithScope(t, gs, "b3", "global-a", "procedure", 0.7, "global")
 
 	// local -> local = "local"
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: "requires", Weight: 0.8, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b2", Kind: store.EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 	// local -> global = "both"
-	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b3", Kind: "similar-to", Weight: 0.5, CreatedAt: time.Now()}); err != nil {
+	if err := gs.AddEdge(ctx, store.Edge{Source: "b1", Target: "b3", Kind: store.EdgeKindSimilarTo, Weight: 0.5, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("add edge: %v", err)
 	}
 

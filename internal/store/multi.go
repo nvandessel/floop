@@ -244,7 +244,7 @@ func (m *MultiGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge from both stores.
-func (m *MultiGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (m *MultiGraphStore) RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -261,7 +261,7 @@ func (m *MultiGraphStore) RemoveEdge(ctx context.Context, source, target, kind s
 }
 
 // GetEdges returns edges from both stores, merged and deduplicated.
-func (m *MultiGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (m *MultiGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -280,7 +280,7 @@ func (m *MultiGraphStore) GetEdges(ctx context.Context, nodeID string, direction
 
 // Traverse traverses the graph starting from a node.
 // Currently delegates to local store only for simplicity.
-func (m *MultiGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (m *MultiGraphStore) Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -452,7 +452,7 @@ func (m *MultiGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates []
 }
 
 // PruneWeakEdges delegates to both stores and returns the total count pruned.
-func (m *MultiGraphStore) PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error) {
+func (m *MultiGraphStore) PruneWeakEdges(ctx context.Context, kind EdgeKind, threshold float64) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

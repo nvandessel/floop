@@ -35,11 +35,11 @@ type DeriveResult struct {
 
 // ProposedEdge represents a single proposed edge.
 type ProposedEdge struct {
-	Source string  `json:"source"`
-	Target string  `json:"target"`
-	Kind   string  `json:"kind"`
-	Weight float64 `json:"weight"`
-	Score  float64 `json:"score"`
+	Source string         `json:"source"`
+	Target string         `json:"target"`
+	Kind   store.EdgeKind `json:"kind"`
+	Weight float64        `json:"weight"`
+	Score  float64        `json:"score"`
 }
 
 // ConnectivityInfo describes graph connectivity after edge derivation.
@@ -227,10 +227,10 @@ func buildExistingEdgeSet(ctx context.Context, graphStore store.GraphStore, beha
 			continue
 		}
 		for _, e := range edges {
-			key := e.Source + ":" + e.Target + ":" + e.Kind
+			key := e.Source + ":" + e.Target + ":" + string(e.Kind)
 			existingEdges[key] = true
-			if e.Kind == "similar-to" {
-				existingEdges[e.Target+":"+e.Source+":similar-to"] = true
+			if e.Kind == store.EdgeKindSimilarTo {
+				existingEdges[e.Target+":"+e.Source+":"+string(store.EdgeKindSimilarTo)] = true
 			}
 		}
 		totalEdges += len(edges)
@@ -251,31 +251,31 @@ func proposeEdgesForPair(a, b *models.Behavior, score float64, existingEdges map
 	shouldConnect := (score >= constants.SimilarToThreshold && score < constants.SimilarToUpperBound) ||
 		similarity.CountSharedTags(a.Content.Tags, b.Content.Tags) >= MinSharedTagsForEdge
 	if shouldConnect {
-		key := a.ID + ":" + b.ID + ":similar-to"
+		key := a.ID + ":" + b.ID + ":" + string(store.EdgeKindSimilarTo)
 		if existingEdges[key] {
 			skipped++
 		} else {
-			proposed = append(proposed, ProposedEdge{Source: a.ID, Target: b.ID, Kind: "similar-to", Weight: 0.8, Score: score})
+			proposed = append(proposed, ProposedEdge{Source: a.ID, Target: b.ID, Kind: store.EdgeKindSimilarTo, Weight: 0.8, Score: score})
 			existingEdges[key] = true
 		}
 	}
 
 	// Overrides edges (specificity)
 	if similarity.IsMoreSpecific(a.When, b.When) {
-		key := a.ID + ":" + b.ID + ":overrides"
+		key := a.ID + ":" + b.ID + ":" + string(store.EdgeKindOverrides)
 		if existingEdges[key] {
 			skipped++
 		} else {
-			proposed = append(proposed, ProposedEdge{Source: a.ID, Target: b.ID, Kind: "overrides", Weight: 1.0, Score: score})
+			proposed = append(proposed, ProposedEdge{Source: a.ID, Target: b.ID, Kind: store.EdgeKindOverrides, Weight: 1.0, Score: score})
 			existingEdges[key] = true
 		}
 	}
 	if similarity.IsMoreSpecific(b.When, a.When) {
-		key := b.ID + ":" + a.ID + ":overrides"
+		key := b.ID + ":" + a.ID + ":" + string(store.EdgeKindOverrides)
 		if existingEdges[key] {
 			skipped++
 		} else {
-			proposed = append(proposed, ProposedEdge{Source: b.ID, Target: a.ID, Kind: "overrides", Weight: 1.0, Score: score})
+			proposed = append(proposed, ProposedEdge{Source: b.ID, Target: a.ID, Kind: store.EdgeKindOverrides, Weight: 1.0, Score: score})
 			existingEdges[key] = true
 		}
 	}
@@ -289,7 +289,7 @@ func proposeEdgesForPair(a, b *models.Behavior, score float64, existingEdges map
 func ClearDerivedEdges(ctx context.Context, graphStore store.GraphStore, behaviors []models.Behavior) int {
 	cleared := 0
 	for _, b := range behaviors {
-		for _, kind := range []string{"similar-to", "overrides"} {
+		for _, kind := range []store.EdgeKind{store.EdgeKindSimilarTo, store.EdgeKindOverrides} {
 			edges, err := graphStore.GetEdges(ctx, b.ID, store.DirectionOutbound, kind)
 			if err != nil {
 				continue

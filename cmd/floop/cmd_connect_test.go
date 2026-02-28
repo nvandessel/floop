@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/store"
 )
 
 func TestValidEdgeKinds(t *testing.T) {
@@ -23,8 +23,8 @@ func TestValidEdgeKinds(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.kind, func(t *testing.T) {
-			if got := constants.ValidUserEdgeKinds[tt.kind]; got != tt.want {
-				t.Errorf("constants.ValidUserEdgeKinds[%q] = %v, want %v", tt.kind, got, tt.want)
+			if got := store.ValidUserEdgeKinds[store.EdgeKind(tt.kind)]; got != tt.want {
+				t.Errorf("store.ValidUserEdgeKinds[%q] = %v, want %v", tt.kind, got, tt.want)
 			}
 		})
 	}

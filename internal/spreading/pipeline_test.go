@@ -26,7 +26,7 @@ func TestPipeline_EndToEnd(t *testing.T) {
 	addBehaviorNode(t, s, "always-active", "always-active", nil)
 
 	// Add edge: go-directive is similar to testing-procedure.
-	addEdge(t, s, "go-directive", "testing-procedure", "similar-to", 0.8, timePtr(now))
+	addEdge(t, s, "go-directive", "testing-procedure", store.EdgeKindSimilarTo, 0.8, timePtr(now))
 
 	// Create pipeline with default config.
 	pipeline := NewPipeline(s, DefaultConfig())

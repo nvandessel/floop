@@ -76,7 +76,7 @@ func TestWriteV2_ReadV2_RoundTrip(t *testing.T) {
 			{Node: store.Node{ID: "node-2", Kind: "behavior"}},
 		},
 		Edges: []store.Edge{
-			{Source: "node-1", Target: "node-2", Kind: "requires", Weight: 0.9},
+			{Source: "node-1", Target: "node-2", Kind: store.EdgeKindRequires, Weight: 0.9},
 		},
 	}
 
@@ -198,7 +198,7 @@ func TestReadV2Header(t *testing.T) {
 			{Node: store.Node{ID: "b", Kind: "behavior"}},
 		},
 		Edges: []store.Edge{
-			{Source: "a", Target: "b", Kind: "requires"},
+			{Source: "a", Target: "b", Kind: store.EdgeKindRequires},
 		},
 	}
 	if err := WriteV2(path, bf, nil); err != nil {

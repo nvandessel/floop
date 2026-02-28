@@ -86,7 +86,7 @@ func TestE2E_FullPipeline(t *testing.T) {
 		}
 
 		// Verify edges exist in store
-		edges, err := server.store.GetEdges(ctx, behaviorA, store.DirectionOutbound, "similar-to")
+		edges, err := server.store.GetEdges(ctx, behaviorA, store.DirectionOutbound, store.EdgeKindSimilarTo)
 		if err != nil {
 			t.Fatalf("GetEdges failed: %v", err)
 		}
@@ -101,7 +101,7 @@ func TestE2E_FullPipeline(t *testing.T) {
 		}
 
 		// Verify reverse edge
-		reverseEdges, err := server.store.GetEdges(ctx, behaviorB, store.DirectionOutbound, "similar-to")
+		reverseEdges, err := server.store.GetEdges(ctx, behaviorB, store.DirectionOutbound, store.EdgeKindSimilarTo)
 		if err != nil {
 			t.Fatalf("GetEdges reverse failed: %v", err)
 		}

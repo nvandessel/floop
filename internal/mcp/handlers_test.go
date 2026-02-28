@@ -421,7 +421,7 @@ func TestHandleFloopActive_SpreadingActivation(t *testing.T) {
 	edge := store.Edge{
 		Source:    "behavior-a",
 		Target:    "behavior-b",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: time.Now(),
 	}

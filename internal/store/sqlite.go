@@ -782,7 +782,7 @@ func (s *SQLiteGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge matching source, target, and kind.
-func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -797,7 +797,7 @@ func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target, kind 
 }
 
 // GetEdges returns edges connected to a node.
-func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -829,18 +829,18 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 
 	var edges []Edge
 	for rows.Next() {
-		var source, target, edgeKind string
+		var source, target, edgeKindStr string
 		var weight sql.NullFloat64
 		var createdAtStr, lastActivatedStr, metadataJSON sql.NullString
 
-		if err := rows.Scan(&source, &target, &edgeKind, &weight, &createdAtStr, &lastActivatedStr, &metadataJSON); err != nil {
+		if err := rows.Scan(&source, &target, &edgeKindStr, &weight, &createdAtStr, &lastActivatedStr, &metadataJSON); err != nil {
 			return nil, fmt.Errorf("failed to scan edge: %w", err)
 		}
 
 		edge := Edge{
 			Source: source,
 			Target: target,
-			Kind:   edgeKind,
+			Kind:   EdgeKind(edgeKindStr),
 		}
 
 		if weight.Valid {
@@ -873,7 +873,7 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
-func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -885,7 +885,7 @@ func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds
 	return results, nil
 }
 
-func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
 	if depth > maxDepth || visited[current] {
 		return
 	}
@@ -1211,7 +1211,7 @@ func (s *SQLiteGraphStore) exportEdgesToJSONL(ctx context.Context) error {
 		edge := Edge{
 			Source: source,
 			Target: target,
-			Kind:   kind,
+			Kind:   EdgeKind(kind),
 		}
 
 		if weight.Valid {
@@ -1416,7 +1416,7 @@ func (s *SQLiteGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates [
 }
 
 // PruneWeakEdges removes all edges of the given kind whose weight is at or below the threshold.
-func (s *SQLiteGraphStore) PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error) {
+func (s *SQLiteGraphStore) PruneWeakEdges(ctx context.Context, kind EdgeKind, threshold float64) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
