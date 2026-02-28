@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -157,14 +157,14 @@ func resolveGitHubToken() string {
 
 // CachePath returns the cache file path for a GitHub release asset.
 func GitHubCachePath(cacheDir, owner, repo, version, assetName string) string {
-	return path.Join(cacheDir, owner, repo, version, assetName)
+	return filepath.Join(cacheDir, owner, repo, version, assetName)
 }
 
 // HTTPCachePath returns the cache file path for an HTTP URL download.
 func HTTPCachePath(cacheDir, url string) string {
 	// Use a simple hash of the URL for the filename
 	h := fnvHash(url)
-	return path.Join(cacheDir, "url", fmt.Sprintf("%x.fpack", h))
+	return filepath.Join(cacheDir, "url", fmt.Sprintf("%x.fpack", h))
 }
 
 // fnvHash computes a simple FNV-1a hash for cache key generation.

@@ -468,7 +468,8 @@ Examples:
 						return fmt.Errorf("checking release for %s: %w", t.source, err)
 					}
 					remoteVersion := strings.TrimPrefix(release.TagName, "v")
-					if remoteVersion == t.installedVersion {
+					installedVersion := strings.TrimPrefix(t.installedVersion, "v")
+					if remoteVersion == installedVersion {
 						label := t.packID
 						if label == "" {
 							label = t.source
