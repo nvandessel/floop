@@ -938,10 +938,10 @@ Skill packs are portable behavior collections (`.fpack` files) that can be share
 | Subcommand | Description |
 |------------|-------------|
 | `create` | Create a pack from current behaviors |
-| `install` | Install a pack from a `.fpack` file |
+| `install` | Install a pack from a file, URL, or GitHub repo |
 | `list` | List installed packs |
 | `info` | Show details of an installed pack |
-| `update` | Update a pack from a newer `.fpack` file |
+| `update` | Update installed packs from their remote sources |
 | `remove` | Remove an installed pack |
 
 ---
@@ -996,15 +996,29 @@ floop pack create my-pack.fpack --id my-org/my-pack --version 1.0.0 --json
 
 #### pack install
 
-Install a skill pack from a `.fpack` file.
+Install a skill pack from a file, URL, or GitHub repo.
 
 ```
-floop pack install <file-path>
+floop pack install <source> [flags]
 ```
 
-Installs behaviors from a pack file into the store. Follows the seeder pattern: forgotten behaviors are not re-added, existing behaviors are version-gated for updates, and provenance is stamped on each installed behavior.
+Installs behaviors from a pack source into the store. Supports local files, HTTP/HTTPS URLs, and GitHub shorthand (`gh:owner/repo`). Follows the seeder pattern: forgotten behaviors are not re-added, existing behaviors are version-gated for updates, and provenance is stamped on each installed behavior.
 
-No command-specific flags.
+**Source formats:**
+
+| Format | Example |
+|--------|---------|
+| Local file | `./my-pack.fpack`, `~/.floop/packs/pack.fpack` |
+| HTTP URL | `https://example.com/pack.fpack` |
+| GitHub (latest) | `gh:owner/repo` |
+| GitHub (version) | `gh:owner/repo@v1.2.3` |
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--derive-edges` | bool | `false` | Derive edges between pack behaviors and existing behaviors |
+| `--all-assets` | bool | `false` | Install all `.fpack` assets from a multi-asset GitHub release |
+
+**GitHub authentication:** Set `GITHUB_TOKEN` env var or log in with `gh auth login` to avoid rate limits and access private repos.
 
 **Examples:**
 
@@ -1012,11 +1026,20 @@ No command-specific flags.
 # Install a local pack file
 floop pack install my-pack.fpack
 
-# Install from packs directory
-floop pack install ~/.floop/packs/go-best-practices.fpack
+# Install from a URL
+floop pack install https://example.com/go-best-practices.fpack
+
+# Install from GitHub (latest release)
+floop pack install gh:my-org/my-packs
+
+# Install a specific version from GitHub
+floop pack install gh:my-org/my-packs@v1.2.0
+
+# Install all packs from a multi-asset release
+floop pack install gh:my-org/my-packs --all-assets
 
 # JSON output
-floop pack install my-pack.fpack --json
+floop pack install gh:my-org/my-packs --json
 ```
 
 **See also:** [pack create](#pack-create), [pack update](#pack-update), [pack remove](#pack-remove)
@@ -1077,24 +1100,38 @@ floop pack info my-org/my-pack --json
 
 #### pack update
 
-Update an installed pack from a newer `.fpack` file.
+Update installed packs from their remote sources.
 
 ```
-floop pack update <file-path>
+floop pack update [pack-id|source] [flags]
 ```
 
-Reinstalls a pack with a newer version. Equivalent to running `pack install` with a newer pack file. Existing behaviors are version-gated for updates, and forgotten behaviors are respected.
+Updates an installed pack by re-fetching from its recorded source. For GitHub sources, the remote version is checked first; if already up-to-date, the download is skipped.
 
-No command-specific flags.
+Can also accept a source string directly (file path, URL, or GitHub shorthand) to update from a specific source.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--derive-edges` | bool | `false` | Derive edges between pack behaviors and existing behaviors |
+| `--all` | bool | `false` | Update all installed packs that have remote sources |
 
 **Examples:**
 
 ```bash
-# Update from a newer pack file
+# Update a specific pack (uses its recorded source)
+floop pack update my-org/my-pack
+
+# Update from a specific GitHub version
+floop pack update gh:owner/repo@v2.0.0
+
+# Update from a local file
 floop pack update my-pack-v2.fpack
 
+# Update all packs with remote sources
+floop pack update --all
+
 # JSON output
-floop pack update my-pack-v2.fpack --json
+floop pack update my-org/my-pack --json
 ```
 
 **See also:** [pack install](#pack-install)

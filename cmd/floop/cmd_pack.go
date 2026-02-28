@@ -135,23 +135,28 @@ Examples:
 
 func newPackInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "install <file-path>",
-		Short: "Install a skill pack from a .fpack file",
-		Long: `Install behaviors from a skill pack file into the store.
+		Use:   "install <source>",
+		Short: "Install a skill pack from a file, URL, or GitHub repo",
+		Long: `Install behaviors from a skill pack into the store.
 
+Supports local files, HTTP URLs, and GitHub shorthand sources.
 Follows the seeder pattern: forgotten behaviors are not re-added,
 existing behaviors are version-gated for updates, and provenance
 is stamped on each installed behavior.
 
 Examples:
   floop pack install my-pack.fpack
-  floop pack install ~/.floop/packs/go-best-practices.fpack`,
+  floop pack install https://example.com/pack.fpack
+  floop pack install gh:owner/repo
+  floop pack install gh:owner/repo@v1.0.0
+  floop pack install gh:owner/repo --all-assets`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			filePath := args[0]
+			source := args[0]
 			root, _ := cmd.Flags().GetString("root")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			deriveEdges, _ := cmd.Flags().GetBool("derive-edges")
+			allAssets, _ := cmd.Flags().GetBool("all-assets")
 
 			cfg, err := config.Load()
 			if err != nil {
@@ -165,8 +170,9 @@ Examples:
 			}
 			defer graphStore.Close()
 
-			result, err := pack.Install(ctx, graphStore, filePath, cfg, pack.InstallOptions{
+			results, err := pack.InstallFromSource(ctx, graphStore, source, cfg, pack.InstallFromSourceOptions{
 				DeriveEdges: deriveEdges,
+				AllAssets:   allAssets,
 			})
 			if err != nil {
 				return fmt.Errorf("pack install failed: %w", err)
@@ -178,32 +184,41 @@ Examples:
 			}
 
 			if jsonOut {
+				jsonResults := make([]map[string]interface{}, 0, len(results))
+				for _, result := range results {
+					jsonResults = append(jsonResults, map[string]interface{}{
+						"pack_id":       result.PackID,
+						"version":       result.Version,
+						"added":         result.Added,
+						"updated":       result.Updated,
+						"skipped":       result.Skipped,
+						"edges_added":   result.EdgesAdded,
+						"edges_skipped": result.EdgesSkipped,
+						"derived_edges": result.DerivedEdges,
+						"message":       fmt.Sprintf("Installed %s v%s: %d added, %d updated, %d skipped", result.PackID, result.Version, len(result.Added), len(result.Updated), len(result.Skipped)),
+					})
+				}
 				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-					"pack_id":       result.PackID,
-					"version":       result.Version,
-					"added":         result.Added,
-					"updated":       result.Updated,
-					"skipped":       result.Skipped,
-					"edges_added":   result.EdgesAdded,
-					"edges_skipped": result.EdgesSkipped,
-					"derived_edges": result.DerivedEdges,
-					"message":       fmt.Sprintf("Installed %s v%s: %d added, %d updated, %d skipped", result.PackID, result.Version, len(result.Added), len(result.Updated), len(result.Skipped)),
+					"results": jsonResults,
 				})
 			}
 
-			fmt.Printf("Installed %s v%s\n", result.PackID, result.Version)
-			fmt.Printf("  Added: %d behaviors\n", len(result.Added))
-			fmt.Printf("  Updated: %d behaviors\n", len(result.Updated))
-			fmt.Printf("  Skipped: %d behaviors\n", len(result.Skipped))
-			fmt.Printf("  Edges: %d added, %d skipped\n", result.EdgesAdded, result.EdgesSkipped)
-			if result.DerivedEdges > 0 {
-				fmt.Printf("  Derived edges: %d\n", result.DerivedEdges)
+			for _, result := range results {
+				fmt.Printf("Installed %s v%s\n", result.PackID, result.Version)
+				fmt.Printf("  Added: %d behaviors\n", len(result.Added))
+				fmt.Printf("  Updated: %d behaviors\n", len(result.Updated))
+				fmt.Printf("  Skipped: %d behaviors\n", len(result.Skipped))
+				fmt.Printf("  Edges: %d added, %d skipped\n", result.EdgesAdded, result.EdgesSkipped)
+				if result.DerivedEdges > 0 {
+					fmt.Printf("  Derived edges: %d\n", result.DerivedEdges)
+				}
 			}
 			return nil
 		},
 	}
 
 	cmd.Flags().Bool("derive-edges", false, "Automatically derive edges between pack behaviors and existing behaviors")
+	cmd.Flags().Bool("all-assets", false, "Install all .fpack assets from a multi-asset release")
 
 	return cmd
 }
@@ -338,24 +353,40 @@ Examples:
 
 func newPackUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update <file-path>",
-		Short: "Update an installed pack from a newer .fpack file",
-		Long: `Reinstall a pack with a newer version. This is equivalent to running install
-with a newer pack file -- existing behaviors are version-gated for updates.
+		Use:   "update [pack-id|source]",
+		Short: "Update installed packs from their remote sources",
+		Long: `Update an installed pack by re-fetching from its recorded source, or update
+all packs that have remote sources.
+
+When given a pack ID, looks up the installed pack's source and re-fetches it.
+When given a source string (file path, URL, or gh: shorthand), installs directly.
+When used with --all, updates every installed pack that has a recorded source.
+
+For GitHub sources, the remote release version is checked first; if the
+installed version already matches, the download is skipped.
 
 Examples:
-  floop pack update my-pack-v2.fpack`,
-		Args: cobra.ExactArgs(1),
+  floop pack update my-org/my-pack
+  floop pack update gh:owner/repo@v2.0.0
+  floop pack update my-pack-v2.fpack
+  floop pack update --all`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Update is the same as install -- the version-gating handles the upgrade
-			filePath := args[0]
 			root, _ := cmd.Flags().GetString("root")
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			deriveEdges, _ := cmd.Flags().GetBool("derive-edges")
+			allPacks, _ := cmd.Flags().GetBool("all")
 
 			cfg, err := config.Load()
 			if err != nil {
 				cfg = config.Default()
+			}
+
+			if allPacks && len(args) > 0 {
+				return fmt.Errorf("cannot use --all with a specific pack")
+			}
+			if !allPacks && len(args) == 0 {
+				return fmt.Errorf("provide a pack ID or source, or use --all")
 			}
 
 			ctx := context.Background()
@@ -365,11 +396,98 @@ Examples:
 			}
 			defer graphStore.Close()
 
-			result, err := pack.Install(ctx, graphStore, filePath, cfg, pack.InstallOptions{
+			opts := pack.InstallFromSourceOptions{
 				DeriveEdges: deriveEdges,
-			})
-			if err != nil {
-				return fmt.Errorf("pack update failed: %w", err)
+			}
+
+			// Collect (source, packID) pairs to update
+			type updateTarget struct {
+				source           string
+				packID           string
+				installedVersion string
+			}
+			var targets []updateTarget
+
+			if allPacks {
+				for _, p := range cfg.Packs.Installed {
+					if p.Source == "" {
+						fmt.Fprintf(os.Stderr, "skipping %s: no recorded source\n", p.ID)
+						continue
+					}
+					targets = append(targets, updateTarget{
+						source:           p.Source,
+						packID:           p.ID,
+						installedVersion: p.Version,
+					})
+				}
+				if len(targets) == 0 {
+					fmt.Println("No packs with remote sources to update.")
+					return nil
+				}
+			} else {
+				arg := args[0]
+				source := ""
+
+				// Check if arg is an installed pack ID
+				for _, p := range cfg.Packs.Installed {
+					if p.ID == arg {
+						if p.Source == "" {
+							return fmt.Errorf("pack %q has no recorded source; reinstall from a remote source or provide one directly", arg)
+						}
+						source = p.Source
+						targets = append(targets, updateTarget{
+							source:           source,
+							packID:           p.ID,
+							installedVersion: p.Version,
+						})
+						break
+					}
+				}
+
+				// Not found as pack ID -- treat as a source string
+				if len(targets) == 0 {
+					targets = append(targets, updateTarget{
+						source: arg,
+					})
+				}
+			}
+
+			var allResults []*pack.InstallResult
+
+			for _, t := range targets {
+				// Version check for GitHub sources: skip if already up-to-date
+				resolved, err := pack.ResolveSource(t.source)
+				if err != nil {
+					return fmt.Errorf("resolving source %q: %w", t.source, err)
+				}
+
+				if resolved.Kind == pack.SourceGitHub && t.installedVersion != "" {
+					gh := pack.NewGitHubClient()
+					release, err := gh.ResolveRelease(ctx, resolved.Owner, resolved.Repo, resolved.Version)
+					if err != nil {
+						return fmt.Errorf("checking release for %s: %w", t.source, err)
+					}
+					remoteVersion := strings.TrimPrefix(release.TagName, "v")
+					installedVersion := strings.TrimPrefix(t.installedVersion, "v")
+					if remoteVersion == installedVersion {
+						label := t.packID
+						if label == "" {
+							label = t.source
+						}
+						fmt.Printf("%s is already up-to-date (v%s)\n", label, remoteVersion)
+						continue
+					}
+				}
+
+				results, err := pack.InstallFromSource(ctx, graphStore, t.source, cfg, opts)
+				if err != nil {
+					if allPacks {
+						fmt.Fprintf(os.Stderr, "warning: failed to update %s: %v\n", t.packID, err)
+						continue
+					}
+					return fmt.Errorf("pack update failed: %w", err)
+				}
+				allResults = append(allResults, results...)
 			}
 
 			if saveErr := cfg.Save(); saveErr != nil {
@@ -377,32 +495,41 @@ Examples:
 			}
 
 			if jsonOut {
+				jsonResults := make([]map[string]interface{}, 0, len(allResults))
+				for _, result := range allResults {
+					jsonResults = append(jsonResults, map[string]interface{}{
+						"pack_id":       result.PackID,
+						"version":       result.Version,
+						"added":         result.Added,
+						"updated":       result.Updated,
+						"skipped":       result.Skipped,
+						"edges_added":   result.EdgesAdded,
+						"edges_skipped": result.EdgesSkipped,
+						"derived_edges": result.DerivedEdges,
+						"message":       fmt.Sprintf("Updated %s to v%s: %d added, %d updated, %d skipped", result.PackID, result.Version, len(result.Added), len(result.Updated), len(result.Skipped)),
+					})
+				}
 				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-					"pack_id":       result.PackID,
-					"version":       result.Version,
-					"added":         result.Added,
-					"updated":       result.Updated,
-					"skipped":       result.Skipped,
-					"edges_added":   result.EdgesAdded,
-					"edges_skipped": result.EdgesSkipped,
-					"derived_edges": result.DerivedEdges,
-					"message":       fmt.Sprintf("Updated %s to v%s: %d added, %d updated, %d skipped", result.PackID, result.Version, len(result.Added), len(result.Updated), len(result.Skipped)),
+					"results": jsonResults,
 				})
 			}
 
-			fmt.Printf("Updated %s to v%s\n", result.PackID, result.Version)
-			fmt.Printf("  Added: %d behaviors\n", len(result.Added))
-			fmt.Printf("  Updated: %d behaviors\n", len(result.Updated))
-			fmt.Printf("  Skipped: %d behaviors\n", len(result.Skipped))
-			fmt.Printf("  Edges: %d added, %d skipped\n", result.EdgesAdded, result.EdgesSkipped)
-			if result.DerivedEdges > 0 {
-				fmt.Printf("  Derived edges: %d\n", result.DerivedEdges)
+			for _, result := range allResults {
+				fmt.Printf("Updated %s to v%s\n", result.PackID, result.Version)
+				fmt.Printf("  Added: %d behaviors\n", len(result.Added))
+				fmt.Printf("  Updated: %d behaviors\n", len(result.Updated))
+				fmt.Printf("  Skipped: %d behaviors\n", len(result.Skipped))
+				fmt.Printf("  Edges: %d added, %d skipped\n", result.EdgesAdded, result.EdgesSkipped)
+				if result.DerivedEdges > 0 {
+					fmt.Printf("  Derived edges: %d\n", result.DerivedEdges)
+				}
 			}
 			return nil
 		},
 	}
 
 	cmd.Flags().Bool("derive-edges", false, "Automatically derive edges between pack behaviors and existing behaviors")
+	cmd.Flags().Bool("all", false, "Update all installed packs that have remote sources")
 
 	return cmd
 }

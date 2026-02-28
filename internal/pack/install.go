@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/nvandessel/floop/internal/config"
@@ -13,7 +14,8 @@ import (
 
 // InstallOptions configures pack installation.
 type InstallOptions struct {
-	DeriveEdges bool // Automatically derive edges between pack behaviors and existing behaviors
+	DeriveEdges bool   // Automatically derive edges between pack behaviors and existing behaviors
+	Source      string // Canonical source string to record (e.g., "gh:owner/repo@v1.0.0")
 }
 
 // InstallResult reports what was installed.
@@ -115,7 +117,7 @@ func Install(ctx context.Context, s store.GraphStore, filePath string, cfg *conf
 
 	// 5. Record in config
 	if cfg != nil {
-		recordInstall(cfg, manifest, result)
+		recordInstall(cfg, manifest, result, opts.Source)
 	}
 
 	return result, nil
@@ -138,7 +140,8 @@ func stampProvenance(node *store.Node, manifest *PackManifest) {
 }
 
 // recordInstall updates the config's installed packs list.
-func recordInstall(cfg *config.FloopConfig, manifest *PackManifest, result *InstallResult) {
+// source is the canonical source string (e.g., "gh:owner/repo@v1.0.0"); falls back to manifest.Source.
+func recordInstall(cfg *config.FloopConfig, manifest *PackManifest, result *InstallResult, source string) {
 	// Remove existing entry for this pack if present
 	filtered := make([]config.InstalledPack, 0, len(cfg.Packs.Installed))
 	for _, p := range cfg.Packs.Installed {
@@ -147,14 +150,128 @@ func recordInstall(cfg *config.FloopConfig, manifest *PackManifest, result *Inst
 		}
 	}
 
+	// Resolve source: prefer explicit source, fall back to manifest
+	recordedSource := source
+	if recordedSource == "" {
+		recordedSource = manifest.Source
+	}
+
 	// Add new entry
 	filtered = append(filtered, config.InstalledPack{
 		ID:            string(manifest.ID),
 		Version:       manifest.Version,
 		InstalledAt:   time.Now(),
+		Source:        recordedSource,
 		BehaviorCount: len(result.Added) + len(result.Updated) + len(result.Skipped),
 		EdgeCount:     result.EdgesAdded,
 	})
 
 	cfg.Packs.Installed = filtered
+}
+
+// InstallFromSourceOptions configures remote pack installation.
+type InstallFromSourceOptions struct {
+	DeriveEdges bool
+	AllAssets   bool // install all .fpack assets from a multi-asset GitHub release
+}
+
+// InstallFromSource resolves a source string, fetches remote packs if needed,
+// and installs them. Returns one InstallResult per installed pack file.
+//
+// Supported source formats:
+//   - Local path: ./pack.fpack, /abs/path.fpack
+//   - HTTP URL: https://example.com/pack.fpack
+//   - GitHub shorthand: gh:owner/repo, gh:owner/repo@v1.2.3
+func InstallFromSource(ctx context.Context, s store.GraphStore, source string, cfg *config.FloopConfig, opts InstallFromSourceOptions) ([]*InstallResult, error) {
+	resolved, err := ResolveSource(source)
+	if err != nil {
+		return nil, fmt.Errorf("resolving source: %w", err)
+	}
+
+	installOpts := InstallOptions{
+		DeriveEdges: opts.DeriveEdges,
+		Source:      resolved.Canonical,
+	}
+
+	switch resolved.Kind {
+	case SourceLocal:
+		result, err := Install(ctx, s, resolved.FilePath, cfg, installOpts)
+		if err != nil {
+			return nil, err
+		}
+		return []*InstallResult{result}, nil
+
+	case SourceHTTP:
+		cacheDir, err := DefaultCacheDir()
+		if err != nil {
+			return nil, fmt.Errorf("getting cache directory: %w", err)
+		}
+		cachePath := HTTPCachePath(cacheDir, resolved.URL)
+
+		fetchResult, err := Fetch(ctx, resolved.URL, cachePath, FetchOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s: %w", resolved.URL, err)
+		}
+
+		result, err := Install(ctx, s, fetchResult.LocalPath, cfg, installOpts)
+		if err != nil {
+			return nil, err
+		}
+		return []*InstallResult{result}, nil
+
+	case SourceGitHub:
+		gh := NewGitHubClient()
+
+		release, err := gh.ResolveRelease(ctx, resolved.Owner, resolved.Repo, resolved.Version)
+		if err != nil {
+			return nil, err
+		}
+
+		packAssets := FindPackAssets(release)
+		if len(packAssets) == 0 {
+			assetNames := make([]string, len(release.Assets))
+			for i, a := range release.Assets {
+				assetNames[i] = a.Name
+			}
+			return nil, fmt.Errorf("no .fpack assets found in release %s; available assets: %s",
+				release.TagName, strings.Join(assetNames, ", "))
+		}
+
+		if len(packAssets) > 1 && !opts.AllAssets {
+			names := make([]string, len(packAssets))
+			for i, a := range packAssets {
+				names[i] = a.Name
+			}
+			return nil, fmt.Errorf("release %s contains multiple .fpack assets: %s; use --all-assets to install all",
+				release.TagName, strings.Join(names, ", "))
+		}
+
+		cacheDir, err := DefaultCacheDir()
+		if err != nil {
+			return nil, fmt.Errorf("getting cache directory: %w", err)
+		}
+
+		version := ReleaseVersion(release)
+
+		var results []*InstallResult
+		for _, asset := range packAssets {
+			cachePath := GitHubCachePath(cacheDir, resolved.Owner, resolved.Repo, version, asset.Name)
+			downloadURL := AssetDownloadURL(asset)
+
+			fetchResult, err := Fetch(ctx, downloadURL, cachePath, FetchOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("fetching %s: %w", asset.Name, err)
+			}
+
+			result, err := Install(ctx, s, fetchResult.LocalPath, cfg, installOpts)
+			if err != nil {
+				return nil, fmt.Errorf("installing %s: %w", asset.Name, err)
+			}
+			results = append(results, result)
+		}
+		return results, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported source kind: %s", resolved.Kind)
+	}
 }

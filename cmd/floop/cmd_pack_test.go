@@ -61,12 +61,16 @@ func TestNewPackCreateCmd_Flags(t *testing.T) {
 func TestNewPackInstallCmd_Args(t *testing.T) {
 	cmd := newPackInstallCmd()
 
-	if cmd.Use != "install <file-path>" {
-		t.Errorf("Use = %q, want %q", cmd.Use, "install <file-path>")
+	if cmd.Use != "install <source>" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "install <source>")
 	}
 
 	if f := cmd.Flags().Lookup("derive-edges"); f == nil {
 		t.Error("missing --derive-edges flag")
+	}
+
+	if f := cmd.Flags().Lookup("all-assets"); f == nil {
+		t.Error("missing --all-assets flag")
 	}
 }
 
@@ -89,12 +93,16 @@ func TestNewPackInfoCmd_Args(t *testing.T) {
 func TestNewPackUpdateCmd_Args(t *testing.T) {
 	cmd := newPackUpdateCmd()
 
-	if cmd.Use != "update <file-path>" {
-		t.Errorf("Use = %q, want %q", cmd.Use, "update <file-path>")
+	if cmd.Use != "update [pack-id|source]" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "update [pack-id|source]")
 	}
 
 	if f := cmd.Flags().Lookup("derive-edges"); f == nil {
 		t.Error("missing --derive-edges flag")
+	}
+
+	if f := cmd.Flags().Lookup("all"); f == nil {
+		t.Error("missing --all flag")
 	}
 }
 

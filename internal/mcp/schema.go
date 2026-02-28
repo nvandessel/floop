@@ -231,7 +231,8 @@ type FloopFeedbackOutput struct {
 
 // FloopPackInstallInput defines the input for floop_pack_install tool.
 type FloopPackInstallInput struct {
-	FilePath string `json:"file_path" jsonschema:"Path to .fpack file to install,required"`
+	Source   string `json:"source" jsonschema:"Pack source: local path, URL (https://...), or GitHub shorthand (gh:owner/repo[@version]),required"`
+	FilePath string `json:"file_path,omitempty" jsonschema:"Deprecated: use source instead. Path to .fpack file to install"`
 }
 
 // FloopPackInstallOutput defines the output for floop_pack_install tool.
