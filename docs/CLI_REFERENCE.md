@@ -943,6 +943,8 @@ Skill packs are portable behavior collections (`.fpack` files) that can be share
 | `info` | Show details of an installed pack |
 | `update` | Update installed packs from their remote sources |
 | `remove` | Remove an installed pack |
+| `add` | Add (promote) a behavior into a pack |
+| `remove-behavior` | Remove a single behavior from its pack |
 
 ---
 
@@ -967,6 +969,7 @@ Exports filtered behaviors and their connecting edges into a portable `.fpack` f
 | `--filter-tags` | string | `""` | Only include behaviors with these tags (comma-separated) |
 | `--filter-scope` | string | `""` | Only include behaviors from this scope (`global`/`local`) |
 | `--filter-kinds` | string | `""` | Only include behaviors of these kinds (comma-separated) |
+| `--from-pack` | string | `""` | Only include behaviors belonging to this pack (by provenance) |
 
 **Examples:**
 
@@ -980,6 +983,12 @@ floop pack create go-pack.fpack --id my-org/go-pack --version 1.0.0 --filter-tag
 # Filter by scope
 floop pack create global.fpack --id my-org/global --version 1.0.0 --filter-scope global
 
+# Export by pack membership (no tag leakage)
+floop pack create core.fpack --id floop/core --version 1.0.0 --from-pack floop/core
+
+# Combine membership and tag filters
+floop pack create go-core.fpack --id floop/go-core --version 1.0.0 --from-pack floop/core --filter-tags go
+
 # With full metadata
 floop pack create my-pack.fpack --id my-org/my-pack --version 1.0.0 \
   --description "Best practices for Go development" \
@@ -990,7 +999,7 @@ floop pack create my-pack.fpack --id my-org/my-pack --version 1.0.0 \
 floop pack create my-pack.fpack --id my-org/my-pack --version 1.0.0 --json
 ```
 
-**See also:** [pack install](#pack-install), [pack list](#pack-list)
+**See also:** [pack install](#pack-install), [pack list](#pack-list), [pack add](#pack-add)
 
 ---
 
@@ -1161,6 +1170,69 @@ floop pack remove my-org/my-pack --json
 ```
 
 **See also:** [pack install](#pack-install), [pack list](#pack-list)
+
+---
+
+#### pack add
+
+Add (promote) a behavior into a pack.
+
+```
+floop pack add <behavior-id> [flags]
+```
+
+Stamps `provenance.package` on an existing behavior, making it a member of the specified pack. The behavior must exist and not be forgotten. If it already belongs to a different pack, use `--force` to reassign it. If it already belongs to the target pack, this is a no-op.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--to` | string | *(required)* | Target pack ID in `namespace/name` format |
+| `--force` | bool | `false` | Force reassignment if behavior belongs to another pack |
+
+**Examples:**
+
+```bash
+# Promote a learned behavior into a pack
+floop pack add behavior-abc123 --to my-org/my-pack
+
+# Force reassignment from another pack
+floop pack add behavior-abc123 --to my-org/my-pack --force
+
+# JSON output
+floop pack add behavior-abc123 --to my-org/my-pack --json
+```
+
+**See also:** [pack remove-behavior](#pack-remove-behavior), [pack create](#pack-create), [pack info](#pack-info)
+
+---
+
+#### pack remove-behavior
+
+Remove a single behavior from its pack.
+
+```
+floop pack remove-behavior <behavior-id> [flags]
+```
+
+Removes a single behavior from its pack without affecting other pack members. By default, the behavior is unassigned (provenance cleared) but remains active. Use `--forget` to mark it as forgotten instead.
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--forget` | bool | `false` | Mark the behavior as forgotten instead of just unassigning |
+
+**Examples:**
+
+```bash
+# Unassign a behavior from its pack (keeps behavior active)
+floop pack remove-behavior behavior-abc123
+
+# Forget the behavior entirely
+floop pack remove-behavior behavior-abc123 --forget
+
+# JSON output
+floop pack remove-behavior behavior-abc123 --json
+```
+
+**See also:** [pack add](#pack-add), [pack remove](#pack-remove)
 
 ---
 

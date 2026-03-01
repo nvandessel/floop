@@ -34,6 +34,8 @@ Examples:
 		newPackInfoCmd(),
 		newPackUpdateCmd(),
 		newPackRemoveCmd(),
+		newPackAddCmd(),
+		newPackRemoveBehaviorCmd(),
 	)
 
 	return cmd
@@ -63,6 +65,7 @@ Examples:
 			filterTags, _ := cmd.Flags().GetString("filter-tags")
 			filterScope, _ := cmd.Flags().GetString("filter-scope")
 			filterKinds, _ := cmd.Flags().GetString("filter-kinds")
+			fromPack, _ := cmd.Flags().GetString("from-pack")
 
 			manifest := pack.PackManifest{
 				ID:          pack.PackID(id),
@@ -76,7 +79,8 @@ Examples:
 			}
 
 			filter := pack.CreateFilter{
-				Scope: filterScope,
+				Scope:    filterScope,
+				FromPack: fromPack,
 			}
 			if filterTags != "" {
 				filter.Tags = strings.Split(filterTags, ",")
@@ -127,6 +131,7 @@ Examples:
 	cmd.Flags().String("filter-tags", "", "Filter: only include behaviors with these tags (comma-separated)")
 	cmd.Flags().String("filter-scope", "", "Filter: only include behaviors from this scope (global/local)")
 	cmd.Flags().String("filter-kinds", "", "Filter: only include behaviors of these kinds (comma-separated)")
+	cmd.Flags().String("from-pack", "", "Filter: only include behaviors belonging to this pack (by provenance)")
 	_ = cmd.MarkFlagRequired("id")
 	_ = cmd.MarkFlagRequired("version")
 
@@ -584,6 +589,115 @@ Examples:
 			return nil
 		},
 	}
+
+	return cmd
+}
+
+func newPackAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <behavior-id>",
+		Short: "Add a behavior to a pack",
+		Long: `Promote an existing behavior into a pack by stamping its provenance.
+
+The behavior must exist and not be forgotten. If it already belongs to a
+different pack, use --force to reassign it.
+
+Examples:
+  floop pack add behavior-abc123 --to my-org/my-pack
+  floop pack add behavior-abc123 --to my-org/my-pack --force`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			behaviorID := args[0]
+			root, _ := cmd.Flags().GetString("root")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			packID, _ := cmd.Flags().GetString("to")
+			force, _ := cmd.Flags().GetBool("force")
+
+			ctx := context.Background()
+			graphStore, err := store.NewMultiGraphStore(root)
+			if err != nil {
+				return fmt.Errorf("failed to open store: %w", err)
+			}
+			defer graphStore.Close()
+
+			if err := pack.AddToPack(ctx, graphStore, behaviorID, packID, force); err != nil {
+				return fmt.Errorf("pack add failed: %w", err)
+			}
+
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"behavior_id": behaviorID,
+					"pack_id":     packID,
+					"message":     fmt.Sprintf("Added %s to %s", behaviorID, packID),
+				})
+			}
+
+			fmt.Printf("Added %s to %s\n", behaviorID, packID)
+			return nil
+		},
+	}
+
+	cmd.Flags().String("to", "", "Target pack ID (required)")
+	cmd.Flags().Bool("force", false, "Force reassignment if behavior belongs to another pack")
+	_ = cmd.MarkFlagRequired("to")
+
+	return cmd
+}
+
+func newPackRemoveBehaviorCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove-behavior <behavior-id>",
+		Short: "Remove a behavior from its pack",
+		Long: `Remove a single behavior from its pack without affecting other pack members.
+
+By default, the behavior is unassigned from the pack but remains active.
+Use --forget to mark the behavior as forgotten instead.
+
+Examples:
+  floop pack remove-behavior behavior-abc123
+  floop pack remove-behavior behavior-abc123 --forget`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			behaviorID := args[0]
+			root, _ := cmd.Flags().GetString("root")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			forget, _ := cmd.Flags().GetBool("forget")
+
+			mode := pack.RemoveModeUnassign
+			if forget {
+				mode = pack.RemoveModeForgotten
+			}
+
+			ctx := context.Background()
+			graphStore, err := store.NewMultiGraphStore(root)
+			if err != nil {
+				return fmt.Errorf("failed to open store: %w", err)
+			}
+			defer graphStore.Close()
+
+			if err := pack.RemoveFromPack(ctx, graphStore, behaviorID, mode); err != nil {
+				return fmt.Errorf("pack remove-behavior failed: %w", err)
+			}
+
+			action := "unassigned from pack"
+			if forget {
+				action = "forgotten"
+			}
+
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"behavior_id": behaviorID,
+					"action":      string(mode),
+					"message":     fmt.Sprintf("Behavior %s %s", behaviorID, action),
+				})
+			}
+
+			fmt.Printf("Behavior %s %s\n", behaviorID, action)
+			return nil
+		},
+	}
+
+	cmd.Flags().Bool("forget", false, "Mark the behavior as forgotten instead of just unassigning")
 
 	return cmd
 }

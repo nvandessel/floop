@@ -15,7 +15,7 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 	s := store.NewInMemoryGraphStore()
 	ctx := context.Background()
 
-	// Behavior 1: go + testing tags, global scope, directive kind
+	// Behavior 1: go + testing tags, global scope, directive kind, in pack "test-org/go-pack"
 	s.AddNode(ctx, store.Node{
 		ID:   "b-1",
 		Kind: "behavior",
@@ -30,12 +30,13 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 		Metadata: map[string]interface{}{
 			"confidence": 0.9,
 			"provenance": map[string]interface{}{
-				"scope": "global",
+				"scope":   "global",
+				"package": "test-org/go-pack",
 			},
 		},
 	})
 
-	// Behavior 2: python tag, local scope, preference kind
+	// Behavior 2: python tag, local scope, preference kind, no pack
 	s.AddNode(ctx, store.Node{
 		ID:   "b-2",
 		Kind: "behavior",
@@ -55,7 +56,7 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 		},
 	})
 
-	// Behavior 3: go tag, global scope, constraint kind
+	// Behavior 3: go tag, global scope, constraint kind, in pack "test-org/go-pack"
 	s.AddNode(ctx, store.Node{
 		ID:   "b-3",
 		Kind: "behavior",
@@ -70,7 +71,8 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 		Metadata: map[string]interface{}{
 			"confidence": 0.95,
 			"provenance": map[string]interface{}{
-				"scope": "global",
+				"scope":   "global",
+				"package": "test-org/go-pack",
 			},
 		},
 	})
@@ -257,5 +259,82 @@ func TestCreate_EmptyResult(t *testing.T) {
 	}
 	if readManifest.ID != manifest.ID {
 		t.Errorf("readManifest.ID = %q, want %q", readManifest.ID, manifest.ID)
+	}
+}
+
+func TestCreate_FromPackFilter(t *testing.T) {
+	s := makeTestStore(t)
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "from-pack.fpack")
+	ctx := context.Background()
+
+	manifest := PackManifest{
+		ID:      "test-org/export",
+		Version: "1.0.0",
+	}
+
+	// Only include behaviors from test-org/go-pack (b-1 and b-3)
+	result, err := Create(ctx, s, CreateFilter{
+		FromPack: "test-org/go-pack",
+	}, manifest, outputPath, CreateOptions{})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if result.BehaviorCount != 2 {
+		t.Errorf("BehaviorCount = %d, want 2", result.BehaviorCount)
+	}
+	// Edge b-1->b-3 should be included (both in pack), b-1->b-2 excluded
+	if result.EdgeCount != 1 {
+		t.Errorf("EdgeCount = %d, want 1", result.EdgeCount)
+	}
+}
+
+func TestCreate_FromPackCombinedWithTags(t *testing.T) {
+	s := makeTestStore(t)
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "combined.fpack")
+	ctx := context.Background()
+
+	manifest := PackManifest{
+		ID:      "test-org/export",
+		Version: "1.0.0",
+	}
+
+	// From pack + testing tag filter: only b-1 has both pack membership AND testing tag
+	result, err := Create(ctx, s, CreateFilter{
+		FromPack: "test-org/go-pack",
+		Tags:     []string{"testing"},
+	}, manifest, outputPath, CreateOptions{})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if result.BehaviorCount != 1 {
+		t.Errorf("BehaviorCount = %d, want 1", result.BehaviorCount)
+	}
+}
+
+func TestCreate_FromPackNoMatch(t *testing.T) {
+	s := makeTestStore(t)
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "no-match.fpack")
+	ctx := context.Background()
+
+	manifest := PackManifest{
+		ID:      "test-org/export",
+		Version: "1.0.0",
+	}
+
+	// No behaviors belong to this pack
+	result, err := Create(ctx, s, CreateFilter{
+		FromPack: "nonexistent/pack",
+	}, manifest, outputPath, CreateOptions{})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if result.BehaviorCount != 0 {
+		t.Errorf("BehaviorCount = %d, want 0", result.BehaviorCount)
 	}
 }

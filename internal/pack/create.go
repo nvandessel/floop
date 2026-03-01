@@ -12,9 +12,10 @@ import (
 
 // CreateFilter controls which behaviors are included in a pack.
 type CreateFilter struct {
-	Tags  []string // include behaviors matching any tag (empty = all)
-	Scope string   // "global", "local", or "" (all)
-	Kinds []string // behavior kinds to include (empty = all)
+	Tags     []string // include behaviors matching any tag (empty = all)
+	Scope    string   // "global", "local", or "" (all)
+	Kinds    []string // behavior kinds to include (empty = all)
+	FromPack string   // only include behaviors where provenance.package matches (empty = all)
 }
 
 // CreateOptions configures pack creation.
@@ -101,6 +102,13 @@ func Create(ctx context.Context, s store.GraphStore, filter CreateFilter, manife
 // matchesFilter checks if a node passes the given filter criteria.
 func matchesFilter(node store.Node, filter CreateFilter) bool {
 	b := models.NodeToBehavior(node)
+
+	// Filter by pack membership
+	if filter.FromPack != "" {
+		if models.ExtractPackageName(node.Metadata) != filter.FromPack {
+			return false
+		}
+	}
 
 	// Filter by scope
 	if filter.Scope != "" {
