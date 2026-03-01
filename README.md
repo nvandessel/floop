@@ -7,7 +7,9 @@
 [![Go 1.25+](https://img.shields.io/badge/go-1.25%2B-blue.svg)](https://go.dev/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-Every correction you give an AI agent is a lesson that dies at the end of the session. floop makes it stick. A correction becomes a behavior, behaviors connect into a graph, and the graph activates the right ones when context matches — file type, task, project. The neuroscience term is spreading activation. The practical result is that your agent gets better over time instead of starting from zero every morning.
+Every correction you give an AI agent is a lesson that dies at the end of the session. floop makes it stick.
+
+A correction becomes a behavior. Behaviors connect into a graph. The graph uses spreading activation — the same model cognitive science uses to describe how human memory retrieves associations — to find the right behaviors for your current context. Connections strengthen through Hebbian learning. The result is an agent that gets better over time instead of starting from zero every morning.
 
 ## Features
 
