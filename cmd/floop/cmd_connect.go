@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nvandessel/floop/internal/constants"
 	"github.com/nvandessel/floop/internal/ranking"
 	"github.com/nvandessel/floop/internal/store"
 	"github.com/spf13/cobra"
@@ -45,7 +44,8 @@ Examples:
 			bidirectional, _ := cmd.Flags().GetBool("bidirectional")
 
 			// Validate kind
-			if !constants.ValidUserEdgeKinds[kind] {
+			edgeKind := store.EdgeKind(kind)
+			if !store.ValidUserEdgeKinds[edgeKind] {
 				return fmt.Errorf("invalid edge kind: %s (must be one of: requires, overrides, conflicts, similar-to, learned-from)", kind)
 			}
 
@@ -91,7 +91,7 @@ Examples:
 			}
 
 			// Check for duplicate edge
-			existing, err := graphStore.GetEdges(ctx, source, store.DirectionOutbound, kind)
+			existing, err := graphStore.GetEdges(ctx, source, store.DirectionOutbound, edgeKind)
 			if err != nil {
 				return fmt.Errorf("failed to check existing edges: %w", err)
 			}
@@ -108,7 +108,7 @@ Examples:
 			edge := store.Edge{
 				Source:    source,
 				Target:    target,
-				Kind:      kind,
+				Kind:      edgeKind,
 				Weight:    weight,
 				CreatedAt: now,
 			}
@@ -122,7 +122,7 @@ Examples:
 				reverseEdge := store.Edge{
 					Source:    target,
 					Target:    source,
-					Kind:      kind,
+					Kind:      edgeKind,
 					Weight:    weight,
 					CreatedAt: now,
 				}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/nvandessel/floop/internal/constants"
 )
 
 // setupTestSQLiteStore creates a new SQLite store in a temp directory for testing.
@@ -309,7 +307,7 @@ func TestValidateBehaviorGraph_DanglingEdgeTarget(t *testing.T) {
 	edge := Edge{
 		Source:    "behavior-a",
 		Target:    "nonexistent-target",
-		Kind:      "similar-to",
+		Kind:      EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: time.Now(),
 	}
@@ -384,7 +382,7 @@ func TestValidateBehaviorGraph_ValidEdges(t *testing.T) {
 		t.Fatalf("failed to add B: %v", err)
 	}
 
-	edge := Edge{Source: "behavior-a", Target: "behavior-b", Kind: "similar-to", Weight: 0.8, CreatedAt: time.Now()}
+	edge := Edge{Source: "behavior-a", Target: "behavior-b", Kind: EdgeKindSimilarTo, Weight: 0.8, CreatedAt: time.Now()}
 	if err := store.AddEdge(ctx, edge); err != nil {
 		t.Fatalf("failed to add edge: %v", err)
 	}
@@ -422,7 +420,7 @@ func TestValidateBehaviorGraph_IgnoresNonBehaviorKinds(t *testing.T) {
 
 	// Add a behavior with valid reference to forgotten-behavior
 	forgotten := createTestBehavior("forgotten-a", "Forgotten A")
-	forgotten.Kind = constants.BehaviorKindForgotten
+	forgotten.Kind = NodeKindForgotten
 
 	active := createTestBehavior("behavior-a", "Behavior A")
 	active.Content["overrides"] = []string{"forgotten-a"}
@@ -707,7 +705,7 @@ func TestSQLiteGraphStore_ValidateWithExternalIDs(t *testing.T) {
 			edge := Edge{
 				Source:    "local-behavior",
 				Target:    "external-behavior",
-				Kind:      "similar-to",
+				Kind:      EdgeKindSimilarTo,
 				Weight:    0.8,
 				CreatedAt: time.Now(),
 			}

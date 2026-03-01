@@ -167,7 +167,7 @@ func TestLearningLoop_NeedsReview_LowConfidence(t *testing.T) {
 		Kind: models.BehaviorKindDirective,
 	}
 	placement := &PlacementDecision{
-		Action:     "create",
+		Action:     PlacementActionCreate,
 		Confidence: 0.4, // Low confidence
 	}
 
@@ -197,7 +197,7 @@ func TestLearningLoop_NeedsReview_HighSimilarity(t *testing.T) {
 		Kind: models.BehaviorKindDirective,
 	}
 	placement := &PlacementDecision{
-		Action:     "create",
+		Action:     PlacementActionCreate,
 		Confidence: 0.9,
 		SimilarBehaviors: []SimilarityMatch{
 			{ID: "existing-1", Score: 0.90},
@@ -230,7 +230,7 @@ func TestLearningLoop_NeedsReview_MergeAction(t *testing.T) {
 		Kind: models.BehaviorKindDirective,
 	}
 	placement := &PlacementDecision{
-		Action:     "merge",
+		Action:     PlacementActionMerge,
 		TargetID:   "existing-behavior",
 		Confidence: 0.9,
 	}

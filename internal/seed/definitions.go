@@ -14,7 +14,7 @@ func coreBehaviors() []store.Node {
 	return []store.Node{
 		{
 			ID:   "seed-capture-corrections",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/capture-corrections-proactively",
 				"kind": "directive",
@@ -34,7 +34,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-know-floop-tools",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/know-your-floop-tools",
 				"kind": "directive",
@@ -54,7 +54,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-use-floop-active",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/use-floop-active",
 				"kind": "directive",
@@ -74,7 +74,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-feedback-signals",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/feedback-signals",
 				"kind": "directive",
@@ -94,7 +94,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-session-hooks",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/session-hooks",
 				"kind": "directive",
@@ -114,7 +114,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-behavior-lifecycle",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/behavior-lifecycle",
 				"kind": "directive",
@@ -134,7 +134,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-agents-md-setup",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/agents-md-setup",
 				"kind": "directive",
@@ -154,7 +154,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-graph-hygiene",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/graph-hygiene",
 				"kind": "directive",
@@ -174,7 +174,7 @@ func coreBehaviors() []store.Node {
 		},
 		{
 			ID:   "seed-skill-packs",
-			Kind: "behavior",
+			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name": "core/skill-packs",
 				"kind": "directive",

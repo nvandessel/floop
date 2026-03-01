@@ -91,10 +91,18 @@ func TestPruneCoActivations_RemovesOld(t *testing.T) {
 
 	now := time.Now()
 	// Insert old and new entries
-	_ = s.RecordCoActivation(ctx, "a:b", now.Add(-48*time.Hour))
-	_ = s.RecordCoActivation(ctx, "a:b", now.Add(-25*time.Hour))
-	_ = s.RecordCoActivation(ctx, "a:b", now)
-	_ = s.RecordCoActivation(ctx, "c:d", now.Add(-48*time.Hour))
+	if err := s.RecordCoActivation(ctx, "a:b", now.Add(-48*time.Hour)); err != nil {
+		t.Fatalf("RecordCoActivation() error = %v", err)
+	}
+	if err := s.RecordCoActivation(ctx, "a:b", now.Add(-25*time.Hour)); err != nil {
+		t.Fatalf("RecordCoActivation() error = %v", err)
+	}
+	if err := s.RecordCoActivation(ctx, "a:b", now); err != nil {
+		t.Fatalf("RecordCoActivation() error = %v", err)
+	}
+	if err := s.RecordCoActivation(ctx, "c:d", now.Add(-48*time.Hour)); err != nil {
+		t.Fatalf("RecordCoActivation() error = %v", err)
+	}
 
 	// Prune entries older than 24 hours
 	n, err := s.PruneCoActivations(ctx, now.Add(-24*time.Hour))

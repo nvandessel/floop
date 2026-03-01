@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/store"
 )
 
@@ -115,7 +114,7 @@ func TestSeedGlobalStore_RespectsForgotten(t *testing.T) {
 
 	// Pre-populate with a seed marked as forgotten-behavior
 	forgotten := coreBehaviors()[0]
-	forgotten.Kind = string(models.BehaviorKindForgotten)
+	forgotten.Kind = store.NodeKindForgotten
 	if _, err := s.AddNode(ctx, forgotten); err != nil {
 		t.Fatalf("AddNode() error = %v", err)
 	}
@@ -139,8 +138,8 @@ func TestSeedGlobalStore_RespectsForgotten(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetNode() error = %v", err)
 	}
-	if node.Kind != string(models.BehaviorKindForgotten) {
-		t.Errorf("forgotten node kind = %q, want %q", node.Kind, string(models.BehaviorKindForgotten))
+	if node.Kind != store.NodeKindForgotten {
+		t.Errorf("forgotten node kind = %q, want %q", node.Kind, store.NodeKindForgotten)
 	}
 }
 

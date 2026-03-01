@@ -79,7 +79,7 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 	s.AddEdge(ctx, store.Edge{
 		Source:    "b-1",
 		Target:    "b-3",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: time.Now(),
 	})
@@ -88,7 +88,7 @@ func makeTestStore(t *testing.T) *store.InMemoryGraphStore {
 	s.AddEdge(ctx, store.Edge{
 		Source:    "b-1",
 		Target:    "b-2",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.5,
 		CreatedAt: time.Now(),
 	})

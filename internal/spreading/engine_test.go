@@ -25,7 +25,7 @@ func addNode(t *testing.T, s store.GraphStore, id string) {
 }
 
 // addEdge is a test helper that adds a weighted edge and fails the test on error.
-func addEdge(t *testing.T, s store.GraphStore, source, target, kind string, weight float64, lastActivated *time.Time) {
+func addEdge(t *testing.T, s store.GraphStore, source, target string, kind store.EdgeKind, weight float64, lastActivated *time.Time) {
 	t.Helper()
 	edge := store.Edge{
 		Source:        source,
@@ -121,8 +121,8 @@ func TestEngine_LinearChain(t *testing.T) {
 	addNode(t, s, "C")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "B", "C", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "B", "C", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -179,9 +179,9 @@ func TestEngine_FanOut(t *testing.T) {
 	addNode(t, s, "D")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "A", "C", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "A", "D", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "A", "C", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "A", "D", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -218,8 +218,8 @@ func TestEngine_FanIn(t *testing.T) {
 	addNode(t, s, "C")
 
 	now := time.Now()
-	addEdge(t, s, "B", "A", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "C", "A", "requires", 0.5, timePtr(now))
+	addEdge(t, s, "B", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "C", "A", store.EdgeKindRequires, 0.5, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{
@@ -246,7 +246,7 @@ func TestEngine_FanIn(t *testing.T) {
 	addNode(t, s2, "A2")
 	addNode(t, s2, "B2")
 
-	addEdge(t, s2, "B2", "A2", "requires", 1.0, timePtr(now))
+	addEdge(t, s2, "B2", "A2", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng2 := NewEngine(s2, DefaultConfig())
 	seeds2 := []Seed{{BehaviorID: "B2", Activation: 1.0, Source: "source-b2"}}
@@ -279,8 +279,8 @@ func TestEngine_WeightedEdges(t *testing.T) {
 	addNode(t, s, "C")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "A", "C", "requires", 0.1, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "A", "C", store.EdgeKindRequires, 0.1, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -314,8 +314,8 @@ func TestEngine_TemporalDecay(t *testing.T) {
 	now := time.Now()
 	sevenDaysAgo := now.Add(-7 * 24 * time.Hour)
 
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "A", "C", "requires", 1.0, timePtr(sevenDaysAgo))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "A", "C", store.EdgeKindRequires, 1.0, timePtr(sevenDaysAgo))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -350,7 +350,7 @@ func TestEngine_DepthLimit(t *testing.T) {
 		addNode(t, s, nodeIDs[i])
 	}
 	for i := range 9 {
-		addEdge(t, s, nodeIDs[i], nodeIDs[i+1], "requires", 1.0, timePtr(now))
+		addEdge(t, s, nodeIDs[i], nodeIDs[i+1], store.EdgeKindRequires, 1.0, timePtr(now))
 	}
 
 	cfg := DefaultConfig()
@@ -401,9 +401,9 @@ func TestEngine_Cycle(t *testing.T) {
 	addNode(t, s, "C")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "B", "C", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "C", "A", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "B", "C", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "C", "A", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -441,10 +441,10 @@ func TestEngine_MinActivationFilter(t *testing.T) {
 	for _, id := range []string{"A", "B", "C", "D", "E"} {
 		addNode(t, s, id)
 	}
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "B", "C", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "C", "D", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "D", "E", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "B", "C", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "C", "D", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "D", "E", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	cfg := DefaultConfig()
 	cfg.MinActivation = 0.1 // Higher threshold to filter more aggressively.
@@ -473,8 +473,8 @@ func TestEngine_SortedByActivation(t *testing.T) {
 	addNode(t, s, "A")
 	addNode(t, s, "B")
 	addNode(t, s, "C")
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "A", "C", "requires", 0.5, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "A", "C", store.EdgeKindRequires, 0.5, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -524,7 +524,7 @@ func TestEngine_BidirectionalPropagation(t *testing.T) {
 	addNode(t, s, "B")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "B", Activation: 1.0, Source: "test"}}
@@ -549,7 +549,7 @@ func TestEngine_NilLastActivated(t *testing.T) {
 	addNode(t, s, "A")
 	addNode(t, s, "B")
 
-	addEdge(t, s, "A", "B", "requires", 1.0, nil) // nil LastActivated
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, nil) // nil LastActivated
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}
@@ -613,9 +613,9 @@ func TestDefaultConfig_HebbianViability(t *testing.T) {
 	addNode(t, s, "B")
 	addNode(t, s, "C")
 
-	addEdge(t, s, "Seed", "A", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "Seed", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "Seed", "C", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "Seed", "C", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}}
@@ -651,8 +651,8 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 		addNode(t, s, "A")
 		addNode(t, s, "B")
 
-		addEdge(t, s, "Seed", "A", "requires", 1.0, timePtr(now))
-		addEdge(t, s, "A", "B", "conflicts", 1.0, timePtr(now))
+		addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+		addEdge(t, s, "A", "B", store.EdgeKindConflicts, 1.0, timePtr(now))
 
 		cfg := DefaultConfig()
 		cfg.Inhibition = nil // Disable lateral inhibition to isolate conflict behavior
@@ -681,8 +681,8 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 		addNode(t, sBaseline, "A")
 		addNode(t, sBaseline, "B")
 
-		addEdge(t, sBaseline, "Seed", "A", "requires", 1.0, timePtr(now))
-		addEdge(t, sBaseline, "A", "B", "requires", 1.0, timePtr(now))
+		addEdge(t, sBaseline, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+		addEdge(t, sBaseline, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
 
 		engBaseline := NewEngine(sBaseline, cfg)
 		baselineResults, err := engBaseline.Activate(context.Background(), seeds)
@@ -715,9 +715,9 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 		addNode(t, s, "A")
 		addNode(t, s, "B")
 
-		addEdge(t, s, "Seed", "A", "requires", 0.3, timePtr(now))
-		addEdge(t, s, "Seed", "B", "requires", 1.0, timePtr(now))
-		addEdge(t, s, "B", "A", "conflicts", 1.0, timePtr(now))
+		addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 0.3, timePtr(now))
+		addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+		addEdge(t, s, "B", "A", store.EdgeKindConflicts, 1.0, timePtr(now))
 
 		cfg := DefaultConfig()
 		cfg.Inhibition = nil
@@ -745,8 +745,8 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 		addNode(t, s, "A")
 		addNode(t, s, "B")
 
-		addEdge(t, s, "Seed", "A", "requires", 1.0, timePtr(now))
-		addEdge(t, s, "Seed", "B", "similar-to", 1.0, timePtr(now))
+		addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+		addEdge(t, s, "Seed", "B", store.EdgeKindSimilarTo, 1.0, timePtr(now))
 
 		cfg := DefaultConfig()
 		cfg.Inhibition = nil
@@ -792,8 +792,8 @@ func TestActivateWithSteps_LinearChain(t *testing.T) {
 	addNode(t, s, "C")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "B", "C", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "B", "C", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	cfg := DefaultConfig()
 	cfg.MaxSteps = 3
@@ -853,7 +853,7 @@ func TestActivateWithSteps_SnapshotCopiesAreIndependent(t *testing.T) {
 	addNode(t, s, "B")
 
 	now := time.Now()
-	addEdge(t, s, "A", "B", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	eng := NewEngine(s, DefaultConfig())
 	seeds := []Seed{{BehaviorID: "A", Activation: 1.0, Source: "test"}}

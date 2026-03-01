@@ -99,9 +99,9 @@ func TestHNSWIndex_Remove(t *testing.T) {
 	v2 := []float32{0, 1, 0, 0, 0, 0, 0, 0}
 	v3 := []float32{0, 0, 1, 0, 0, 0, 0, 0}
 
-	_ = idx.Add(ctx, "b1", v1)
-	_ = idx.Add(ctx, "b2", v2)
-	_ = idx.Add(ctx, "b3", v3)
+	mustAdd(t, idx, ctx, "b1", v1)
+	mustAdd(t, idx, ctx, "b2", v2)
+	mustAdd(t, idx, ctx, "b3", v3)
 
 	if err := idx.Remove(ctx, "b2"); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestHNSWIndex_Remove(t *testing.T) {
 		t.Errorf("expected Len()=2 after remove, got %d", idx.Len())
 	}
 
-	results, _ := idx.Search(ctx, v2, 3)
+	results := mustSearch(t, idx, ctx, v2, 3)
 	for _, r := range results {
 		if r.BehaviorID == "b2" {
 			t.Error("removed b2 should not appear in results")
@@ -142,10 +142,10 @@ func TestHNSWIndex_SearchTopKExceedsLen(t *testing.T) {
 	idx := newTestHNSW(t)
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
-	_ = idx.Add(ctx, "b2", []float32{0, 1, 0, 0, 0, 0, 0, 0})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	mustAdd(t, idx, ctx, "b2", []float32{0, 1, 0, 0, 0, 0, 0, 0})
 
-	results, _ := idx.Search(ctx, []float32{1, 0, 0, 0, 0, 0, 0, 0}, 10)
+	results := mustSearch(t, idx, ctx, []float32{1, 0, 0, 0, 0, 0, 0, 0}, 10)
 	if len(results) != 2 {
 		t.Errorf("expected 2 results when topK > len, got %d", len(results))
 	}
@@ -154,7 +154,7 @@ func TestHNSWIndex_SearchTopKExceedsLen(t *testing.T) {
 func TestHNSWIndex_SearchTopKZero(t *testing.T) {
 	idx := newTestHNSW(t)
 	ctx := context.Background()
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
 
 	results, err := idx.Search(ctx, []float32{1, 0, 0, 0, 0, 0, 0, 0}, 0)
 	if err != nil {
@@ -177,8 +177,8 @@ func TestHNSWIndex_Persistence(t *testing.T) {
 
 	v1 := []float32{1, 0, 0, 0, 0, 0, 0, 0}
 	v2 := []float32{0, 1, 0, 0, 0, 0, 0, 0}
-	_ = idx.Add(ctx, "b1", v1)
-	_ = idx.Add(ctx, "b2", v2)
+	mustAdd(t, idx, ctx, "b1", v1)
+	mustAdd(t, idx, ctx, "b2", v2)
 
 	if err := idx.Save(ctx); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -218,7 +218,7 @@ func TestHNSWIndex_PersistenceFileCreated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
 	if err := idx.Save(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestHNSWIndex_ScoreRange(t *testing.T) {
 		{0, 0, 0, 0, 0, 0, 0, 1},
 	}
 	for i, v := range vecs {
-		_ = idx.Add(ctx, fmt.Sprintf("b%d", i), v)
+		mustAdd(t, idx, ctx, fmt.Sprintf("b%d", i), v)
 	}
 
 	query := []float32{1, 0, 0, 0, 0, 0, 0, 0}

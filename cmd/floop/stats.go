@@ -44,7 +44,7 @@ Examples:
 			ctx := context.Background()
 
 			// Query all behaviors
-			nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+			nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 			if err != nil {
 				return fmt.Errorf("failed to query behaviors: %w", err)
 			}

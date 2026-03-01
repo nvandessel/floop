@@ -259,7 +259,7 @@ func (l *learningLoop) tryAutoMerge(ctx context.Context, candidate *models.Behav
 
 	// Create placement for the merged behavior
 	placement := &PlacementDecision{
-		Action:     "merge",
+		Action:     PlacementActionMerge,
 		TargetID:   bestMatch.Behavior.ID,
 		Confidence: bestMatch.Similarity,
 	}
@@ -287,7 +287,7 @@ func (l *learningLoop) needsReview(candidate *models.Behavior, placement *Placem
 	}
 
 	// Merging into existing behavior needs review
-	if placement.Action == "merge" {
+	if placement.Action == PlacementActionMerge {
 		reasons = append(reasons, fmt.Sprintf("Would merge into existing behavior: %s", placement.TargetID))
 	}
 
@@ -353,7 +353,7 @@ func (l *learningLoop) commitBehavior(ctx context.Context, behavior *models.Beha
 	// Convert behavior to node
 	node := store.Node{
 		ID:   behavior.ID,
-		Kind: "behavior",
+		Kind: store.NodeKindBehavior,
 		Content: map[string]interface{}{
 			"name":       behavior.Name,
 			"kind":       string(behavior.Kind),

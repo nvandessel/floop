@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -77,6 +78,9 @@ type Server struct {
 	// Vector index for fast ANN search over behavior embeddings
 	vectorIndex vectorindex.VectorIndex
 
+	// Structured logger for warnings and info
+	logger *slog.Logger
+
 	// Shutdown coordination
 	done      chan struct{} // closed on shutdown
 	closeOnce sync.Once
@@ -138,6 +142,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		confirmedThisSession: make(map[string]struct{}),
 		coActivationTracker:  initCoActivationTracker(graphStore),
 		hebbianConfig:        spreading.DefaultHebbianConfig(),
+		logger:               slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		done:                 make(chan struct{}),
 	}
 
@@ -186,12 +191,12 @@ func NewServer(cfg *Config) (*Server, error) {
 		}
 		idx, err := vectorindex.NewTieredIndex(tieredCfg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to create vector index: %v\n", err)
+			s.logger.Warn("failed to create vector index", "error", err)
 		} else {
 			// Populate index from SQLite embeddings (cold start)
 			allEmb, err := graphStore.GetAllEmbeddings(context.Background())
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to load embeddings for index: %v\n", err)
+				s.logger.Warn("failed to load embeddings for index", "error", err)
 			} else {
 				for _, emb := range allEmb {
 					_ = idx.Add(context.Background(), emb.BehaviorID, emb.Embedding)
@@ -219,7 +224,7 @@ func NewServer(cfg *Config) (*Server, error) {
 	// Compute initial PageRank cache
 	if err := s.refreshPageRank(context.Background()); err != nil {
 		// Non-fatal: log but don't fail startup
-		fmt.Fprintf(os.Stderr, "warning: failed to compute initial PageRank: %v\n", err)
+		s.logger.Warn("failed to compute initial PageRank", "error", err)
 	}
 
 	// Background backfill: embed behaviors that don't yet have vectors
@@ -228,9 +233,9 @@ func NewServer(cfg *Config) (*Server, error) {
 			s.runBackground("embedding-backfill", func() {
 				n, err := s.embedder.BackfillMissing(context.Background(), ng)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: embedding backfill failed: %v\n", err)
+					s.logger.Warn("embedding backfill failed", "error", err)
 				} else if n > 0 {
-					fmt.Fprintf(os.Stderr, "floop: backfilled embeddings for %d behavior(s)\n", n)
+					s.logger.Info("backfilled embeddings", "count", n)
 				}
 			})
 		}
@@ -271,7 +276,7 @@ func (s *Server) debouncedRefreshPageRank() {
 		default:
 		}
 		if err := s.refreshPageRank(context.Background()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: debounced PageRank refresh failed: %v\n", err)
+			s.logger.Warn("debounced PageRank refresh failed", "error", err)
 		}
 	})
 }
@@ -294,7 +299,7 @@ func (s *Server) runBackground(name string, fn func()) {
 			fn()
 		}()
 	default:
-		fmt.Fprintf(os.Stderr, "warning: background worker pool full, skipping %s\n", name)
+		s.logger.Warn("background worker pool full, skipping task", "task", name)
 	}
 }
 
@@ -387,7 +392,7 @@ func (s *Server) Close() error {
 
 		if s.vectorIndex != nil {
 			if err := s.vectorIndex.Close(); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to close vector index: %v\n", err)
+				s.logger.Warn("failed to close vector index", "error", err)
 			}
 		}
 

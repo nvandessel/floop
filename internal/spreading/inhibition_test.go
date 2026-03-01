@@ -303,10 +303,10 @@ func TestEngine_WithInhibition(t *testing.T) {
 		addNode(t, s, id)
 	}
 
-	addEdge(t, s, "seed", "a1", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "a1", "a2", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "a2", "b1", "related", 0.3, timePtr(now))
-	addEdge(t, s, "b1", "b2", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "seed", "a1", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "a1", "a2", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "a2", "b1", store.EdgeKind("related"), 0.3, timePtr(now))
+	addEdge(t, s, "b1", "b2", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	cfg := DefaultConfig()
 	inh := InhibitionConfig{
@@ -360,10 +360,10 @@ func TestEngine_WithoutInhibition(t *testing.T) {
 		addNode(t, s, id)
 	}
 
-	addEdge(t, s, "seed", "a1", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "a1", "a2", "requires", 1.0, timePtr(now))
-	addEdge(t, s, "a2", "b1", "related", 0.3, timePtr(now))
-	addEdge(t, s, "b1", "b2", "requires", 1.0, timePtr(now))
+	addEdge(t, s, "seed", "a1", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "a1", "a2", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, s, "a2", "b1", store.EdgeKind("related"), 0.3, timePtr(now))
+	addEdge(t, s, "b1", "b2", store.EdgeKindRequires, 1.0, timePtr(now))
 
 	cfg := DefaultConfig()
 	cfg.Inhibition = nil // Disabled.

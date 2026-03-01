@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -161,12 +159,12 @@ func (s *SQLiteGraphStore) AddNode(ctx context.Context, node Node) (string, erro
 }
 
 // isBehaviorKind returns true if the kind represents a behavior (active or curated).
-func isBehaviorKind(kind string) bool {
+func isBehaviorKind(kind NodeKind) bool {
 	switch kind {
-	case "behavior",
-		constants.BehaviorKindForgotten,
-		constants.BehaviorKindDeprecated,
-		constants.BehaviorKindMerged:
+	case NodeKindBehavior,
+		NodeKindForgotten,
+		NodeKindDeprecated,
+		NodeKindMerged:
 		return true
 	default:
 		return false
@@ -652,7 +650,7 @@ func (s *SQLiteGraphStore) getNodeUnlocked(ctx context.Context, id string) (*Nod
 	// (can be "behavior", "forgotten-behavior", "merged-behavior", "correction", etc.)
 	return &Node{
 		ID:       id,
-		Kind:     kind,
+		Kind:     NodeKind(kind),
 		Content:  content,
 		Metadata: metadata,
 	}, nil
@@ -782,7 +780,7 @@ func (s *SQLiteGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge matching source, target, and kind.
-func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -797,7 +795,7 @@ func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target, kind 
 }
 
 // GetEdges returns edges connected to a node.
-func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -829,18 +827,18 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 
 	var edges []Edge
 	for rows.Next() {
-		var source, target, edgeKind string
+		var source, target, edgeKindStr string
 		var weight sql.NullFloat64
 		var createdAtStr, lastActivatedStr, metadataJSON sql.NullString
 
-		if err := rows.Scan(&source, &target, &edgeKind, &weight, &createdAtStr, &lastActivatedStr, &metadataJSON); err != nil {
+		if err := rows.Scan(&source, &target, &edgeKindStr, &weight, &createdAtStr, &lastActivatedStr, &metadataJSON); err != nil {
 			return nil, fmt.Errorf("failed to scan edge: %w", err)
 		}
 
 		edge := Edge{
 			Source: source,
 			Target: target,
-			Kind:   edgeKind,
+			Kind:   EdgeKind(edgeKindStr),
 		}
 
 		if weight.Valid {
@@ -873,7 +871,7 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
-func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -885,7 +883,7 @@ func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds
 	return results, nil
 }
 
-func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
 	if depth > maxDepth || visited[current] {
 		return
 	}
@@ -1211,7 +1209,7 @@ func (s *SQLiteGraphStore) exportEdgesToJSONL(ctx context.Context) error {
 		edge := Edge{
 			Source: source,
 			Target: target,
-			Kind:   kind,
+			Kind:   EdgeKind(kind),
 		}
 
 		if weight.Valid {
@@ -1243,302 +1241,6 @@ func (s *SQLiteGraphStore) exportEdgesToJSONL(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// UpdateConfidence efficiently updates just the confidence value for a behavior.
-func (s *SQLiteGraphStore) UpdateConfidence(ctx context.Context, behaviorID string, newConfidence float64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE behaviors SET confidence = ?, updated_at = ? WHERE id = ?`,
-		newConfidence, time.Now().Format(time.RFC3339), behaviorID)
-	if err != nil {
-		return fmt.Errorf("failed to update confidence for %s: %w", behaviorID, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	return nil
-}
-
-// RecordActivationHit increments times_activated and updates last_activated
-// for a behavior. This is called as a background side-effect of floop_active.
-func (s *SQLiteGraphStore) RecordActivationHit(ctx context.Context, behaviorID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().Format(time.RFC3339)
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE behavior_stats SET times_activated = times_activated + 1, last_activated = ? WHERE behavior_id = ?`,
-		now, behaviorID)
-	if err != nil {
-		return fmt.Errorf("failed to record activation hit for %s: %w", behaviorID, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	return nil
-}
-
-// RecordConfirmed increments times_confirmed and updates last_confirmed for a behavior.
-// This is called when the user explicitly confirms or implicitly continues using a behavior.
-func (s *SQLiteGraphStore) RecordConfirmed(ctx context.Context, behaviorID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().Format(time.RFC3339)
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE behavior_stats SET times_confirmed = times_confirmed + 1, last_confirmed = ? WHERE behavior_id = ?`,
-		now, behaviorID)
-	if err != nil {
-		return fmt.Errorf("failed to record confirmed for %s: %w", behaviorID, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	return nil
-}
-
-// RecordOverridden increments times_overridden for a behavior.
-// This is called when the user or agent contradicted the behavior.
-func (s *SQLiteGraphStore) RecordOverridden(ctx context.Context, behaviorID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE behavior_stats SET times_overridden = times_overridden + 1 WHERE behavior_id = ?`,
-		behaviorID)
-	if err != nil {
-		return fmt.Errorf("failed to record overridden for %s: %w", behaviorID, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	return nil
-}
-
-// TouchEdges updates last_activated on all edges where the source or target
-// is one of the given behavior IDs. This enables temporal decay on edge
-// weights in the spreading activation engine.
-func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string) error {
-	if len(behaviorIDs) == 0 {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Build parameterized IN clause
-	placeholders := make([]string, len(behaviorIDs))
-	args := make([]interface{}, 0, 1+2*len(behaviorIDs))
-	now := time.Now().Format(time.RFC3339)
-	args = append(args, now)
-	for i, id := range behaviorIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	inClause := joinStrings(placeholders, ",")
-
-	// Duplicate the IDs for the OR target IN clause
-	for _, id := range behaviorIDs {
-		args = append(args, id)
-	}
-
-	// G201: inClause is only "?,?,?" placeholders built from len(behaviorIDs) — no user input.
-	query := fmt.Sprintf( //nolint:gosec // placeholder-only IN clause
-		`UPDATE edges SET last_activated = ? WHERE source IN (%s) OR target IN (%s)`,
-		inClause, inClause)
-
-	_, err := s.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to touch edges: %w", err)
-	}
-
-	return nil
-}
-
-// BatchUpdateEdgeWeights updates the weights of multiple edges in a single transaction.
-// Only existing edges matching (source, target, kind) are updated.
-func (s *SQLiteGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates []EdgeWeightUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin batch edge weight update: %w", err)
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		UPDATE edges SET weight = ? WHERE source = ? AND target = ? AND kind = ?
-	`)
-	if err != nil {
-		return fmt.Errorf("prepare batch edge weight update: %w", err)
-	}
-	defer stmt.Close()
-
-	for _, u := range updates {
-		if _, err := stmt.ExecContext(ctx, u.NewWeight, u.Source, u.Target, u.Kind); err != nil {
-			return fmt.Errorf("update edge weight (%s→%s, %s): %w", u.Source, u.Target, u.Kind, err)
-		}
-	}
-
-	return tx.Commit()
-}
-
-// PruneWeakEdges removes all edges of the given kind whose weight is at or below the threshold.
-func (s *SQLiteGraphStore) PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	result, err := s.db.ExecContext(ctx, `
-		DELETE FROM edges WHERE kind = ? AND weight <= ?
-	`, kind, threshold)
-	if err != nil {
-		return 0, fmt.Errorf("prune weak edges: %w", err)
-	}
-
-	n, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("prune weak edges rows affected: %w", err)
-	}
-	return int(n), nil
-}
-
-// encodeEmbedding converts a float32 slice to a binary blob (little-endian).
-func encodeEmbedding(vec []float32) []byte {
-	buf := make([]byte, len(vec)*4)
-	for i, v := range vec {
-		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
-	}
-	return buf
-}
-
-// decodeEmbedding converts a binary blob back to a float32 slice.
-func decodeEmbedding(data []byte) []float32 {
-	if len(data) == 0 || len(data)%4 != 0 {
-		return nil
-	}
-	vec := make([]float32, len(data)/4)
-	for i := range vec {
-		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
-	}
-	return vec
-}
-
-// StoreEmbedding stores an embedding vector for a behavior.
-func (s *SQLiteGraphStore) StoreEmbedding(ctx context.Context, behaviorID string, embedding []float32, modelName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.storeEmbeddingUnlocked(ctx, behaviorID, embedding, modelName)
-}
-
-// storeEmbeddingUnlocked stores an embedding without acquiring the mutex.
-// Caller must ensure exclusive access (e.g., during import or while holding the lock).
-func (s *SQLiteGraphStore) storeEmbeddingUnlocked(ctx context.Context, behaviorID string, embedding []float32, modelName string) error {
-	blob := encodeEmbedding(embedding)
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE behaviors SET embedding = ?, embedding_model = ? WHERE id = ?`,
-		blob, modelName, behaviorID)
-	if err != nil {
-		return fmt.Errorf("store embedding for %s: %w", behaviorID, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("check rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("behavior not found: %s", behaviorID)
-	}
-
-	return nil
-}
-
-// GetAllEmbeddings returns all behaviors that have embeddings.
-func (s *SQLiteGraphStore) GetAllEmbeddings(ctx context.Context) ([]BehaviorEmbedding, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, embedding FROM behaviors WHERE embedding IS NOT NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("query embeddings: %w", err)
-	}
-	defer rows.Close()
-
-	var results []BehaviorEmbedding
-	for rows.Next() {
-		var id string
-		var blob []byte
-		if err := rows.Scan(&id, &blob); err != nil {
-			return nil, fmt.Errorf("scan embedding: %w", err)
-		}
-		vec := decodeEmbedding(blob)
-		if vec == nil {
-			continue
-		}
-		results = append(results, BehaviorEmbedding{
-			BehaviorID: id,
-			Embedding:  vec,
-		})
-	}
-
-	return results, nil
-}
-
-// GetBehaviorIDsWithoutEmbeddings returns IDs of behaviors that do not have embeddings.
-func (s *SQLiteGraphStore) GetBehaviorIDsWithoutEmbeddings(ctx context.Context) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id FROM behaviors WHERE embedding IS NULL AND kind = 'behavior'`)
-	if err != nil {
-		return nil, fmt.Errorf("query behaviors without embeddings: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan behavior ID: %w", err)
-		}
-		ids = append(ids, id)
-	}
-
-	return ids, nil
 }
 
 // Close syncs and closes the store.

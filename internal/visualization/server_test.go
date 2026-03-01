@@ -49,7 +49,7 @@ func TestServer_ActivateEndpoint(t *testing.T) {
 	addBehavior(t, gs, "b1", "behavior-a", "directive", 0.8)
 	addBehavior(t, gs, "b2", "behavior-b", "constraint", 0.9)
 	if err := gs.AddEdge(context.Background(), store.Edge{
-		Source: "b1", Target: "b2", Kind: "requires",
+		Source: "b1", Target: "b2", Kind: store.EdgeKindRequires,
 		Weight: 0.8, CreatedAt: time.Now(),
 		LastActivated: timePtr(time.Now()),
 	}); err != nil {

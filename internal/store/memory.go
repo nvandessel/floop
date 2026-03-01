@@ -118,7 +118,7 @@ func (s *InMemoryGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge matching source, target, and kind.
-func (s *InMemoryGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *InMemoryGraphStore) RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -133,7 +133,7 @@ func (s *InMemoryGraphStore) RemoveEdge(ctx context.Context, source, target, kin
 }
 
 // GetEdges returns edges connected to a node.
-func (s *InMemoryGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *InMemoryGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -162,7 +162,7 @@ func (s *InMemoryGraphStore) GetEdges(ctx context.Context, nodeID string, direct
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
-func (s *InMemoryGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *InMemoryGraphStore) Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -174,7 +174,7 @@ func (s *InMemoryGraphStore) Traverse(ctx context.Context, start string, edgeKin
 	return results, nil
 }
 
-func (s *InMemoryGraphStore) traverseRecursive(current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *InMemoryGraphStore) traverseRecursive(current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
 	if depth > maxDepth || visited[current] {
 		return
 	}
@@ -251,7 +251,7 @@ func (s *InMemoryGraphStore) GetBehaviorIDsWithoutEmbeddings(ctx context.Context
 
 	var ids []string
 	for id, node := range s.nodes {
-		if node.Kind == "behavior" {
+		if node.Kind == NodeKindBehavior {
 			if _, has := s.embeddings[id]; !has {
 				ids = append(ids, id)
 			}
@@ -277,7 +277,12 @@ func matchesPredicate(node Node, predicate map[string]interface{}) bool {
 
 		switch key {
 		case "kind":
-			actual = node.Kind
+			// Compare as string to handle both string and NodeKind predicate values
+			reqStr := fmt.Sprintf("%v", required)
+			if string(node.Kind) != reqStr {
+				return false
+			}
+			continue
 		case "id":
 			actual = node.ID
 		default:
@@ -297,7 +302,7 @@ func matchesPredicate(node Node, predicate map[string]interface{}) bool {
 }
 
 // edgeKindMatches checks if an edge kind is in the allowed list.
-func edgeKindMatches(kind string, allowed []string) bool {
+func edgeKindMatches(kind EdgeKind, allowed []EdgeKind) bool {
 	if len(allowed) == 0 {
 		return true
 	}

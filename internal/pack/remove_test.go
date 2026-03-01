@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/nvandessel/floop/internal/config"
-	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/store"
 )
 
@@ -73,12 +72,12 @@ func TestRemove_MarksAsForgotten(t *testing.T) {
 
 	// Verify behaviors are marked as forgotten
 	n1, _ := s.GetNode(ctx, "b-rm-1")
-	if n1.Kind != string(models.BehaviorKindForgotten) {
-		t.Errorf("b-rm-1 Kind = %q, want %q", n1.Kind, string(models.BehaviorKindForgotten))
+	if n1.Kind != store.NodeKindForgotten {
+		t.Errorf("b-rm-1 Kind = %q, want %q", n1.Kind, store.NodeKindForgotten)
 	}
 	n2, _ := s.GetNode(ctx, "b-rm-2")
-	if n2.Kind != string(models.BehaviorKindForgotten) {
-		t.Errorf("b-rm-2 Kind = %q, want %q", n2.Kind, string(models.BehaviorKindForgotten))
+	if n2.Kind != store.NodeKindForgotten {
+		t.Errorf("b-rm-2 Kind = %q, want %q", n2.Kind, store.NodeKindForgotten)
 	}
 
 	// Verify the other behavior is unaffected

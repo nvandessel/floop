@@ -44,7 +44,7 @@ func DefaultPageRankConfig() PageRankConfig {
 // are treated as bidirectional links for PageRank purposes.
 func ComputePageRank(ctx context.Context, s store.GraphStore, config PageRankConfig) (map[string]float64, error) {
 	// Query all behavior nodes.
-	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("computing pagerank: query nodes: %w", err)
 	}

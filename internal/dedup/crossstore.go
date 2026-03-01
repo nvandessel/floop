@@ -194,7 +194,7 @@ func (d *CrossStoreDeduplicator) deduplicateBehavior(
 // getBehaviorsFromStore retrieves all behaviors from a store.
 func (d *CrossStoreDeduplicator) getBehaviorsFromStore(ctx context.Context, s store.GraphStore) ([]models.Behavior, error) {
 	nodes, err := s.QueryNodes(ctx, map[string]interface{}{
-		"kind": "behavior",
+		"kind": string(store.NodeKindBehavior),
 	})
 	if err != nil {
 		return nil, err

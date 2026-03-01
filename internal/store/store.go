@@ -10,7 +10,7 @@ import (
 // Node represents a node in the behavior graph.
 type Node struct {
 	ID       string                 `json:"id"`
-	Kind     string                 `json:"kind"` // "behavior", "correction", "context-snapshot"
+	Kind     NodeKind               `json:"kind"` // "behavior", "correction", "context-snapshot"
 	Content  map[string]interface{} `json:"content"`
 	Metadata map[string]interface{} `json:"metadata"`
 }
@@ -19,7 +19,7 @@ type Node struct {
 type Edge struct {
 	Source        string                 `json:"source"`
 	Target        string                 `json:"target"`
-	Kind          string                 `json:"kind"`                     // "requires", "overrides", "conflicts", "learned-from", "similar-to"
+	Kind          EdgeKind               `json:"kind"`                     // "requires", "overrides", "conflicts", "learned-from", "similar-to"
 	Weight        float64                `json:"weight"`                   // 0.0-1.0, activation transmission factor
 	CreatedAt     time.Time              `json:"created_at"`               // when edge was created
 	LastActivated *time.Time             `json:"last_activated,omitempty"` // when activation last flowed through
@@ -28,11 +28,47 @@ type Edge struct {
 
 // EdgeWeightUpdate describes a weight update for a specific edge.
 type EdgeWeightUpdate struct {
-	Source    string  // Source behavior ID
-	Target    string  // Target behavior ID
-	Kind      string  // Edge kind (e.g., "co-activated")
-	NewWeight float64 // Updated weight value
+	Source    string   // Source behavior ID
+	Target    string   // Target behavior ID
+	Kind      EdgeKind // Edge kind (e.g., "co-activated")
+	NewWeight float64  // Updated weight value
 }
+
+// EdgeKind represents the type of relationship between nodes.
+type EdgeKind string
+
+const (
+	EdgeKindRequires     EdgeKind = "requires"
+	EdgeKindOverrides    EdgeKind = "overrides"
+	EdgeKindConflicts    EdgeKind = "conflicts"
+	EdgeKindSimilarTo    EdgeKind = "similar-to"
+	EdgeKindLearnedFrom  EdgeKind = "learned-from"
+	EdgeKindCoActivated  EdgeKind = "co-activated"
+	EdgeKindDeprecatedTo EdgeKind = "deprecated-to"
+	EdgeKindMergedInto   EdgeKind = "merged-into"
+)
+
+// ValidUserEdgeKinds defines the allowed edge kinds for user-facing commands.
+// System edge kinds like EdgeKindCoActivated are not included.
+var ValidUserEdgeKinds = map[EdgeKind]bool{
+	EdgeKindRequires:    true,
+	EdgeKindOverrides:   true,
+	EdgeKindConflicts:   true,
+	EdgeKindSimilarTo:   true,
+	EdgeKindLearnedFrom: true,
+}
+
+// NodeKind represents the type of a node in the behavior graph.
+type NodeKind string
+
+const (
+	NodeKindBehavior        NodeKind = "behavior"
+	NodeKindCorrection      NodeKind = "correction"
+	NodeKindContextSnapshot NodeKind = "context-snapshot"
+	NodeKindForgotten       NodeKind = "forgotten-behavior"
+	NodeKindDeprecated      NodeKind = "deprecated-behavior"
+	NodeKindMerged          NodeKind = "merged-behavior"
+)
 
 // Direction specifies edge traversal direction.
 type Direction string
@@ -59,11 +95,11 @@ type GraphStore interface {
 
 	// Edge operations
 	AddEdge(ctx context.Context, edge Edge) error
-	RemoveEdge(ctx context.Context, source, target, kind string) error
-	GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error)
+	RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error
+	GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error)
 
 	// Traverse returns all nodes reachable from start by following edges of the given kinds.
-	Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error)
+	Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error)
 
 	// Persistence
 	Sync(ctx context.Context) error
@@ -95,7 +131,7 @@ type ExtendedGraphStore interface {
 	BatchUpdateEdgeWeights(ctx context.Context, updates []EdgeWeightUpdate) error
 
 	// PruneWeakEdges removes edges of the given kind below the weight threshold.
-	PruneWeakEdges(ctx context.Context, kind string, threshold float64) (int, error)
+	PruneWeakEdges(ctx context.Context, kind EdgeKind, threshold float64) (int, error)
 
 	// ValidateBehaviorGraph checks the graph for consistency issues.
 	ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error)

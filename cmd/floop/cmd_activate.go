@@ -208,7 +208,7 @@ func estimateTokenCost(behaviorID string, tier models.InjectionTier) int {
 
 // loadBehaviorMap loads all behaviors into a map keyed by ID.
 func loadBehaviorMap(ctx context.Context, graphStore store.GraphStore) (map[string]models.Behavior, error) {
-	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("querying behaviors: %w", err)
 	}

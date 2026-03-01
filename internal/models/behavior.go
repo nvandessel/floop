@@ -3,7 +3,7 @@ package models
 import (
 	"time"
 
-	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/store"
 )
 
 // BehaviorKind categorizes what type of behavioral guidance this is
@@ -17,11 +17,11 @@ const (
 )
 
 // Behavior status kinds represent lifecycle states set by curation commands.
-// String values are defined in internal/constants to avoid import cycles with store.
+// Values are defined in internal/store as NodeKind constants.
 const (
-	BehaviorKindForgotten  BehaviorKind = BehaviorKind(constants.BehaviorKindForgotten)
-	BehaviorKindDeprecated BehaviorKind = BehaviorKind(constants.BehaviorKindDeprecated)
-	BehaviorKindMerged     BehaviorKind = BehaviorKind(constants.BehaviorKindMerged)
+	BehaviorKindForgotten  BehaviorKind = BehaviorKind(store.NodeKindForgotten)
+	BehaviorKindDeprecated BehaviorKind = BehaviorKind(store.NodeKindDeprecated)
+	BehaviorKindMerged     BehaviorKind = BehaviorKind(store.NodeKindMerged)
 )
 
 // BehaviorContent holds multiple representations of the behavior's content

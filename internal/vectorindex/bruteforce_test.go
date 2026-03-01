@@ -13,9 +13,9 @@ func TestBruteForceIndex_AddAndSearch(t *testing.T) {
 	idx := NewBruteForceIndex()
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0})
-	_ = idx.Add(ctx, "b2", []float32{0, 1, 0})
-	_ = idx.Add(ctx, "b3", []float32{0, 0, 1})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0})
+	mustAdd(t, idx, ctx, "b2", []float32{0, 1, 0})
+	mustAdd(t, idx, ctx, "b3", []float32{0, 0, 1})
 
 	results, err := idx.Search(ctx, []float32{1, 0, 0}, 3)
 	if err != nil {
@@ -41,14 +41,14 @@ func TestBruteForceIndex_ReplaceExisting(t *testing.T) {
 	idx := NewBruteForceIndex()
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0})
-	_ = idx.Add(ctx, "b1", []float32{0, 1, 0}) // replace
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0})
+	mustAdd(t, idx, ctx, "b1", []float32{0, 1, 0}) // replace
 
 	if idx.Len() != 1 {
 		t.Errorf("expected Len()=1 after replace, got %d", idx.Len())
 	}
 
-	results, _ := idx.Search(ctx, []float32{0, 1, 0}, 1)
+	results := mustSearch(t, idx, ctx, []float32{0, 1, 0}, 1)
 	if len(results) != 1 || results[0].BehaviorID != "b1" {
 		t.Fatalf("expected b1 result")
 	}
@@ -61,17 +61,19 @@ func TestBruteForceIndex_Remove(t *testing.T) {
 	idx := NewBruteForceIndex()
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0, 0})
-	_ = idx.Add(ctx, "b2", []float32{0, 1, 0})
-	_ = idx.Add(ctx, "b3", []float32{0, 0, 1})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0})
+	mustAdd(t, idx, ctx, "b2", []float32{0, 1, 0})
+	mustAdd(t, idx, ctx, "b3", []float32{0, 0, 1})
 
-	_ = idx.Remove(ctx, "b2")
+	if err := idx.Remove(ctx, "b2"); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
 
 	if idx.Len() != 2 {
 		t.Errorf("expected Len()=2 after remove, got %d", idx.Len())
 	}
 
-	results, _ := idx.Search(ctx, []float32{0, 1, 0}, 3)
+	results := mustSearch(t, idx, ctx, []float32{0, 1, 0}, 3)
 	for _, r := range results {
 		if r.BehaviorID == "b2" {
 			t.Error("removed b2 should not appear in results")
@@ -102,10 +104,10 @@ func TestBruteForceIndex_SearchTopKExceedsLen(t *testing.T) {
 	idx := NewBruteForceIndex()
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0})
-	_ = idx.Add(ctx, "b2", []float32{0, 1})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0})
+	mustAdd(t, idx, ctx, "b2", []float32{0, 1})
 
-	results, _ := idx.Search(ctx, []float32{1, 0}, 10)
+	results := mustSearch(t, idx, ctx, []float32{1, 0}, 10)
 	if len(results) != 2 {
 		t.Errorf("expected 2 results when topK > len, got %d", len(results))
 	}
@@ -115,7 +117,7 @@ func TestBruteForceIndex_SearchTopKZero(t *testing.T) {
 	idx := NewBruteForceIndex()
 	ctx := context.Background()
 
-	_ = idx.Add(ctx, "b1", []float32{1, 0})
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0})
 
 	results, err := idx.Search(ctx, []float32{1, 0}, 0)
 	if err != nil {
@@ -161,7 +163,7 @@ func TestBruteForceIndex_MatchesBruteForceSearch(t *testing.T) {
 	}
 	candidates := make([]store.BehaviorEmbedding, len(vecs))
 	for i, v := range vecs {
-		_ = idx.Add(ctx, v.id, v.vec)
+		mustAdd(t, idx, ctx, v.id, v.vec)
 		candidates[i] = store.BehaviorEmbedding{BehaviorID: v.id, Embedding: v.vec}
 	}
 

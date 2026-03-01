@@ -38,7 +38,7 @@ func Remove(ctx context.Context, s store.GraphStore, packID string, cfg *config.
 		}
 
 		// 2. Mark as forgotten-behavior
-		node.Kind = string(models.BehaviorKindForgotten)
+		node.Kind = store.NodeKindForgotten
 		if err := s.UpdateNode(ctx, node); err != nil {
 			return nil, fmt.Errorf("marking node %s as forgotten: %w", node.ID, err)
 		}

@@ -62,7 +62,7 @@ Examples:
 				results = append(results, res)
 			} else {
 				// Process all or missing
-				nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+				nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 				if err != nil {
 					return fmt.Errorf("failed to query behaviors: %w", err)
 				}
@@ -144,7 +144,7 @@ type summaryResult struct {
 func summarizeBehavior(ctx context.Context, graphStore store.GraphStore, summarizer summarization.Summarizer, behaviorID string) (summaryResult, error) {
 	// Query for the behavior
 	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{
-		"kind": "behavior",
+		"kind": string(store.NodeKindBehavior),
 		"id":   behaviorID,
 	})
 	if err != nil {

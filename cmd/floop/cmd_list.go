@@ -265,7 +265,7 @@ func loadBehaviorsWithScope(projectRoot string, scope constants.Scope) ([]models
 	defer graphStore.Close()
 
 	// Query all behavior nodes
-	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query behaviors: %w", err)
 	}

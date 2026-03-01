@@ -60,7 +60,7 @@ func (d *StoreDeduplicator) SetLogger(logger *slog.Logger, decisions *logging.De
 // Returns a list of matches sorted by similarity score (highest first).
 func (d *StoreDeduplicator) FindDuplicates(ctx context.Context, behavior *models.Behavior) ([]DuplicateMatch, error) {
 	// Get all behaviors from the store
-	nodes, err := d.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := d.store.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query behaviors: %w", err)
 	}
@@ -130,7 +130,7 @@ func (d *StoreDeduplicator) MergeDuplicates(ctx context.Context, matches []Dupli
 // based on the configuration provided at construction time.
 func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphStore) (*DeduplicationReport, error) {
 	// Get all behaviors from the store
-	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query behaviors: %w", err)
 	}

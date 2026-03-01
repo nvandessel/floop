@@ -168,7 +168,7 @@ func TestInstall_RespectForgotten(t *testing.T) {
 	// Pre-install a forgotten behavior
 	s.AddNode(ctx, store.Node{
 		ID:   "b-forgotten-1",
-		Kind: string(models.BehaviorKindForgotten),
+		Kind: store.NodeKindForgotten,
 		Content: map[string]interface{}{
 			"name": "forgotten-behavior",
 			"kind": "directive",
@@ -209,8 +209,8 @@ func TestInstall_RespectForgotten(t *testing.T) {
 	if n == nil {
 		t.Fatal("expected b-forgotten-1 to be in store")
 	}
-	if n.Kind != string(models.BehaviorKindForgotten) {
-		t.Errorf("Kind = %q, want %q", n.Kind, string(models.BehaviorKindForgotten))
+	if n.Kind != store.NodeKindForgotten {
+		t.Errorf("Kind = %q, want %q", n.Kind, store.NodeKindForgotten)
 	}
 }
 
@@ -348,7 +348,7 @@ func TestInstall_EdgesInstalled(t *testing.T) {
 		{
 			Source:    "b-edge-1",
 			Target:    "b-edge-2",
-			Kind:      "similar-to",
+			Kind:      store.EdgeKindSimilarTo,
 			Weight:    0.8,
 			CreatedAt: time.Now(),
 		},

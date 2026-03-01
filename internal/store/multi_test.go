@@ -534,7 +534,7 @@ func TestMultiGraphStore_AddEdge(t *testing.T) {
 	})
 
 	// Add edge
-	edge := Edge{Source: "node-a", Target: "node-b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()}
+	edge := Edge{Source: "node-a", Target: "node-b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()}
 	err = store.AddEdge(ctx, edge)
 	if err != nil {
 		t.Fatalf("AddEdge() failed: %v", err)
@@ -603,14 +603,14 @@ func TestMergeEdges(t *testing.T) {
 	}{
 		{
 			name:   "no duplicates",
-			local:  []Edge{{Source: "a", Target: "b", Kind: "requires"}},
-			global: []Edge{{Source: "c", Target: "d", Kind: "requires"}},
+			local:  []Edge{{Source: "a", Target: "b", Kind: EdgeKindRequires}},
+			global: []Edge{{Source: "c", Target: "d", Kind: EdgeKindRequires}},
 			want:   2,
 		},
 		{
 			name:   "deduplicates same edge",
-			local:  []Edge{{Source: "a", Target: "b", Kind: "requires"}},
-			global: []Edge{{Source: "a", Target: "b", Kind: "requires"}},
+			local:  []Edge{{Source: "a", Target: "b", Kind: EdgeKindRequires}},
+			global: []Edge{{Source: "a", Target: "b", Kind: EdgeKindRequires}},
 			want:   1,
 		},
 	}
@@ -839,7 +839,7 @@ func TestMultiGraphStore_AddEdge_CrossStoreRoutesToGlobal(t *testing.T) {
 	edge := Edge{
 		Source:    "local-node",
 		Target:    "global-node",
-		Kind:      "similar-to",
+		Kind:      EdgeKindSimilarTo,
 		Weight:    0.8,
 		CreatedAt: time.Now(),
 	}
@@ -909,7 +909,7 @@ func TestMultiGraphStore_AddEdge_SameStoreStaysLocal(t *testing.T) {
 	edge := Edge{
 		Source:    "local-a",
 		Target:    "local-b",
-		Kind:      "similar-to",
+		Kind:      EdgeKindSimilarTo,
 		Weight:    0.9,
 		CreatedAt: time.Now(),
 	}
@@ -981,7 +981,7 @@ func TestMultiGraphStore_ValidateBehaviorGraph_CrossStoreEdgeInGlobal(t *testing
 	crossEdge := Edge{
 		Source:    "global-behavior",
 		Target:    "local-behavior",
-		Kind:      "similar-to",
+		Kind:      EdgeKindSimilarTo,
 		Weight:    0.85,
 		CreatedAt: time.Now(),
 	}
@@ -1033,7 +1033,7 @@ func TestMultiGraphStore_ValidateBehaviorGraph_TrulyDanglingStillCaught(t *testi
 	danglingEdge := Edge{
 		Source:    "global-behavior",
 		Target:    "truly-nonexistent",
-		Kind:      "similar-to",
+		Kind:      EdgeKindSimilarTo,
 		Weight:    0.7,
 		CreatedAt: time.Now(),
 	}

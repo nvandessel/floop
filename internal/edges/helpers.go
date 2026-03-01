@@ -16,7 +16,7 @@ import (
 // graph store, excluding forgotten, deprecated, and merged behaviors.
 // Extracted from cmd/floop/cmd_dedup.go:loadBehaviorsFromStore.
 func LoadBehaviorsFromStore(ctx context.Context, graphStore store.GraphStore) ([]models.Behavior, error) {
-	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, err
 	}

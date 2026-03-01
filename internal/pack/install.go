@@ -66,7 +66,7 @@ func Install(ctx context.Context, s store.GraphStore, filePath string, cfg *conf
 		}
 
 		// Respect user curation: don't re-add forgotten behaviors
-		if existing.Kind == string(models.BehaviorKindForgotten) {
+		if existing.Kind == store.NodeKindForgotten {
 			result.Skipped = append(result.Skipped, node.ID)
 			continue
 		}

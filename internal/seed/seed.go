@@ -49,7 +49,7 @@ func (s *Seeder) SeedGlobalStore(ctx context.Context) (*SeedResult, error) {
 		}
 
 		// Respect user curation: don't re-add forgotten behaviors
-		if existing.Kind == string(models.BehaviorKindForgotten) {
+		if existing.Kind == store.NodeKindForgotten {
 			result.Skipped = append(result.Skipped, seed.ID)
 			continue
 		}

@@ -56,14 +56,14 @@ func addTestData(t *testing.T, s store.GraphStore) {
 	s.AddEdge(ctx, store.Edge{
 		Source:    "node-a",
 		Target:    "node-b",
-		Kind:      "requires",
+		Kind:      store.EdgeKindRequires,
 		Weight:    0.9,
 		CreatedAt: now,
 	})
 	s.AddEdge(ctx, store.Edge{
 		Source:    "node-b",
 		Target:    "node-c",
-		Kind:      "similar-to",
+		Kind:      store.EdgeKindSimilarTo,
 		Weight:    0.7,
 		CreatedAt: now,
 	})

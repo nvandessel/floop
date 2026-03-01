@@ -64,7 +64,7 @@ func TestInMemoryGraphStore_GetNode(t *testing.T) {
 		},
 	}
 
-	s.AddNode(ctx, node)
+	mustAddNode(t, s, ctx, node)
 
 	// Test getting existing node
 	got, err := s.GetNode(ctx, "test-1")
@@ -101,7 +101,7 @@ func TestInMemoryGraphStore_UpdateNode(t *testing.T) {
 			"name": "original",
 		},
 	}
-	s.AddNode(ctx, node)
+	mustAddNode(t, s, ctx, node)
 
 	// Update existing node
 	updated := Node{
@@ -116,7 +116,7 @@ func TestInMemoryGraphStore_UpdateNode(t *testing.T) {
 		t.Errorf("UpdateNode() error = %v", err)
 	}
 
-	got, _ := s.GetNode(ctx, "test-1")
+	got := mustGetNode(t, s, ctx, "test-1")
 	if got.Content["name"] != "updated" {
 		t.Errorf("UpdateNode() content not updated, got %v", got.Content["name"])
 	}
@@ -133,20 +133,23 @@ func TestInMemoryGraphStore_DeleteNode(t *testing.T) {
 	ctx := context.Background()
 
 	node := Node{ID: "test-1", Kind: "behavior"}
-	s.AddNode(ctx, node)
-	s.AddEdge(ctx, Edge{Source: "test-1", Target: "test-2", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	mustAddNode(t, s, ctx, node)
+	mustAddEdge(t, s, ctx, Edge{Source: "test-1", Target: "test-2", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	err := s.DeleteNode(ctx, "test-1")
 	if err != nil {
 		t.Errorf("DeleteNode() error = %v", err)
 	}
 
-	got, _ := s.GetNode(ctx, "test-1")
+	got, err := s.GetNode(ctx, "test-1")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
 	if got != nil {
 		t.Error("DeleteNode() node should be deleted")
 	}
 
-	edges, _ := s.GetEdges(ctx, "test-1", DirectionBoth, "")
+	edges := mustGetEdges(t, s, ctx, "test-1", DirectionBoth, "")
 	if len(edges) > 0 {
 		t.Error("DeleteNode() should remove associated edges")
 	}
@@ -156,9 +159,9 @@ func TestInMemoryGraphStore_QueryNodes(t *testing.T) {
 	s := NewInMemoryGraphStore()
 	ctx := context.Background()
 
-	s.AddNode(ctx, Node{ID: "b1", Kind: "behavior", Content: map[string]interface{}{"name": "b1"}})
-	s.AddNode(ctx, Node{ID: "b2", Kind: "behavior", Content: map[string]interface{}{"name": "b2"}})
-	s.AddNode(ctx, Node{ID: "c1", Kind: "correction", Content: map[string]interface{}{"name": "c1"}})
+	mustAddNode(t, s, ctx, Node{ID: "b1", Kind: "behavior", Content: map[string]interface{}{"name": "b1"}})
+	mustAddNode(t, s, ctx, Node{ID: "b2", Kind: "behavior", Content: map[string]interface{}{"name": "b2"}})
+	mustAddNode(t, s, ctx, Node{ID: "c1", Kind: "correction", Content: map[string]interface{}{"name": "c1"}})
 
 	// Query by kind
 	results, err := s.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
@@ -183,14 +186,14 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	s := NewInMemoryGraphStore()
 	ctx := context.Background()
 
-	s.AddNode(ctx, Node{ID: "a", Kind: "behavior"})
-	s.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
-	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "a", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "b", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "c", Kind: "behavior"})
 
 	// Add edges
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: "overrides", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Get outbound edges
 	edges, err := s.GetEdges(ctx, "a", DirectionOutbound, "")
@@ -211,7 +214,7 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	}
 
 	// Get edges filtered by kind
-	edges, err = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges, err = s.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if err != nil {
 		t.Errorf("GetEdges() error = %v", err)
 	}
@@ -220,12 +223,12 @@ func TestInMemoryGraphStore_EdgeOperations(t *testing.T) {
 	}
 
 	// Remove edge
-	err = s.RemoveEdge(ctx, "a", "b", "requires")
+	err = s.RemoveEdge(ctx, "a", "b", EdgeKindRequires)
 	if err != nil {
 		t.Errorf("RemoveEdge() error = %v", err)
 	}
 
-	edges, _ = s.GetEdges(ctx, "a", DirectionOutbound, "requires")
+	edges = mustGetEdges(t, s, ctx, "a", DirectionOutbound, EdgeKindRequires)
 	if len(edges) != 0 {
 		t.Errorf("RemoveEdge() edge should be removed, got %d", len(edges))
 	}
@@ -236,17 +239,17 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a graph: a -> b -> c -> d
-	s.AddNode(ctx, Node{ID: "a", Kind: "behavior"})
-	s.AddNode(ctx, Node{ID: "b", Kind: "behavior"})
-	s.AddNode(ctx, Node{ID: "c", Kind: "behavior"})
-	s.AddNode(ctx, Node{ID: "d", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "a", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "b", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "c", Kind: "behavior"})
+	mustAddNode(t, s, ctx, Node{ID: "d", Kind: "behavior"})
 
-	s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
-	s.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: "requires", Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "c", Target: "d", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
 
 	// Traverse outbound with maxDepth 2 (should get a, b, c)
-	results, err := s.Traverse(ctx, "a", []string{"requires"}, DirectionOutbound, 2)
+	results, err := s.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 2)
 	if err != nil {
 		t.Errorf("Traverse() error = %v", err)
 	}
@@ -255,7 +258,7 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	}
 
 	// Traverse inbound from d (should get all)
-	results, err = s.Traverse(ctx, "d", []string{"requires"}, DirectionInbound, 10)
+	results, err = s.Traverse(ctx, "d", []EdgeKind{EdgeKindRequires}, DirectionInbound, 10)
 	if err != nil {
 		t.Errorf("Traverse() error = %v", err)
 	}
@@ -286,7 +289,9 @@ func TestInMemoryGraphStore_Concurrency(t *testing.T) {
 				ID:   string(rune('a' + id)),
 				Kind: "behavior",
 			}
-			s.AddNode(ctx, node)
+			if _, err := s.AddNode(ctx, node); err != nil {
+				t.Errorf("AddNode(%s) error = %v", node.ID, err)
+			}
 			s.GetNode(ctx, node.ID)
 			s.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
 			done <- true

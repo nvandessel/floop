@@ -41,7 +41,7 @@ func NewSeedSelector(s store.GraphStore) *SeedSelector {
 // Returns seeds sorted by activation descending.
 func (s *SeedSelector) SelectSeeds(ctx context.Context, actCtx models.ContextSnapshot) ([]Seed, error) {
 	// Step 1: Query all behaviors from the store.
-	nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := s.store.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("querying behavior nodes: %w", err)
 	}

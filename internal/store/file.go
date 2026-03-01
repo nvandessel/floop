@@ -231,7 +231,7 @@ func (s *FileGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 }
 
 // RemoveEdge removes an edge matching source, target, and kind.
-func (s *FileGraphStore) RemoveEdge(ctx context.Context, source, target, kind string) error {
+func (s *FileGraphStore) RemoveEdge(ctx context.Context, source, target string, kind EdgeKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -247,7 +247,7 @@ func (s *FileGraphStore) RemoveEdge(ctx context.Context, source, target, kind st
 }
 
 // GetEdges returns edges connected to a node.
-func (s *FileGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind string) ([]Edge, error) {
+func (s *FileGraphStore) GetEdges(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -276,7 +276,7 @@ func (s *FileGraphStore) GetEdges(ctx context.Context, nodeID string, direction 
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
-func (s *FileGraphStore) Traverse(ctx context.Context, start string, edgeKinds []string, direction Direction, maxDepth int) ([]Node, error) {
+func (s *FileGraphStore) Traverse(ctx context.Context, start string, edgeKinds []EdgeKind, direction Direction, maxDepth int) ([]Node, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -288,7 +288,7 @@ func (s *FileGraphStore) Traverse(ctx context.Context, start string, edgeKinds [
 	return results, nil
 }
 
-func (s *FileGraphStore) traverseRecursive(current string, edgeKinds []string, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *FileGraphStore) traverseRecursive(current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
 	if depth > maxDepth || visited[current] {
 		return
 	}

@@ -123,7 +123,7 @@ func NodeToBehavior(node store.Node) Behavior {
 func BehaviorToNode(b *Behavior) store.Node {
 	return store.Node{
 		ID:   b.ID,
-		Kind: "behavior",
+		Kind: store.NodeKindBehavior,
 		Content: map[string]interface{}{
 			"name":    b.Name,
 			"kind":    string(b.Kind),

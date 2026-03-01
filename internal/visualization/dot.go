@@ -31,18 +31,18 @@ var nodeColors = map[string]string{
 }
 
 // edgeStyles maps edge kinds to DOT styles.
-var edgeStyles = map[string]string{
-	"requires":     "solid",
-	"overrides":    "bold",
-	"conflicts":    "dashed",
-	"similar-to":   "dotted",
-	"learned-from": "tapered",
+var edgeStyles = map[store.EdgeKind]string{
+	store.EdgeKindRequires:    "solid",
+	store.EdgeKindOverrides:   "bold",
+	store.EdgeKindConflicts:   "dashed",
+	store.EdgeKindSimilarTo:   "dotted",
+	store.EdgeKindLearnedFrom: "tapered",
 }
 
 // RenderDOT produces a Graphviz DOT representation of the behavior graph.
 func RenderDOT(ctx context.Context, gs store.GraphStore) (string, error) {
 	// Get all behavior nodes
-	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return "", fmt.Errorf("query nodes: %w", err)
 	}
@@ -87,7 +87,7 @@ func RenderDOT(ctx context.Context, gs store.GraphStore) (string, error) {
 			return "", fmt.Errorf("get edges for node %s: %w", node.ID, err)
 		}
 		for _, edge := range edges {
-			key := edge.Source + "|" + edge.Target + "|" + edge.Kind
+			key := edge.Source + "|" + edge.Target + "|" + string(edge.Kind)
 			if seen[key] {
 				continue
 			}
@@ -99,7 +99,7 @@ func RenderDOT(ctx context.Context, gs store.GraphStore) (string, error) {
 			}
 
 			b.WriteString(fmt.Sprintf("  %q -> %q [label=%q, style=%s, weight=\"%.1f\"];\n",
-				edge.Source, edge.Target, edge.Kind, style, edge.Weight))
+				edge.Source, edge.Target, string(edge.Kind), style, edge.Weight))
 		}
 	}
 
@@ -109,7 +109,7 @@ func RenderDOT(ctx context.Context, gs store.GraphStore) (string, error) {
 
 // RenderJSON produces a JSON graph representation with nodes and edges arrays.
 func RenderJSON(ctx context.Context, gs store.GraphStore) (map[string]interface{}, error) {
-	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
 	}
@@ -146,7 +146,7 @@ func RenderJSON(ctx context.Context, gs store.GraphStore) (map[string]interface{
 			return nil, fmt.Errorf("get edges for node %s: %w", node.ID, err)
 		}
 		for _, edge := range edges {
-			key := edge.Source + "|" + edge.Target + "|" + edge.Kind
+			key := edge.Source + "|" + edge.Target + "|" + string(edge.Kind)
 			if seen[key] {
 				continue
 			}
@@ -154,7 +154,7 @@ func RenderJSON(ctx context.Context, gs store.GraphStore) (map[string]interface{
 			jsonEdges = append(jsonEdges, map[string]interface{}{
 				"source": edge.Source,
 				"target": edge.Target,
-				"kind":   edge.Kind,
+				"kind":   string(edge.Kind),
 				"weight": edge.Weight,
 			})
 		}
@@ -178,7 +178,7 @@ type EnrichmentData struct {
 // and additional node fields (canonical content) for the HTML visualization.
 // If enrichment is nil, it still adds content fields but skips PageRank.
 func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *EnrichmentData) (map[string]interface{}, error) {
-	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := gs.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return nil, fmt.Errorf("query nodes: %w", err)
 	}
@@ -294,7 +294,7 @@ func RenderEnrichedJSON(ctx context.Context, gs store.GraphStore, enrichment *En
 		jsonEdges = append(jsonEdges, map[string]interface{}{
 			"source": edge.Source,
 			"target": edge.Target,
-			"kind":   edge.Kind,
+			"kind":   string(edge.Kind),
 			"weight": edge.Weight,
 			"scope":  deriveEdgeScope(nodeScope[edge.Source], nodeScope[edge.Target]),
 		})
@@ -391,7 +391,7 @@ func CollectEdges(ctx context.Context, gs store.GraphStore, nodes []store.Node) 
 			return nil, fmt.Errorf("get edges for node %s: %w", node.ID, err)
 		}
 		for _, edge := range edges {
-			key := edge.Source + "|" + edge.Target + "|" + edge.Kind
+			key := edge.Source + "|" + edge.Target + "|" + string(edge.Kind)
 			if seen[key] {
 				continue
 			}

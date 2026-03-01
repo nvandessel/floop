@@ -71,7 +71,7 @@ func runTagsBackfill(graphStore store.GraphStore, dryRun, jsonOut bool) error {
 	var output backfillOutput
 	output.DryRun = dryRun
 
-	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": "behavior"})
+	nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if err != nil {
 		return fmt.Errorf("querying behaviors: %w", err)
 	}

@@ -40,7 +40,7 @@ func TestGraphPlacer_Place_EmptyStore(t *testing.T) {
 		return
 	}
 
-	if decision.Action != "create" {
+	if decision.Action != PlacementActionCreate {
 		t.Errorf("Place() Action = %v, want create", decision.Action)
 	}
 	if decision.Confidence < 0.8 {
@@ -95,7 +95,7 @@ func TestGraphPlacer_Place_HighSimilarity_SuggestsMerge(t *testing.T) {
 		return
 	}
 
-	if decision.Action != "merge" {
+	if decision.Action != PlacementActionMerge {
 		t.Errorf("Place() Action = %v, want merge for high similarity", decision.Action)
 	}
 	if decision.TargetID != "existing-1" {
@@ -208,7 +208,7 @@ func TestGraphPlacer_Place_NoOverlapDifferentLanguage(t *testing.T) {
 		return
 	}
 
-	if decision.Action != "create" {
+	if decision.Action != PlacementActionCreate {
 		t.Errorf("Place() Action = %v, want create for non-overlapping behaviors", decision.Action)
 	}
 	if len(decision.SimilarBehaviors) != 0 {
@@ -832,13 +832,13 @@ func TestGraphPlacer_determineEdges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			edges := gp.determineEdges(context.Background(), tt.behavior, tt.existing)
 
-			gotKinds := make(map[string]bool)
+			gotKinds := make(map[store.EdgeKind]bool)
 			for _, e := range edges {
 				gotKinds[e.Kind] = true
 			}
 
 			for _, wantKind := range tt.wantEdgeKinds {
-				if !gotKinds[wantKind] {
+				if !gotKinds[store.EdgeKind(wantKind)] {
 					t.Errorf("determineEdges() missing edge kind %s, got kinds: %v", wantKind, gotKinds)
 				}
 			}
@@ -925,7 +925,7 @@ func TestGraphPlacer_Place_MultipleSimilarBehaviors(t *testing.T) {
 	}
 
 	// Should suggest merge due to high similarity with behavior-1
-	if decision.Action != "merge" {
+	if decision.Action != PlacementActionMerge {
 		t.Errorf("Place() Action = %v, want merge", decision.Action)
 	}
 }
