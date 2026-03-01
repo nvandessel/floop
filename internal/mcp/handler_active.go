@@ -11,6 +11,7 @@ import (
 	"github.com/nvandessel/floop/internal/activation"
 	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/ratelimit"
+	"github.com/nvandessel/floop/internal/sanitize"
 	"github.com/nvandessel/floop/internal/spreading"
 	"github.com/nvandessel/floop/internal/store"
 	"github.com/nvandessel/floop/internal/tiering"
@@ -21,7 +22,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 	start := time.Now()
 	defer func() {
 		s.auditTool("floop_active", start, retErr, sanitizeToolParams("floop_active", map[string]interface{}{
-			"file": args.File, "task": args.Task,
+			"file": args.File, "task": args.Task, "language": args.Language,
 		}), "local")
 	}()
 
@@ -43,6 +44,10 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 
 	if args.Task != "" {
 		ctxBuilder.WithTask(args.Task)
+	}
+
+	if args.Language != "" {
+		ctxBuilder.WithLanguage(sanitize.SanitizeBehaviorContent(args.Language))
 	}
 
 	ctxBuilder.WithRepoRoot(s.root)

@@ -7,8 +7,9 @@ import (
 
 // FloopActiveInput defines the input for floop_active tool.
 type FloopActiveInput struct {
-	File string `json:"file,omitempty" jsonschema:"Current file path (relative to project root)"`
-	Task string `json:"task,omitempty" jsonschema:"Current task type (e.g. 'development', 'testing', 'refactoring')"`
+	File     string `json:"file,omitempty" jsonschema:"Current file path (relative to project root)"`
+	Task     string `json:"task,omitempty" jsonschema:"Current task type (e.g. 'development', 'testing', 'refactoring')"`
+	Language string `json:"language,omitempty" jsonschema:"Programming language (e.g. 'go', 'python'). Overrides file extension inference"`
 }
 
 // TokenStats provides token budget awareness for active behaviors.

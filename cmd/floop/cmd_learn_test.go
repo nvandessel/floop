@@ -369,6 +369,98 @@ func TestLearnCmdWithoutWrong(t *testing.T) {
 	}
 }
 
+func TestLearnCmdLanguageFlag(t *testing.T) {
+	t.Run("language flag sets FileLanguage", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		isolateHome(t, tmpDir)
+
+		rootCmd := newTestRootCmd()
+		rootCmd.AddCommand(newInitCmd())
+		rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+		rootCmd.SetOut(&bytes.Buffer{})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("init failed: %v", err)
+		}
+
+		rootCmd2 := newTestRootCmd()
+		rootCmd2.AddCommand(newLearnCmd())
+		rootCmd2.SetArgs([]string{
+			"learn",
+			"--right", "use structured logging",
+			"--language", "python",
+			"--root", tmpDir,
+			"--json",
+		})
+		var outBuf bytes.Buffer
+		rootCmd2.SetOut(&outBuf)
+
+		if err := rootCmd2.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		correctionsPath := filepath.Join(tmpDir, ".floop", "corrections.jsonl")
+		data, err := os.ReadFile(correctionsPath)
+		if err != nil {
+			t.Fatalf("failed to read corrections: %v", err)
+		}
+
+		var correction models.Correction
+		if err := json.Unmarshal(data, &correction); err != nil {
+			t.Fatalf("failed to parse correction: %v", err)
+		}
+
+		if correction.Context.FileLanguage != "python" {
+			t.Errorf("FileLanguage = %q, want %q", correction.Context.FileLanguage, "python")
+		}
+	})
+
+	t.Run("language flag overrides file extension", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		isolateHome(t, tmpDir)
+
+		rootCmd := newTestRootCmd()
+		rootCmd.AddCommand(newInitCmd())
+		rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+		rootCmd.SetOut(&bytes.Buffer{})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("init failed: %v", err)
+		}
+
+		rootCmd2 := newTestRootCmd()
+		rootCmd2.AddCommand(newLearnCmd())
+		rootCmd2.SetArgs([]string{
+			"learn",
+			"--right", "use structured logging",
+			"--file", "main.go",
+			"--language", "typescript",
+			"--root", tmpDir,
+			"--json",
+		})
+		var outBuf bytes.Buffer
+		rootCmd2.SetOut(&outBuf)
+
+		if err := rootCmd2.Execute(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		correctionsPath := filepath.Join(tmpDir, ".floop", "corrections.jsonl")
+		data, err := os.ReadFile(correctionsPath)
+		if err != nil {
+			t.Fatalf("failed to read corrections: %v", err)
+		}
+
+		var correction models.Correction
+		if err := json.Unmarshal(data, &correction); err != nil {
+			t.Fatalf("failed to parse correction: %v", err)
+		}
+
+		// --language should override the .go extension inference
+		if correction.Context.FileLanguage != "typescript" {
+			t.Errorf("FileLanguage = %q, want %q (--language should override file ext)", correction.Context.FileLanguage, "typescript")
+		}
+	})
+}
+
 func TestReprocessCmdSanitizesCorrections(t *testing.T) {
 	tests := []struct {
 		name          string
