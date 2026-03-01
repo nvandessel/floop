@@ -39,6 +39,7 @@ Examples:
 			right, _ := cmd.Flags().GetString("right")
 			file, _ := cmd.Flags().GetString("file")
 			task, _ := cmd.Flags().GetString("task")
+			language, _ := cmd.Flags().GetString("language")
 			root, _ := cmd.Flags().GetString("root")
 			// Validate required parameters
 			if right == "" {
@@ -78,6 +79,9 @@ Examples:
 			if file != "" {
 				ctxSnapshot.FileLanguage = models.InferLanguage(file)
 				ctxSnapshot.FileExt = filepath.Ext(file)
+			}
+			if language != "" {
+				ctxSnapshot.FileLanguage = sanitize.SanitizeBehaviorContent(language)
 			}
 
 			// Create correction using models.Correction
@@ -203,6 +207,7 @@ Examples:
 	cmd.Flags().String("right", "", "What should have been done (required)")
 	cmd.Flags().String("file", "", "Current file path")
 	cmd.Flags().String("task", "", "Current task type")
+	cmd.Flags().String("language", "", "Programming language (e.g. 'go', 'python'). Overrides file extension inference")
 	cmd.Flags().String("scope", "", "Override auto-classification: local (project) or global (user)")
 	cmd.Flags().Bool("auto-merge", true, "Automatically merge similar behaviors (matches MCP behavior)")
 	cmd.Flags().StringSlice("tags", nil, "Additional tags to apply, merged with inferred tags (max 5)")

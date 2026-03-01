@@ -123,6 +123,69 @@ func TestHandleFloopActive_WithFile(t *testing.T) {
 	}
 }
 
+func TestHandleFloopActive_WithLanguage(t *testing.T) {
+	server, _ := setupTestServer(t)
+	defer server.Close()
+
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+
+	// Language param should override file extension inference
+	args := FloopActiveInput{
+		Language: "python",
+		Task:     "development",
+	}
+
+	result, output, err := server.handleFloopActive(ctx, req, args)
+
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	if result != nil {
+		t.Error("Expected nil result")
+	}
+
+	if output.Context["language"] != "python" {
+		t.Errorf("Context language = %v, want 'python'", output.Context["language"])
+	}
+
+	if output.Context["task"] != "development" {
+		t.Errorf("Context task = %v, want 'development'", output.Context["task"])
+	}
+}
+
+func TestHandleFloopActive_LanguageOverridesFile(t *testing.T) {
+	server, tmpDir := setupTestServer(t)
+	defer server.Close()
+
+	// Create a Go file
+	testFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0600); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+
+	// File is .go but language param says "rust" — language should win
+	args := FloopActiveInput{
+		File:     "main.go",
+		Language: "rust",
+		Task:     "development",
+	}
+
+	_, output, err := server.handleFloopActive(ctx, req, args)
+
+	if err != nil {
+		t.Fatalf("handleFloopActive failed: %v", err)
+	}
+
+	if output.Context["language"] != "rust" {
+		t.Errorf("Context language = %v, want 'rust' (Language param should override file extension)", output.Context["language"])
+	}
+}
+
 func TestHandleFloopLearn_RequiredParams(t *testing.T) {
 	server, _ := setupTestServer(t)
 	defer server.Close()

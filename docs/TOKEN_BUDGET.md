@@ -9,7 +9,7 @@ Every behavior is assigned one of four **injection tiers** based on its activati
 | Tier | Activation Threshold | Content |
 |------|---------------------|---------|
 | **Full** | >= 0.7 | Complete canonical content |
-| **Summary** | >= 0.3 | One-line summary (or truncated canonical) | [^1]
+| **Summary** | >= 0.3 | One-line summary (or truncated canonical) |
 | **Name Only** | >= 0.1 | `` `name` [kind] #tags `` |
 | **Omitted** | < 0.1 | Not included |
 
@@ -120,5 +120,3 @@ Token counts are estimated using the heuristic **1 token ~ 4 characters** (`(len
 | `internal/session/state.go` | Session-wide budget tracking and backoff |
 | `internal/mcp/handlers.go` | MCP resource handler (uses config budget) |
 | `cmd/floop/cmd_activate.go` | CLI activate (uses dynamic_context budget) |
-
-[^1]: **Known inconsistency:** The canonical tiering path (`internal/tiering/activation_tiers.go`) uses 0.3 for the summary threshold. However, `internal/constants/constants.go` defines `SummaryTierActivationThreshold = 0.4`, which is used by `cmd/floop/cmd_activate.go`. The two codepaths disagree — tracked for reconciliation.
