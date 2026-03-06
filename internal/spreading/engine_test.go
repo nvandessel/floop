@@ -976,3 +976,91 @@ func TestActivateWithSteps_EmptySeeds(t *testing.T) {
 		t.Error("expected non-nil empty slice, got nil")
 	}
 }
+
+// mockTagProvider implements TagProvider for testing.
+type mockTagProvider struct {
+	tags map[string][]string
+}
+
+func (m *mockTagProvider) GetAllBehaviorTags(_ context.Context) map[string][]string {
+	return m.tags
+}
+
+func TestEngine_AffinityEdgesDoNotInflateOutDegree(t *testing.T) {
+	// Regression test for floop-g30: virtual affinity edges were appended to
+	// the edges slice BEFORE outDegree was computed, diluting real edge energy.
+	//
+	// Setup: Seed -> A -> B (real edges), plus many virtual affinity neighbors
+	// via shared tags. Without the fix, B's activation is diluted by the
+	// virtual edge count in A's outDegree.
+	now := time.Now()
+
+	// Baseline: no affinity edges.
+	sBase := store.NewInMemoryGraphStore()
+	addNode(t, sBase, "Seed")
+	addNode(t, sBase, "A")
+	addNode(t, sBase, "B")
+	addEdge(t, sBase, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sBase, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+
+	cfgBase := DefaultConfig()
+	cfgBase.Inhibition = nil // Isolate the propagation behavior.
+	engBase := NewEngine(sBase, cfgBase)
+	seeds := []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}}
+
+	baseResults, err := engBase.Activate(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	rBBase := findResult(baseResults, "B")
+	if rBBase == nil {
+		t.Fatal("baseline: expected B in results")
+	}
+
+	// With affinity: A shares tags with 10 other behaviors, creating ~10
+	// virtual affinity edges. If outDegree includes virtual edges, A's real
+	// edge to B would be divided by ~12 instead of 2, severely diluting B.
+	sAff := store.NewInMemoryGraphStore()
+	addNode(t, sAff, "Seed")
+	addNode(t, sAff, "A")
+	addNode(t, sAff, "B")
+	addEdge(t, sAff, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sAff, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+
+	// Create 10 tag-affinity neighbors (not connected by real edges).
+	tags := map[string][]string{
+		"A": {"git", "worktree"},
+	}
+	for i := range 10 {
+		id := "V" + string(rune('0'+i))
+		addNode(t, sAff, id)
+		tags[id] = []string{"git", "worktree"} // identical tags → Jaccard 1.0
+	}
+
+	affCfg := DefaultAffinityConfig()
+	cfgAff := DefaultConfig()
+	cfgAff.Inhibition = nil
+	cfgAff.Affinity = &affCfg
+	cfgAff.TagProvider = &mockTagProvider{tags: tags}
+
+	engAff := NewEngine(sAff, cfgAff)
+
+	affResults, err := engAff.Activate(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("affinity: %v", err)
+	}
+	rBAff := findResult(affResults, "B")
+	if rBAff == nil {
+		t.Fatal("affinity: expected B in results")
+	}
+
+	// B's activation with affinity should be close to the baseline (real edges
+	// use the same outDegree regardless of virtual edges). Allow a small
+	// tolerance for second-order effects from virtual neighbors feeding back.
+	ratio := rBAff.Activation / rBBase.Activation
+	if ratio < 0.8 {
+		t.Errorf("virtual affinity edges diluted real edge energy: "+
+			"baseline B=%f, with affinity B=%f (ratio=%.2f, want >= 0.80)",
+			rBBase.Activation, rBAff.Activation, ratio)
+	}
+}

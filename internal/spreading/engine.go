@@ -124,6 +124,10 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			return fmt.Errorf("spreading activation: get edges for %s: %w", nodeID, err)
 		}
 
+		// Compute real outDegree before appending virtual edges so that
+		// virtual affinity edges don't dilute real edge energy (floop-g30).
+		realOutDegree := float64(len(edges))
+
 		// Append virtual affinity edges from shared tags.
 		if affinityEnabled && allTags != nil {
 			if nodeTags, ok := allTags[nodeID]; ok && len(nodeTags) > 0 {
@@ -135,13 +139,15 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			continue
 		}
 
+		virtualOutDegree := float64(len(edges)) - realOutDegree
+
 		// Count positive and conflict edges separately so conflict edges
 		// don't dilute energy flowing through positive edges.
 		var positiveCount, conflictCount int
 		for _, edge := range edges {
 			if edge.Kind == store.EdgeKindConflicts {
 				conflictCount++
-			} else {
+			} else if edge.Kind != "feature-affinity" {
 				positiveCount++
 			}
 		}
@@ -160,8 +166,17 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 					newActivation[neighbor] = 0
 				}
 			} else {
+				// Use separate outDegree for real vs virtual edges so that
+				// virtual affinity edges don't dilute real edge normalization.
+				outDegree := float64(positiveCount)
+				if edge.Kind == "feature-affinity" {
+					outDegree = virtualOutDegree
+				}
+				if outDegree == 0 {
+					outDegree = 1
+				}
 				// Normal edges spread: use max to prevent runaway activation.
-				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(positiveCount)
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / outDegree
 				energy *= e.config.DecayFactor
 				if energy > newActivation[neighbor] {
 					newActivation[neighbor] = energy
