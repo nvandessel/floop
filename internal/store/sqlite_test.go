@@ -2351,16 +2351,28 @@ func TestReadNodesFromJSONL_MalformedLines(t *testing.T) {
 	// Valid line
 	validNode := Node{ID: "good-1", Kind: NodeKindBehavior}
 	validJSON, _ := json.Marshal(validNode)
-	f.Write(validJSON)
-	f.WriteString("\n")
+	if _, err := f.Write(validJSON); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
 	// Malformed line
-	f.WriteString("{invalid json\n")
+	if _, err := f.WriteString("{invalid json\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
 	// Another valid line
 	validNode2 := Node{ID: "good-2", Kind: NodeKindBehavior}
 	validJSON2, _ := json.Marshal(validNode2)
-	f.Write(validJSON2)
-	f.WriteString("\n")
-	f.Close()
+	if _, err := f.Write(validJSON2); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close error: %v", err)
+	}
 
 	// Capture stderr to verify warning is logged
 	oldStderr := os.Stderr
