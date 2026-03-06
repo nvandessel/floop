@@ -29,8 +29,3 @@ dist/
 
 # Node.js (Playwright test dependencies)
 node_modules/
-
-# Gas Town (added by gt)
-.runtime/
-.claude/commands/
-.logs/
