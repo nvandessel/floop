@@ -694,20 +694,26 @@ func TestSQLiteGraphStore_AddBehaviorAtomic(t *testing.T) {
 
 	// Verify no partial data was left behind
 	var cancelledBehavior int
-	store.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM behaviors WHERE id = ?`, "cancelled-test").Scan(&cancelledBehavior)
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM behaviors WHERE id = ?`, "cancelled-test").Scan(&cancelledBehavior); err != nil {
+		t.Fatalf("query cancelled behaviors: %v", err)
+	}
 	if cancelledBehavior != 0 {
 		t.Errorf("cancelled behavior should not exist, got count = %d", cancelledBehavior)
 	}
 	var cancelledWhen int
-	store.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM behavior_when WHERE behavior_id = ?`, "cancelled-test").Scan(&cancelledWhen)
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM behavior_when WHERE behavior_id = ?`, "cancelled-test").Scan(&cancelledWhen); err != nil {
+		t.Fatalf("query cancelled when conditions: %v", err)
+	}
 	if cancelledWhen != 0 {
 		t.Errorf("cancelled when conditions should not exist, got count = %d", cancelledWhen)
 	}
 	var cancelledStats int
-	store.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM behavior_stats WHERE behavior_id = ?`, "cancelled-test").Scan(&cancelledStats)
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM behavior_stats WHERE behavior_id = ?`, "cancelled-test").Scan(&cancelledStats); err != nil {
+		t.Fatalf("query cancelled stats: %v", err)
+	}
 	if cancelledStats != 0 {
 		t.Errorf("cancelled stats should not exist, got count = %d", cancelledStats)
 	}

@@ -60,16 +60,18 @@ func (s *SQLiteGraphStore) ImportNodesFromJSONL(ctx context.Context, path string
 
 		// Add the node (uses INSERT OR REPLACE)
 		if isBehaviorKind(node.Kind) {
-			tx, err := s.db.BeginTx(ctx, nil)
-			if err != nil {
-				return fmt.Errorf("begin transaction for node %s: %w", node.ID, err)
-			}
-			if _, err := s.addBehavior(ctx, tx, node); err != nil {
-				tx.Rollback()
-				return fmt.Errorf("failed to import node %s: %w", node.ID, err)
-			}
-			if err := tx.Commit(); err != nil {
-				return fmt.Errorf("commit transaction for node %s: %w", node.ID, err)
+			if err := func() error {
+				tx, err := s.db.BeginTx(ctx, nil)
+				if err != nil {
+					return fmt.Errorf("begin transaction for node %s: %w", node.ID, err)
+				}
+				defer tx.Rollback()
+				if _, err := s.addBehavior(ctx, tx, node); err != nil {
+					return fmt.Errorf("failed to import node %s: %w", node.ID, err)
+				}
+				return tx.Commit()
+			}(); err != nil {
+				return err
 			}
 		} else {
 			if _, err := s.addGenericNode(ctx, node); err != nil {
