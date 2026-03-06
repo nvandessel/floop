@@ -135,24 +135,34 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			continue
 		}
 
-		outDegree := float64(len(edges))
+		// Count positive and conflict edges separately so conflict edges
+		// don't dilute energy flowing through positive edges.
+		var positiveCount, conflictCount int
+		for _, edge := range edges {
+			if edge.Kind == store.EdgeKindConflicts {
+				conflictCount++
+			} else {
+				positiveCount++
+			}
+		}
 
 		for _, edge := range edges {
 			neighbor := neighborID(nodeID, edge)
 
 			effectiveWeight := ranking.EdgeDecay(edge.Weight, edgeLastActivated(edge), e.config.TemporalDecayRate)
 
-			energy := nodeAct * e.config.SpreadFactor * effectiveWeight / outDegree
-			energy *= e.config.DecayFactor
-
 			if edge.Kind == store.EdgeKindConflicts {
 				// Conflict edges inhibit: subtract energy from neighbor.
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(conflictCount)
+				energy *= e.config.DecayFactor
 				newActivation[neighbor] -= energy
 				if newActivation[neighbor] < 0 {
 					newActivation[neighbor] = 0
 				}
 			} else {
 				// Normal edges spread: use max to prevent runaway activation.
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(positiveCount)
+				energy *= e.config.DecayFactor
 				if energy > newActivation[neighbor] {
 					newActivation[neighbor] = energy
 				}
