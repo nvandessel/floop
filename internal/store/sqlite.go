@@ -836,6 +836,11 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.getEdgesUnlocked(ctx, nodeID, direction, kind)
+}
+
+// getEdgesUnlocked retrieves edges without locking (caller must hold lock).
+func (s *SQLiteGraphStore) getEdgesUnlocked(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	var query string
 	var args []interface{}
 
@@ -931,8 +936,8 @@ func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string
 		*results = append(*results, *node)
 	}
 
-	// Get edges
-	edges, err := s.GetEdges(ctx, current, direction, "")
+	// Get edges (use unlocked variant — caller already holds RLock)
+	edges, err := s.getEdgesUnlocked(ctx, current, direction, "")
 	if err != nil {
 		return
 	}
