@@ -405,6 +405,92 @@ func TestSQLiteGraphStore_Traverse(t *testing.T) {
 	}
 }
 
+func TestSQLiteGraphStore_Traverse_ConcurrentWriter(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Build a graph: a -> b -> c
+	for _, id := range []string{"a", "b", "c"} {
+		mustAddNode(t, store, ctx, Node{
+			ID:   id,
+			Kind: NodeKindBehavior,
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": id,
+				},
+			},
+		})
+	}
+	mustAddEdge(t, store, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, store, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Concurrent writer to create writer contention on the RWMutex.
+	// This exposes the re-entrant RLock deadlock: Traverse holds RLock,
+	// a writer queues for Lock, then traverseRecursive's GetEdges blocks
+	// trying to re-acquire RLock (Go's RWMutex blocks new readers when
+	// a writer is waiting).
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		i := 0
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				id := fmt.Sprintf("writer-%d", i)
+				store.AddNode(ctx, Node{
+					ID:   id,
+					Kind: NodeKindBehavior,
+					Content: map[string]interface{}{
+						"name": id,
+						"kind": "directive",
+						"content": map[string]interface{}{
+							"canonical": id,
+						},
+					},
+				})
+				i++
+			}
+		}
+	}()
+
+	// Run Traverse many times; before the fix, this deadlocks
+	// when the writer's Lock request is queued between
+	// Traverse's RLock and traverseRecursive's GetEdges RLock.
+	for i := 0; i < 100; i++ {
+		resultCh := make(chan []Node, 1)
+		errCh := make(chan error, 1)
+		go func() {
+			results, err := store.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 2)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			resultCh <- results
+		}()
+
+		select {
+		case results := <-resultCh:
+			if len(results) != 3 {
+				t.Errorf("iteration %d: Traverse() = %d nodes, want 3", i, len(results))
+			}
+		case err := <-errCh:
+			t.Fatalf("iteration %d: Traverse() error = %v", i, err)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("iteration %d: Traverse() deadlocked (timed out after 5s)", i)
+		}
+	}
+}
+
 func TestSQLiteGraphStore_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 
