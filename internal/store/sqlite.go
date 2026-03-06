@@ -19,6 +19,12 @@ import (
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
+// dbExecutor abstracts *sql.DB and *sql.Tx for query/exec operations.
+type dbExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+}
+
 // SQLiteGraphStore implements GraphStore using SQLite for persistence.
 // It stores nodes and edges in a SQLite database and exports to JSONL on Sync().
 type SQLiteGraphStore struct {
@@ -150,7 +156,20 @@ func (s *SQLiteGraphStore) AddNode(ctx context.Context, node Node) (string, erro
 
 	// Use addBehavior for all behavior-related kinds
 	if isBehaviorKind(node.Kind) {
-		return s.addBehavior(ctx, node)
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return "", fmt.Errorf("begin transaction: %w", err)
+		}
+		defer tx.Rollback()
+
+		id, err := s.addBehavior(ctx, tx, node)
+		if err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("commit transaction: %w", err)
+		}
+		return id, nil
 	}
 
 	// For non-behavior nodes, store in a generic way using the behaviors table
@@ -172,7 +191,9 @@ func isBehaviorKind(kind NodeKind) bool {
 }
 
 // addBehavior adds a behavior node to the behaviors table.
-func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, error) {
+// All inserts (behavior, when conditions, stats) use the provided dbExecutor,
+// which should be a transaction to ensure atomicity.
+func (s *SQLiteGraphStore) addBehavior(ctx context.Context, db dbExecutor, node Node) (string, error) {
 	// Extract fields from content map
 	content := node.Content
 	metadata := node.Metadata
@@ -308,7 +329,7 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 
 	// Check for duplicate content hash before inserting
 	var existingID string
-	err = s.db.QueryRowContext(ctx,
+	err = db.QueryRowContext(ctx,
 		`SELECT id FROM behaviors WHERE content_hash = ? AND id != ?`,
 		contentHash, node.ID).Scan(&existingID)
 	if err == nil {
@@ -323,7 +344,7 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	now := time.Now().Format(time.RFC3339)
 
 	// Insert behavior (OR REPLACE handles same-ID updates)
-	_, err = s.db.ExecContext(ctx, `
+	_, err = db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO behaviors (
 			id, name, kind, behavior_type,
 			content_canonical, content_summary, content_structured, content_tags,
@@ -349,7 +370,7 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 		if err != nil {
 			return "", fmt.Errorf("serialize when condition %s: %w", field, err)
 		}
-		_, err = s.db.ExecContext(ctx, `
+		_, err = db.ExecContext(ctx, `
 			INSERT OR REPLACE INTO behavior_when (behavior_id, field, value, value_type)
 			VALUES (?, ?, ?, ?)
 		`, node.ID, field, valueStr, valueType)
@@ -382,7 +403,7 @@ func (s *SQLiteGraphStore) addBehavior(ctx context.Context, node Node) (string, 
 	lastActivated := utils.GetString(stats, "last_activated", "")
 	lastConfirmed := utils.GetString(stats, "last_confirmed", "")
 
-	_, err = s.db.ExecContext(ctx, `
+	_, err = db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO behavior_stats (
 			behavior_id, times_activated, times_followed, times_overridden, times_confirmed,
 			last_activated, last_confirmed
@@ -438,18 +459,29 @@ func (s *SQLiteGraphStore) UpdateNode(ctx context.Context, node Node) error {
 		return fmt.Errorf("failed to check node existence: %w", err)
 	}
 
-	// Delete existing when conditions (they'll be re-inserted)
+	if isBehaviorKind(node.Kind) {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin transaction: %w", err)
+		}
+		defer tx.Rollback()
+
+		// Delete existing when conditions (they'll be re-inserted)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM behavior_when WHERE behavior_id = ?`, node.ID); err != nil {
+			return fmt.Errorf("failed to delete when conditions: %w", err)
+		}
+
+		if _, err := s.addBehavior(ctx, tx, node); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+
+	// Delete existing when conditions for non-behavior nodes too
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM behavior_when WHERE behavior_id = ?`, node.ID); err != nil {
 		return fmt.Errorf("failed to delete when conditions: %w", err)
 	}
-
-	// Re-add the node (addBehavior uses INSERT OR REPLACE)
-	if isBehaviorKind(node.Kind) {
-		_, err = s.addBehavior(ctx, node)
-	} else {
-		_, err = s.addGenericNode(ctx, node)
-	}
-
+	_, err = s.addGenericNode(ctx, node)
 	return err
 }
 
