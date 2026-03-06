@@ -73,8 +73,8 @@ func TestVirtualAffinityEdges_Weight(t *testing.T) {
 		t.Errorf("weight = %f, want 0.4", edges[0].Weight)
 	}
 
-	if edges[0].Kind != "feature-affinity" {
-		t.Errorf("kind = %q, want %q", edges[0].Kind, "feature-affinity")
+	if edges[0].Kind != edgeKindFeatureAffinity {
+		t.Errorf("kind = %q, want %q", edges[0].Kind, edgeKindFeatureAffinity)
 	}
 }
 

@@ -147,7 +147,7 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 		for _, edge := range edges {
 			if edge.Kind == store.EdgeKindConflicts {
 				conflictCount++
-			} else if edge.Kind != "feature-affinity" {
+			} else if edge.Kind != edgeKindFeatureAffinity {
 				positiveCount++
 			}
 		}
@@ -169,7 +169,7 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 				// Use separate outDegree for real vs virtual edges so that
 				// virtual affinity edges don't dilute real edge normalization.
 				outDegree := float64(positiveCount)
-				if edge.Kind == "feature-affinity" {
+				if edge.Kind == edgeKindFeatureAffinity {
 					outDegree = virtualOutDegree
 				}
 				if outDegree == 0 {

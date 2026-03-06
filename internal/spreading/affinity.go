@@ -8,6 +8,9 @@ import (
 	"github.com/nvandessel/floop/internal/tagging"
 )
 
+// edgeKindFeatureAffinity is the Kind assigned to virtual tag-affinity edges.
+const edgeKindFeatureAffinity = "feature-affinity"
+
 // AffinityConfig controls virtual edge generation from shared tags.
 type AffinityConfig struct {
 	// Enabled controls whether feature affinity is active.
@@ -68,7 +71,7 @@ func virtualAffinityEdges(nodeID string, nodeTags []string, allTags map[string][
 		edges = append(edges, store.Edge{
 			Source:    nodeID,
 			Target:    otherID,
-			Kind:      "feature-affinity",
+			Kind:      edgeKindFeatureAffinity,
 			Weight:    weight,
 			CreatedAt: time.Now(),
 		})
