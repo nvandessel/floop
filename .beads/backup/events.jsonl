@@ -117,3 +117,5 @@
 {"actor":"floop/polecats/jasper","comment":null,"created_at":"2026-03-06T07:49:30Z","event_type":"closed","id":118,"issue_id":"floop-pzg","new_value":"Closed","old_value":""}
 {"actor":"floop/polecats/obsidian","comment":null,"created_at":"2026-03-06T07:51:02Z","event_type":"closed","id":119,"issue_id":"floop-e0f","new_value":"Closed","old_value":""}
 {"actor":"floop/polecats/opal","comment":null,"created_at":"2026-03-06T07:53:25Z","event_type":"closed","id":120,"issue_id":"floop-d3w","new_value":"Closed","old_value":""}
+{"actor":"floop/polecats/topaz","comment":null,"created_at":"2026-03-06T08:00:56Z","event_type":"closed","id":121,"issue_id":"floop-925","new_value":"Closed","old_value":""}
+{"actor":"mayor","comment":null,"created_at":"2026-03-06T08:10:23Z","event_type":"created","id":122,"issue_id":"floop-8rc","new_value":"","old_value":""}
