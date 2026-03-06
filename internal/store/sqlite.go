@@ -10,8 +10,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -1099,26 +1101,27 @@ func (s *SQLiteGraphStore) readNodesFromJSONL() ([]Node, error) {
 	defer f.Close()
 
 	var nodes []Node
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	reader := bufio.NewReader(f)
 
 	lineNum := 0
-	for scanner.Scan() {
+	for {
 		lineNum++
-		line := scanner.Text()
-		if line == "" {
-			continue
+		line, err := reader.ReadString('\n')
+		line = strings.TrimRight(line, "\n\r")
+		if line != "" {
+			var node Node
+			if unmarshalErr := json.Unmarshal([]byte(line), &node); unmarshalErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to parse nodes.jsonl line %d: %v\n", lineNum, unmarshalErr)
+			} else {
+				nodes = append(nodes, node)
+			}
 		}
-		var node Node
-		if err := json.Unmarshal([]byte(line), &node); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to parse nodes.jsonl line %d: %v\n", lineNum, err)
-			continue
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nodes, fmt.Errorf("error reading nodes file: %w", err)
 		}
-		nodes = append(nodes, node)
-	}
-	if err := scanner.Err(); err != nil {
-		return nodes, fmt.Errorf("error reading nodes file: %w", err)
 	}
 	return nodes, nil
 }

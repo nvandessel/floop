@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2391,10 +2392,7 @@ func TestReadNodesFromJSONL_MalformedLines(t *testing.T) {
 	w.Close()
 	os.Stderr = oldStderr
 
-	var stderrBuf strings.Builder
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	stderrBuf.Write(buf[:n])
+	stderrBytes, _ := io.ReadAll(r)
 	r.Close()
 
 	if err != nil {
@@ -2407,7 +2405,7 @@ func TestReadNodesFromJSONL_MalformedLines(t *testing.T) {
 	}
 
 	// Should have logged a warning about the malformed line
-	stderr := stderrBuf.String()
+	stderr := string(stderrBytes)
 	if !strings.Contains(stderr, "warning") {
 		t.Errorf("expected warning on stderr for malformed line, got: %q", stderr)
 	}
