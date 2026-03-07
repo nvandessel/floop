@@ -777,6 +777,64 @@ func TestEngine_ConflictEdgeInhibition(t *testing.T) {
 	})
 }
 
+func TestEngine_ConflictEdgesDoNotDilutePositiveSpread(t *testing.T) {
+	// Bug: outDegree counts ALL edges including conflicts, diluting positive energy.
+	// With 3 requires + 2 conflict edges, positive edges should get 1/3 energy each,
+	// not 1/5.
+	now := time.Now()
+
+	// Baseline: Seed -> A, B, C (3 requires, no conflicts)
+	sBaseline := store.NewInMemoryGraphStore()
+	for _, id := range []string{"Seed", "A", "B", "C"} {
+		addNode(t, sBaseline, id)
+	}
+	addEdge(t, sBaseline, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sBaseline, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sBaseline, "Seed", "C", store.EdgeKindRequires, 1.0, timePtr(now))
+
+	cfg := DefaultConfig()
+	cfg.Inhibition = nil // Isolate spreading behavior from lateral inhibition
+	engBaseline := NewEngine(sBaseline, cfg)
+	seeds := []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}}
+
+	baselineResults, err := engBaseline.Activate(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	// Test case: Seed -> A, B, C (3 requires) + Seed -> X, Y (2 conflicts)
+	sTest := store.NewInMemoryGraphStore()
+	for _, id := range []string{"Seed", "A", "B", "C", "X", "Y"} {
+		addNode(t, sTest, id)
+	}
+	addEdge(t, sTest, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sTest, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sTest, "Seed", "C", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sTest, "Seed", "X", store.EdgeKindConflicts, 1.0, timePtr(now))
+	addEdge(t, sTest, "Seed", "Y", store.EdgeKindConflicts, 1.0, timePtr(now))
+
+	engTest := NewEngine(sTest, cfg)
+	testResults, err := engTest.Activate(context.Background(), seeds)
+	if err != nil {
+		t.Fatalf("test case: %v", err)
+	}
+
+	// A's activation should be the same whether or not conflict edges exist.
+	tolerance := 0.001
+	for _, id := range []string{"A", "B", "C"} {
+		baselineNode := findResult(baselineResults, id)
+		testNode := findResult(testResults, id)
+		if baselineNode == nil || testNode == nil {
+			t.Fatalf("expected %s in both baseline and test results", id)
+		}
+
+		if math.Abs(baselineNode.Activation-testNode.Activation) > tolerance {
+			t.Errorf("conflict edges diluted positive spread for %s: baseline=%f, with conflicts=%f",
+				id, baselineNode.Activation, testNode.Activation)
+		}
+	}
+}
+
 // --- ActivateWithSteps tests ---
 
 func TestActivateWithSteps_LinearChain(t *testing.T) {
