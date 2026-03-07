@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2602,5 +2603,117 @@ func TestSQLiteStore_StatsRoundTrip(t *testing.T) {
 	}
 	if timesOverridden != 1 {
 		t.Errorf("times_overridden = %d, want 1", timesOverridden)
+	}
+}
+
+func TestReadNodesFromJSONL_MalformedLines(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add a valid node so the JSONL file gets created
+	_, err = s.AddNode(ctx, Node{
+		ID:   "valid-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "valid-1",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Valid behavior",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Now write a JSONL file with a mix of valid and malformed lines
+	nodesFile := filepath.Join(tmpDir, ".floop", "nodes.jsonl")
+	f, err := os.Create(nodesFile)
+	if err != nil {
+		t.Fatalf("os.Create() error = %v", err)
+	}
+	// Valid line
+	validNode := Node{ID: "good-1", Kind: NodeKindBehavior}
+	validJSON, _ := json.Marshal(validNode)
+	if _, err := f.Write(validJSON); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	// Malformed line
+	if _, err := f.WriteString("{invalid json\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	// Another valid line
+	validNode2 := Node{ID: "good-2", Kind: NodeKindBehavior}
+	validJSON2, _ := json.Marshal(validNode2)
+	if _, err := f.Write(validJSON2); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if _, err := f.WriteString("\n"); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close error: %v", err)
+	}
+
+	// Capture stderr to verify warning is logged
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	// Use a channel with timeout to prevent infinite hang on malformed input
+	type result struct {
+		nodes []Node
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		nodes, err := s.readNodesFromJSONL()
+		ch <- result{nodes, err}
+	}()
+
+	var res result
+	select {
+	case res = <-ch:
+	case <-time.After(10 * time.Second):
+		w.Close()
+		os.Stderr = oldStderr
+		r.Close()
+		t.Fatal("readNodesFromJSONL hung on malformed input (timeout after 10s)")
+	}
+	nodes, err := res.nodes, res.err
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	stderrBytes, _ := io.ReadAll(r)
+	r.Close()
+
+	if err != nil {
+		t.Fatalf("readNodesFromJSONL() error = %v", err)
+	}
+
+	// Should have read the 2 valid nodes, skipping the malformed one
+	if len(nodes) != 2 {
+		t.Errorf("got %d nodes, want 2", len(nodes))
+	}
+
+	// Should have logged a warning about the malformed line
+	stderr := string(stderrBytes)
+	if !strings.Contains(stderr, "warning") {
+		t.Errorf("expected warning on stderr for malformed line, got: %q", stderr)
 	}
 }
