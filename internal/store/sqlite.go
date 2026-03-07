@@ -736,7 +736,7 @@ func (s *SQLiteGraphStore) QueryNodes(ctx context.Context, predicate map[string]
 
 	query := `SELECT id FROM behaviors`
 	if len(whereClauses) > 0 {
-		query += " WHERE " + joinStrings(whereClauses, " AND ")
+		query += " WHERE " + joinStrings(whereClauses, " AND ") //nolint:gosec // G202: whereClauses contains only hardcoded column filters, not user input
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)

@@ -77,7 +77,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	s.mu.Unlock()
 
 	// Graceful shutdown when context is cancelled.
-	go func() {
+	go func() { //nolint:gosec // G118: context.Background is intentional — parent ctx is already cancelled at this point
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

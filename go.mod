@@ -1,8 +1,8 @@
 module github.com/nvandessel/floop
 
-go 1.25
+go 1.26
 
-toolchain go1.25.7
+toolchain go1.26.1
 
 require (
 	github.com/coder/hnsw v0.6.1
