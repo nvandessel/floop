@@ -463,6 +463,30 @@ func TestValuesEqual(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "mixed []string and []interface{} with overlap",
+			a:    []string{"a", "b"},
+			b:    []interface{}{"b", "c"},
+			want: true,
+		},
+		{
+			name: "mixed []interface{} and []string with overlap",
+			a:    []interface{}{"a", "b"},
+			b:    []string{"b", "c"},
+			want: true,
+		},
+		{
+			name: "mixed []string and []interface{} without overlap",
+			a:    []string{"a", "b"},
+			b:    []interface{}{"c", "d"},
+			want: false,
+		},
+		{
+			name: "mixed []interface{} and []string without overlap",
+			a:    []interface{}{"x", "y"},
+			b:    []string{"a", "b"},
+			want: false,
+		},
+		{
 			name: "equal integers",
 			a:    42,
 			b:    42,
