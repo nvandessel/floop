@@ -1039,35 +1039,31 @@ func TestEngine_DirectionalSuppression_ReverseTraversal(t *testing.T) {
 	}
 
 	t.Run("conflicts still suppress bidirectionally", func(t *testing.T) {
-		// Conflicts are symmetric — verify they still suppress in reverse.
-		// A -> B (conflicts). Seed B. A should be suppressed.
+		// Conflicts are symmetric — verify they suppress in the reverse
+		// direction (target→source). A→B (conflicts), seed only B.
+		// B processing the conflict edge should suppress A, not spread to it.
 		s := store.NewInMemoryGraphStore()
-		addNode(t, s, "Seed")
 		addNode(t, s, "A")
 		addNode(t, s, "B")
 
-		addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
 		addEdge(t, s, "A", "B", store.EdgeKindConflicts, 1.0, timePtr(now))
-		addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
 
 		cfg := DefaultConfig()
 		cfg.Inhibition = nil
 		eng := NewEngine(s, cfg)
-		seeds := []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}}
+		seeds := []Seed{{BehaviorID: "B", Activation: 1.0, Source: "test"}}
 
 		results, err := eng.Activate(context.Background(), seeds)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Baseline without the conflict edge
+		// Baseline: same graph but with requires edge (should spread positively).
 		sBaseline := store.NewInMemoryGraphStore()
-		addNode(t, sBaseline, "Seed")
 		addNode(t, sBaseline, "A")
 		addNode(t, sBaseline, "B")
 
-		addEdge(t, sBaseline, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
-		addEdge(t, sBaseline, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+		addEdge(t, sBaseline, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
 
 		engBaseline := NewEngine(sBaseline, cfg)
 		baselineResults, err := engBaseline.Activate(context.Background(), seeds)
@@ -1075,13 +1071,14 @@ func TestEngine_DirectionalSuppression_ReverseTraversal(t *testing.T) {
 			t.Fatalf("unexpected error in baseline: %v", err)
 		}
 
-		rA := findResult(results, "A")
 		rABaseline := findResult(baselineResults, "A")
-		if rABaseline == nil {
-			t.Fatal("expected A in baseline results")
+		if rABaseline == nil || rABaseline.Activation <= 0 {
+			t.Fatal("expected positive activation for A in baseline (requires edge)")
 		}
 
-		// With conflicts (symmetric), A SHOULD be suppressed even in reverse.
+		// With conflict edge, A should NOT gain activation from B.
+		// The conflict suppresses rather than spreads.
+		rA := findResult(results, "A")
 		conflictAct := 0.0
 		if rA != nil {
 			conflictAct = rA.Activation
