@@ -13,9 +13,10 @@ AI-generated contributions).
 
 ## Decision
 
-Fork `coder/hnsw` to `nvandessel/hnsw`. Replace `google/renameio` with
-`natefinch/atomic` using `io.Pipe` + `bufio` for memory-efficient atomic writes.
-Wire in via `go.mod` replace directive. Remove Windows build-tag workarounds.
+Fork `coder/hnsw` to `nvandessel/hnsw`. Replace `google/renameio` with pure
+stdlib atomic writes (`os.CreateTemp` + `os.Rename`), adding zero new
+dependencies. Wire in via `go.mod` replace directive. Remove Windows build-tag
+workarounds.
 
 ### Alternatives considered
 
@@ -38,9 +39,9 @@ Wire in via `go.mod` replace directive. Remove Windows build-tag workarounds.
 
 ### In the fork (nvandessel/hnsw)
 
-- Replace `renameio.TempFile` + `CloseAtomicallyReplace` with `atomic.WriteFile`
-- Use `io.Pipe` + `bufio.NewWriter` to avoid doubling peak memory
-- Remove `google/renameio` dependency, add `natefinch/atomic`
+- Replace `renameio.TempFile` + `CloseAtomicallyReplace` with `os.CreateTemp` + `bufio.NewWriter` + `os.Rename`
+- Pure stdlib approach: write to a temp file in the same directory, then atomically rename over the target
+- Remove `google/renameio` dependency entirely (zero new dependencies added)
 
 ### In floop
 

@@ -2,11 +2,17 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Replace `google/renameio` with `natefinch/atomic` in a fork of `coder/hnsw`, enabling native Windows HNSW support and removing the brute-force fallback.
+> **NOTE (2026-03-07):** The original plan described using `natefinch/atomic`
+> with `io.Pipe` + `bufio`. During implementation, a simpler pure-stdlib approach
+> was chosen instead: `os.CreateTemp` + `bufio.NewWriter` + `os.Rename`. This
+> avoids adding any new dependencies. The plan text below has been updated to
+> reflect the actual implementation. See the design doc for the rationale.
 
-**Architecture:** Fork `coder/hnsw` to `nvandessel/hnsw`. The only code change in the fork is the `Save()` method in `encode.go` — replacing `renameio` with `natefinch/atomic` + `io.Pipe` + `bufio` for memory-efficient atomic writes. In floop, wire in via `go.mod` replace directive and delete the Windows build-tag workaround.
+**Goal:** Replace `google/renameio` with pure stdlib atomic writes (`os.CreateTemp` + `os.Rename`) in a fork of `coder/hnsw`, enabling native Windows HNSW support and removing the brute-force fallback.
 
-**Tech Stack:** Go, `natefinch/atomic`, `io.Pipe`, `bufio`
+**Architecture:** Fork `coder/hnsw` to `nvandessel/hnsw`. The only code change in the fork is the `Save()` method in `encode.go` — replacing `renameio` with `os.CreateTemp` + `bufio.NewWriter` + `os.Rename` for cross-platform atomic writes. Zero new dependencies. In floop, wire in via `go.mod` replace directive and delete the Windows build-tag workaround.
+
+**Tech Stack:** Go stdlib (`os`, `bufio`)
 
 **Design doc:** `docs/plans/2026-03-03-hnsw-fork-design.md`
 
@@ -46,55 +52,23 @@ Expected: clean working tree on `fix/windows-atomic-save` branch.
 
 ---
 
-### Task 2: Replace renameio with natefinch/atomic in the fork
+### Task 2: Replace renameio with stdlib atomic saves in the fork
 
 **Files:**
-- Modify: `encode.go` (lines 2-12 imports, lines 302-327 Save method)
+- Modify: `encode.go` (imports and Save method)
 - Modify: `go.mod`
 
-**Step 1: Add natefinch/atomic dependency**
-
-```bash
-go get github.com/natefinch/atomic
-```
-
-**Step 2: Remove renameio dependency**
+**Step 1: Remove renameio dependency**
 
 ```bash
 go get -d github.com/google/renameio@none || true
 ```
 
-**Step 3: Replace the Save() method in encode.go**
+**Step 2: Replace the Save() method in encode.go**
 
-Replace the import block — change:
-```go
-import (
-	"bufio"
-	"cmp"
-	"encoding/binary"
-	"fmt"
-	"io"
-	"os"
+Replace the import block — remove `github.com/google/renameio`, add `"path/filepath"` to stdlib imports (if not already present). No third-party imports needed.
 
-	"github.com/google/renameio"
-)
-```
-
-To:
-```go
-import (
-	"bufio"
-	"cmp"
-	"encoding/binary"
-	"fmt"
-	"io"
-	"os"
-
-	"github.com/natefinch/atomic"
-)
-```
-
-Replace the `Save()` method (lines 302-327) — change:
+Replace the `Save()` method — change:
 ```go
 // Save writes the graph to the file.
 func (g *SavedGraph[K]) Save() error {
@@ -128,30 +102,28 @@ To:
 ```go
 // Save writes the graph to the file.
 func (g *SavedGraph[K]) Save() error {
-	pr, pw := io.Pipe()
+	dir := filepath.Dir(g.Path)
+	tmp, err := os.CreateTemp(dir, ".hnsw-save-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // clean up on failure
 
-	// Export into the pipe writer in a goroutine so that atomic.WriteFile
-	// can consume from the pipe reader concurrently.
-	go func() {
-		wr := bufio.NewWriter(pw)
-		err := g.Export(wr)
-		if err != nil {
-			pw.CloseWithError(fmt.Errorf("exporting: %w", err))
-			return
-		}
-		if err = wr.Flush(); err != nil {
-			pw.CloseWithError(fmt.Errorf("flushing: %w", err))
-			return
-		}
-		pw.Close()
-	}()
-
-	// atomic.WriteFile reads from pr, writes to a temp file, then
-	// atomically renames it to g.Path. bufio.Reader wrapping pr
-	// implements WriteTo, so io.Copy inside atomic.WriteFile avoids
-	// extra allocation.
-	if err := atomic.WriteFile(g.Path, bufio.NewReader(pr)); err != nil {
-		return fmt.Errorf("writing atomically: %w", err)
+	wr := bufio.NewWriter(tmp)
+	if err := g.Export(wr); err != nil {
+		tmp.Close()
+		return fmt.Errorf("exporting: %w", err)
+	}
+	if err := wr.Flush(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("flushing: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, g.Path); err != nil {
+		return fmt.Errorf("renaming temp file: %w", err)
 	}
 
 	return nil
@@ -159,19 +131,20 @@ func (g *SavedGraph[K]) Save() error {
 ```
 
 This approach:
-- Uses `io.Pipe` so `Export()` streams into `atomic.WriteFile` without buffering the full graph
-- `bufio.Writer` on the write side batches small writes into the pipe
-- `bufio.Reader` on the read side implements `WriteTo` so `io.Copy` avoids extra copy buffers
-- Constant memory overhead (just the bufio buffers), same as the original renameio approach
-- Cross-platform: `natefinch/atomic` uses `MoveFileExW` on Windows, `rename(2)` on Unix
+- Uses `os.CreateTemp` in the same directory as the target to ensure same-filesystem rename
+- `bufio.NewWriter` batches small writes for efficiency
+- `os.Rename` atomically replaces the target file (uses `rename(2)` on Unix, `MoveFileExW` on Windows)
+- Deferred `os.Remove` ensures temp file cleanup on any error path
+- Zero new dependencies — pure stdlib
+- Cross-platform: works on Linux, macOS, and Windows
 
-**Step 4: Run go mod tidy**
+**Step 3: Run go mod tidy**
 
 ```bash
 go mod tidy
 ```
 
-Expected: `google/renameio` removed from go.mod/go.sum, `natefinch/atomic` present.
+Expected: `google/renameio` removed from go.mod/go.sum. No new dependencies added.
 
 **Step 5: Run existing tests**
 
@@ -193,11 +166,10 @@ Expected: builds successfully (previously failed due to renameio).
 
 ```bash
 git add -A
-git commit -m "fix: replace renameio with natefinch/atomic for Windows support
+git commit -m "fix: replace renameio with stdlib os.CreateTemp + os.Rename
 
-Use io.Pipe + bufio to stream Export into atomic.WriteFile without
-buffering the full graph in memory. natefinch/atomic supports Windows
-via MoveFileExW.
+Use os.CreateTemp + bufio.NewWriter + os.Rename for atomic saves.
+Pure stdlib, zero new dependencies, cross-platform.
 
 Closes coder/hnsw#9"
 ```
@@ -235,7 +207,7 @@ replace github.com/coder/hnsw v0.6.1 => github.com/nvandessel/hnsw <commit-hash>
 GOWORK=off go mod tidy
 ```
 
-Expected: go.sum updated with nvandessel/hnsw and natefinch/atomic entries. `google/renameio` should be removed from go.sum (no longer transitively needed).
+Expected: go.sum updated with nvandessel/hnsw entries. `google/renameio` should be removed from go.sum (no longer transitively needed). No `natefinch/atomic` entries — the fork uses pure stdlib.
 
 **Step 3: Verify build**
 
@@ -259,9 +231,9 @@ Expected: all 11 HNSW tests + 7 tiered tests + brute-force tests pass.
 git add go.mod go.sum
 git commit -m "build: point coder/hnsw to nvandessel/hnsw fork
 
-The fork replaces google/renameio with natefinch/atomic for
-cross-platform atomic file writes. This is a prerequisite for
-removing the Windows brute-force fallback.
+The fork replaces google/renameio with pure stdlib atomic saves
+(os.CreateTemp + os.Rename) for cross-platform support. This is a
+prerequisite for removing the Windows brute-force fallback.
 
 Ref #174"
 ```
@@ -338,9 +310,9 @@ git add internal/vectorindex/hnsw.go internal/vectorindex/hnsw_test.go
 git rm internal/vectorindex/hnsw_windows.go
 git commit -m "feat: remove Windows HNSW fallback, enable native HNSW on all platforms
 
-With the nvandessel/hnsw fork replacing google/renameio with
-natefinch/atomic, the coder/hnsw library now builds on Windows.
-Remove the brute-force fallback and build tags.
+With the nvandessel/hnsw fork replacing google/renameio with stdlib
+atomic saves (os.CreateTemp + os.Rename), the library now builds on
+Windows. Remove the brute-force fallback and build tags.
 
 Closes #174"
 ```

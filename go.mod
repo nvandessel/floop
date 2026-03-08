@@ -82,4 +82,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/coder/hnsw v0.6.1 => github.com/nvandessel/hnsw v0.0.0-20260307213304-c9a465ef77b7
+replace github.com/coder/hnsw v0.6.1 => github.com/nvandessel/hnsw v0.6.2
