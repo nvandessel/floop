@@ -835,6 +835,100 @@ func TestEngine_ConflictEdgesDoNotDilutePositiveSpread(t *testing.T) {
 	}
 }
 
+func TestEngine_DirectionalSuppressiveEdges(t *testing.T) {
+	// Test that directional suppressive edges (overrides, deprecated-to, merged-into)
+	// only suppress in the outbound direction (source → target), not reverse.
+	now := time.Now()
+
+	edgeKinds := []struct {
+		name string
+		kind store.EdgeKind
+	}{
+		{"overrides", store.EdgeKindOverrides},
+		{"deprecated-to", store.EdgeKindDeprecatedTo},
+		{"merged-into", store.EdgeKindMergedInto},
+	}
+
+	cfg := DefaultConfig()
+	cfg.Inhibition = nil // Isolate spreading behavior
+
+	for _, ek := range edgeKinds {
+		t.Run(ek.name+" outbound suppresses target", func(t *testing.T) {
+			// Seed -> A (requires), A -> B (suppressive)
+			// Seeding A should suppress B.
+			s := store.NewInMemoryGraphStore()
+			addNode(t, s, "Seed")
+			addNode(t, s, "A")
+			addNode(t, s, "B")
+			addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, s, "A", "B", ek.kind, 1.0, timePtr(now))
+
+			eng := NewEngine(s, cfg)
+			results, err := eng.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Compare against a baseline with a requires edge.
+			sBase := store.NewInMemoryGraphStore()
+			addNode(t, sBase, "Seed")
+			addNode(t, sBase, "A")
+			addNode(t, sBase, "B")
+			addEdge(t, sBase, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, sBase, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+
+			engBase := NewEngine(sBase, cfg)
+			baseResults, err := engBase.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rB := findResult(results, "B")
+			rBBase := findResult(baseResults, "B")
+			if rBBase == nil {
+				t.Fatal("expected B in baseline results")
+			}
+
+			suppressAct := 0.0
+			if rB != nil {
+				suppressAct = rB.Activation
+			}
+			if suppressAct >= rBBase.Activation {
+				t.Errorf("%s edge should reduce B's activation: suppressive=%f, normal=%f",
+					ek.name, suppressAct, rBBase.Activation)
+			}
+		})
+
+		t.Run(ek.name+" reverse direction does not suppress source", func(t *testing.T) {
+			// A -> B (suppressive edge), Seed -> B (requires)
+			// Seeding B (the target) should NOT suppress A via reverse traversal.
+			// A should still receive positive activation from other paths.
+			s := store.NewInMemoryGraphStore()
+			addNode(t, s, "Seed")
+			addNode(t, s, "A")
+			addNode(t, s, "B")
+			addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, s, "A", "B", ek.kind, 1.0, timePtr(now))
+			addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 0.5, timePtr(now))
+
+			eng := NewEngine(s, cfg)
+			results, err := eng.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rA := findResult(results, "A")
+			if rA == nil {
+				t.Fatal("expected A in results — reverse suppression should not remove it")
+			}
+			if rA.Activation <= 0 {
+				t.Errorf("A should have positive activation despite reverse %s edge, got %f",
+					ek.name, rA.Activation)
+			}
+		})
+	}
+}
+
 // --- ActivateWithSteps tests ---
 
 func TestActivateWithSteps_LinearChain(t *testing.T) {

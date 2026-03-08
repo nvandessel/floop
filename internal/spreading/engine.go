@@ -135,17 +135,21 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			continue
 		}
 
-		// Count edges by category: virtual affinity, conflict, and positive (real non-conflict).
+		// Count edges by category: virtual affinity, suppressive, and positive (real non-suppressive).
 		// Each category uses its own denominator for energy normalization (floop-g30).
 		var virtualOutDegree float64
-		var positiveCount, conflictCount int
+		var positiveCount, suppressiveCount int
 		for _, edge := range edges {
 			if edge.Kind == edgeKindFeatureAffinity {
 				virtualOutDegree++
-			} else if edge.Kind == store.EdgeKindConflicts {
-				conflictCount++
 			} else {
-				positiveCount++
+				switch edge.Kind {
+				case store.EdgeKindConflicts, store.EdgeKindOverrides,
+					store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
+					suppressiveCount++
+				default:
+					positiveCount++
+				}
 			}
 		}
 
@@ -154,15 +158,27 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 
 			effectiveWeight := ranking.EdgeDecay(edge.Weight, edgeLastActivated(edge), e.config.TemporalDecayRate)
 
-			if edge.Kind == store.EdgeKindConflicts {
-				// Conflict edges inhibit: subtract energy from neighbor.
-				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(conflictCount)
+			switch edge.Kind {
+			case store.EdgeKindConflicts:
+				// Conflicts are symmetric — suppress in both directions.
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(suppressiveCount)
 				energy *= e.config.DecayFactor
 				newActivation[neighbor] -= energy
 				if newActivation[neighbor] < 0 {
 					newActivation[neighbor] = 0
 				}
-			} else {
+			case store.EdgeKindOverrides, store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
+				// Directional suppression: only suppress when traversing outbound (source → target).
+				// Seeding a deprecated node should NOT suppress its replacement.
+				if edge.Source == nodeID {
+					energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(suppressiveCount)
+					energy *= e.config.DecayFactor
+					newActivation[neighbor] -= energy
+					if newActivation[neighbor] < 0 {
+						newActivation[neighbor] = 0
+					}
+				}
+			default:
 				// Use separate outDegree for real vs virtual edges so that
 				// virtual affinity edges don't dilute real edge normalization.
 				outDegree := float64(positiveCount)
