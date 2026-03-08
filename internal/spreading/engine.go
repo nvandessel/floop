@@ -144,9 +144,12 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 				virtualOutDegree++
 			} else {
 				switch edge.Kind {
-				case store.EdgeKindConflicts, store.EdgeKindOverrides,
-					store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
+				case store.EdgeKindConflicts:
 					suppressiveCount++
+				case store.EdgeKindOverrides, store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
+					if edge.Source == nodeID {
+						suppressiveCount++
+					}
 				default:
 					positiveCount++
 				}
