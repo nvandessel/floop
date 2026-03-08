@@ -135,20 +135,22 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 			continue
 		}
 
-		// Count edges by category: virtual affinity, suppressive, and positive (real non-suppressive).
-		// Each category uses its own denominator for energy normalization (floop-g30).
+		// Count edges by category: virtual affinity, conflict, directional suppressive, and positive.
+		// Conflicts and directional suppressive edges use independent denominators so they
+		// don't dilute each other's normalization (floop-g30, greptile-199).
 		var virtualOutDegree float64
-		var positiveCount, suppressiveCount int
+		var positiveCount, conflictCount, directionalSuppressiveCount int
 		for _, edge := range edges {
 			if edge.Kind == edgeKindFeatureAffinity {
 				virtualOutDegree++
 			} else {
 				switch edge.Kind {
 				case store.EdgeKindConflicts:
-					suppressiveCount++
+					conflictCount++
 				case store.EdgeKindOverrides, store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
+					// Only count outbound directional edges — inbound ones don't suppress.
 					if edge.Source == nodeID {
-						suppressiveCount++
+						directionalSuppressiveCount++
 					}
 				default:
 					positiveCount++
@@ -161,25 +163,32 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 
 			effectiveWeight := ranking.EdgeDecay(edge.Weight, edgeLastActivated(edge), e.config.TemporalDecayRate)
 
+			// Track whether this edge actually spread or suppressed energy,
+			// so we only update distance for edges that did real work.
+			energySpread := false
+
 			switch edge.Kind {
 			case store.EdgeKindConflicts:
 				// Conflicts are symmetric — suppress in both directions.
-				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(suppressiveCount)
+				// Use conflictCount as the denominator, independent of directional edges.
+				energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(conflictCount)
 				energy *= e.config.DecayFactor
 				newActivation[neighbor] -= energy
 				if newActivation[neighbor] < 0 {
 					newActivation[neighbor] = 0
 				}
+				energySpread = true
 			case store.EdgeKindOverrides, store.EdgeKindDeprecatedTo, store.EdgeKindMergedInto:
 				// Directional suppression: only suppress when traversing outbound (source → target).
 				// Seeding a deprecated node should NOT suppress its replacement.
 				if edge.Source == nodeID {
-					energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(suppressiveCount)
+					energy := nodeAct * e.config.SpreadFactor * effectiveWeight / float64(directionalSuppressiveCount)
 					energy *= e.config.DecayFactor
 					newActivation[neighbor] -= energy
 					if newActivation[neighbor] < 0 {
 						newActivation[neighbor] = 0
 					}
+					energySpread = true
 				}
 			default:
 				// Use separate outDegree for real vs virtual edges so that
@@ -198,10 +207,13 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 				if energy > newActivation[neighbor] {
 					newActivation[neighbor] = energy
 				}
+				energySpread = true
 			}
 
 			// Track distance and seed source via the shortest path.
-			if distance != nil {
+			// Only update when energy was actually spread — inbound directional
+			// edges that skip the suppression guard should not record distances.
+			if distance != nil && energySpread {
 				newDist := distance[nodeID] + 1
 				if existingDist, exists := distance[neighbor]; !exists || newDist < existingDist {
 					distance[neighbor] = newDist

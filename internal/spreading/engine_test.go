@@ -900,9 +900,9 @@ func TestEngine_DirectionalSuppressiveEdges(t *testing.T) {
 		})
 
 		t.Run(ek.name+" reverse direction does not suppress source", func(t *testing.T) {
-			// A -> B (suppressive edge), Seed -> B (requires)
+			// A -> B (suppressive edge), Seed -> B (requires), Seed -> A (requires)
 			// Seeding B (the target) should NOT suppress A via reverse traversal.
-			// A should still receive positive activation from other paths.
+			// A's activation should match a baseline without the suppressive edge.
 			s := store.NewInMemoryGraphStore()
 			addNode(t, s, "Seed")
 			addNode(t, s, "A")
@@ -921,9 +921,34 @@ func TestEngine_DirectionalSuppressiveEdges(t *testing.T) {
 			if rA == nil {
 				t.Fatal("expected A in results — reverse suppression should not remove it")
 			}
-			if rA.Activation <= 0 {
-				t.Errorf("A should have positive activation despite reverse %s edge, got %f",
-					ek.name, rA.Activation)
+
+			// Compare against a baseline without the suppressive edge to ensure
+			// the reverse traversal doesn't dilute A's activation via the
+			// suppressiveCount denominator.
+			sBase := store.NewInMemoryGraphStore()
+			addNode(t, sBase, "Seed")
+			addNode(t, sBase, "A")
+			addNode(t, sBase, "B")
+			addEdge(t, sBase, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, sBase, "Seed", "A", store.EdgeKindRequires, 0.5, timePtr(now))
+
+			engBase := NewEngine(sBase, cfg)
+			baseResults, err := engBase.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("baseline: %v", err)
+			}
+
+			rABase := findResult(baseResults, "A")
+			if rABase == nil {
+				t.Fatal("expected A in baseline results")
+			}
+
+			// A's activation should match the baseline — the inbound suppressive
+			// edge should have zero effect on A's incoming positive energy.
+			tolerance := 0.001
+			if math.Abs(rA.Activation-rABase.Activation) > tolerance {
+				t.Errorf("reverse %s edge diluted A's activation: with edge=%f, baseline=%f (should be equal)",
+					ek.name, rA.Activation, rABase.Activation)
 			}
 		})
 	}
