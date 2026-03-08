@@ -368,6 +368,71 @@ func TestSQLiteGraphStore_UpdateNodeNotFound(t *testing.T) {
 	}
 }
 
+func TestSQLiteGraphStore_UpdateNode_NonBehavior(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add a non-behavior node (context-snapshot is not a behavior kind)
+	node := Node{
+		ID:   "ctx-snap-1",
+		Kind: NodeKindContextSnapshot,
+		Content: map[string]interface{}{
+			"name":    "Snapshot Original",
+			"summary": "Original snapshot summary",
+		},
+	}
+	mustAddNode(t, store, ctx, node)
+
+	// Verify initial state
+	got, err := store.GetNode(ctx, "ctx-snap-1")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil for added node")
+	}
+	if got.Kind != NodeKindContextSnapshot {
+		t.Errorf("initial kind = %v, want %v", got.Kind, NodeKindContextSnapshot)
+	}
+
+	// Update the non-behavior node with new content
+	node.Content["summary"] = "Updated snapshot summary"
+	err = store.UpdateNode(ctx, node)
+	if err != nil {
+		t.Fatalf("UpdateNode() error = %v", err)
+	}
+
+	// Verify the update persisted
+	got, err = store.GetNode(ctx, "ctx-snap-1")
+	if err != nil {
+		t.Fatalf("GetNode() after update error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil after update")
+	}
+	if got.Kind != NodeKindContextSnapshot {
+		t.Errorf("kind after update = %v, want %v", got.Kind, NodeKindContextSnapshot)
+	}
+
+	// Verify the node was atomically replaced (INSERT OR REPLACE) -
+	// there should still be exactly one row for this ID.
+	var count int
+	err = store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM behaviors WHERE id = ?`, "ctx-snap-1").Scan(&count)
+	if err != nil {
+		t.Fatalf("count query error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("behaviors row count = %d, want 1 (atomic insert-or-replace)", count)
+	}
+}
+
 func TestSQLiteGraphStore_DeleteNode(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewSQLiteGraphStore(tmpDir)
