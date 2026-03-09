@@ -368,6 +368,89 @@ func TestSQLiteGraphStore_UpdateNodeNotFound(t *testing.T) {
 	}
 }
 
+func TestSQLiteGraphStore_UpdateNode_NonBehavior(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Add a non-behavior node (context-snapshot is not a behavior kind)
+	node := Node{
+		ID:   "ctx-snap-1",
+		Kind: NodeKindContextSnapshot,
+		Content: map[string]interface{}{
+			"name":    "Snapshot Original",
+			"summary": "Original snapshot summary",
+		},
+	}
+	mustAddNode(t, store, ctx, node)
+
+	// Verify initial state
+	got, err := store.GetNode(ctx, "ctx-snap-1")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil for added node")
+	}
+	if got.Kind != NodeKindContextSnapshot {
+		t.Errorf("initial kind = %v, want %v", got.Kind, NodeKindContextSnapshot)
+	}
+
+	// Update the non-behavior node with new content
+	node.Content["summary"] = "Updated snapshot summary"
+	err = store.UpdateNode(ctx, node)
+	if err != nil {
+		t.Fatalf("UpdateNode() error = %v", err)
+	}
+
+	// Verify the update persisted
+	got, err = store.GetNode(ctx, "ctx-snap-1")
+	if err != nil {
+		t.Fatalf("GetNode() after update error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil after update")
+	}
+	if got.Kind != NodeKindContextSnapshot {
+		t.Errorf("kind after update = %v, want %v", got.Kind, NodeKindContextSnapshot)
+	}
+
+	// Verify the updated content was actually persisted.
+	// For non-behavior nodes, the original Content map is stored as JSON in
+	// content_structured and returned under content["content"]["structured"].
+	contentMap, ok := got.Content["content"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("content[\"content\"] is not a map, got %T: %v", got.Content["content"], got.Content["content"])
+	}
+	structured, ok := contentMap["structured"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("content[\"content\"][\"structured\"] is not a map, got %T: %v", contentMap["structured"], contentMap["structured"])
+	}
+	if structured["summary"] != "Updated snapshot summary" {
+		t.Errorf("UpdateNode() did not persist content, got summary = %v, want %q", structured["summary"], "Updated snapshot summary")
+	}
+	if structured["name"] != "Snapshot Original" {
+		t.Errorf("UpdateNode() lost unchanged content fields, got name = %v, want %q", structured["name"], "Snapshot Original")
+	}
+
+	// Verify the node was atomically replaced (INSERT OR REPLACE) -
+	// there should still be exactly one row for this ID.
+	var count int
+	err = store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM behaviors WHERE id = ?`, "ctx-snap-1").Scan(&count)
+	if err != nil {
+		t.Fatalf("count query error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("behaviors row count = %d, want 1 (atomic insert-or-replace)", count)
+	}
+}
+
 func TestSQLiteGraphStore_DeleteNode(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewSQLiteGraphStore(tmpDir)

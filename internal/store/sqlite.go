@@ -426,8 +426,13 @@ func (s *SQLiteGraphStore) addBehaviorWith(ctx context.Context, q dbQuerier, nod
 	return node.ID, nil
 }
 
-// addGenericNode adds a non-behavior node to the behaviors table.
+// addGenericNode adds a non-behavior node to the behaviors table using s.db.
 func (s *SQLiteGraphStore) addGenericNode(ctx context.Context, node Node) (string, error) {
+	return s.addGenericNodeWith(ctx, s.db, node)
+}
+
+// addGenericNodeWith adds a non-behavior node using the provided querier (DB or Tx).
+func (s *SQLiteGraphStore) addGenericNodeWith(ctx context.Context, q dbQuerier, node Node) (string, error) {
 	contentJSON, err := json.Marshal(node.Content)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal content: %w", err)
@@ -435,7 +440,7 @@ func (s *SQLiteGraphStore) addGenericNode(ctx context.Context, node Node) (strin
 
 	now := time.Now().Format(time.RFC3339)
 
-	_, err = s.db.ExecContext(ctx, `
+	_, err = q.ExecContext(ctx, `
 		INSERT OR REPLACE INTO behaviors (
 			id, name, kind,
 			content_canonical, content_structured,
@@ -484,7 +489,7 @@ func (s *SQLiteGraphStore) UpdateNode(ctx context.Context, node Node) error {
 	if isBehaviorKind(node.Kind) {
 		_, err = s.addBehaviorWith(ctx, tx, node)
 	} else {
-		_, err = s.addGenericNode(ctx, node)
+		_, err = s.addGenericNodeWith(ctx, tx, node)
 	}
 	if err != nil {
 		return err
@@ -839,6 +844,11 @@ func (s *SQLiteGraphStore) GetEdges(ctx context.Context, nodeID string, directio
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.getEdgesUnlocked(ctx, nodeID, direction, kind)
+}
+
+// getEdgesUnlocked retrieves edges without locking (caller must hold lock).
+func (s *SQLiteGraphStore) getEdgesUnlocked(ctx context.Context, nodeID string, direction Direction, kind EdgeKind) ([]Edge, error) {
 	var query string
 	var args []interface{}
 
@@ -918,26 +928,31 @@ func (s *SQLiteGraphStore) Traverse(ctx context.Context, start string, edgeKinds
 	visited := make(map[string]bool)
 	var results []Node
 
-	s.traverseRecursive(ctx, start, edgeKinds, direction, maxDepth, 0, visited, &results)
+	if err := s.traverseRecursive(ctx, start, edgeKinds, direction, maxDepth, 0, visited, &results); err != nil {
+		return nil, fmt.Errorf("traverse from %s: %w", start, err)
+	}
 
 	return results, nil
 }
 
-func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) {
+func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string, edgeKinds []EdgeKind, direction Direction, maxDepth, depth int, visited map[string]bool, results *[]Node) error {
 	if depth > maxDepth || visited[current] {
-		return
+		return nil
 	}
 	visited[current] = true
 
 	node, err := s.getNodeUnlocked(ctx, current)
-	if err == nil && node != nil {
+	if err != nil {
+		return fmt.Errorf("get node %s: %w", current, err)
+	}
+	if node != nil {
 		*results = append(*results, *node)
 	}
 
-	// Get edges
-	edges, err := s.GetEdges(ctx, current, direction, "")
+	// Get edges (caller already holds RLock, so use unlocked variant)
+	edges, err := s.getEdgesUnlocked(ctx, current, direction, "")
 	if err != nil {
-		return
+		return fmt.Errorf("get edges for %s: %w", current, err)
 	}
 
 	for _, e := range edges {
@@ -964,9 +979,12 @@ func (s *SQLiteGraphStore) traverseRecursive(ctx context.Context, current string
 		}
 
 		if next != "" {
-			s.traverseRecursive(ctx, next, edgeKinds, direction, maxDepth, depth+1, visited, results)
+			if err := s.traverseRecursive(ctx, next, edgeKinds, direction, maxDepth, depth+1, visited, results); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // Sync exports dirty behaviors to JSONL files.
