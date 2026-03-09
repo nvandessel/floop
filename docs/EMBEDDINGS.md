@@ -94,8 +94,6 @@ At startup, the MCP server loads all stored embeddings into an in-memory **Vecto
 
 Promotion from brute-force to HNSW happens automatically when the vector count crosses the threshold. Once promoted, the index stays HNSW (no demotion) to avoid oscillation. The HNSW graph is persisted to `.floop/hnsw.bin` and reloaded on startup.
 
-**Platform note:** On Windows, the HNSW backend falls back to brute-force search because the underlying `coder/hnsw` library depends on `google/renameio` which does not compile on Windows. A native Windows HNSW solution is planned.
-
 ### Performance
 
 At typical scales (~200 behaviors), brute-force search completes in microseconds. For larger stores (1,000+ behaviors), the HNSW index provides sub-millisecond search with O(log n) scaling. The tiered approach means no manual configuration is needed — the system adapts automatically.

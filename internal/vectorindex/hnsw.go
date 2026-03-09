@@ -1,5 +1,3 @@
-//go:build !windows
-
 package vectorindex
 
 import (
@@ -97,29 +95,10 @@ func NewHNSWIndex(cfg HNSWConfig) (*HNSWIndex, error) {
 		sg = newHNSWGraph(cfg, "", nil)
 	}
 
-	// Build shadow map from loaded graph.
+	// Build shadow map from loaded graph using exact iteration.
 	vecs := make(map[string][]float32, sg.Len())
-	if sg.Len() > 0 {
-		// We can iterate all keys by searching with a dummy vector
-		// that returns all nodes. Instead, we rely on the graph's
-		// internal Lookup. We need to discover all keys; the simplest
-		// safe approach is to search with a large topK from a zero vector.
-		// However, since we might not know the dimensionality, we
-		// just trust the loaded graph and populate the shadow map
-		// lazily during the first full search. Actually, we should
-		// reconstruct the map from the graph by probing.
-		//
-		// The hnsw library doesn't expose an iteration method, so
-		// we need to extract all nodes by searching.  For a fresh
-		// load this is acceptable.
-		dims := sg.Dims()
-		if dims > 0 {
-			probe := make([]float32, dims)
-			nodes := sg.Search(probe, sg.Len())
-			for _, n := range nodes {
-				vecs[n.Key] = n.Value
-			}
-		}
+	for _, n := range sg.All() {
+		vecs[n.Key] = n.Value
 	}
 
 	return &HNSWIndex{graph: sg, vectors: vecs}, nil
