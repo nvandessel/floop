@@ -1,5 +1,3 @@
-//go:build !windows
-
 package vectorindex
 
 import (
@@ -207,6 +205,58 @@ func TestHNSWIndex_Persistence(t *testing.T) {
 	}
 	if results[0].Score < 0.99 {
 		t.Errorf("expected score ~1.0 after reload, got %f", results[0].Score)
+	}
+}
+
+func TestHNSWIndex_PersistenceLargeGraph(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Create an index with more vectors than the default EfSearch (100)
+	// to verify shadow-map reconstruction recovers all nodes.
+	idx, err := NewHNSWIndex(HNSWConfig{Dir: dir})
+	if err != nil {
+		t.Fatalf("NewHNSWIndex: %v", err)
+	}
+
+	// Insert more vectors than the default EfSearch (100) to verify
+	// shadow-map reconstruction recovers all entries on reload.
+	const numVectors = 150
+	const dims = 8
+	for i := 0; i < numVectors; i++ {
+		key := fmt.Sprintf("b%d", i)
+		v := make([]float32, dims)
+		for d := 0; d < dims; d++ {
+			v[d] = float32(i*dims+d) / float32(numVectors*dims)
+		}
+		mustAdd(t, idx, ctx, key, v)
+	}
+
+	if err := idx.Save(ctx); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reload and verify all vectors survived the round-trip.
+	idx2, err := NewHNSWIndex(HNSWConfig{Dir: dir})
+	if err != nil {
+		t.Fatalf("reload NewHNSWIndex: %v", err)
+	}
+	defer idx2.Close()
+
+	if idx2.Len() != numVectors {
+		t.Fatalf("expected Len()=%d after reload, got %d", numVectors, idx2.Len())
+	}
+
+	// Trigger a rebuild (via Remove) to confirm the shadow map drove the
+	// reconstruction — if any entries were missing, Len would drop.
+	if err := idx2.Remove(ctx, "b0"); err != nil {
+		t.Fatalf("Remove after reload: %v", err)
+	}
+	if idx2.Len() != numVectors-1 {
+		t.Fatalf("expected Len()=%d after remove, got %d", numVectors-1, idx2.Len())
 	}
 }
 
