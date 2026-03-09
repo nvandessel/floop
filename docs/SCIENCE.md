@@ -125,6 +125,47 @@ When the learning pipeline places a new behavior, it evaluates `isMoreSpecific(a
 
 Behaviors with empty `when` maps (`{}`) are treated as **unscoped** — they apply everywhere and are not considered "less specific" than scoped behaviors. This means no override edges are created from scoped behaviors to unscoped ones. Without this distinction, every scoped behavior would override every unscoped one, producing O(n*m) spurious edges that inflate outDegree denominators and dilute spreading activation.
 
+## Suppressive Edge Semantics
+
+The behavior graph contains two categories of suppressive edges that reduce
+a neighbor's activation instead of boosting it. They use **independent
+denominators** during energy normalization so that adding one kind never
+dilutes the other.
+
+### Symmetric suppression — `conflicts`
+
+A `conflicts` edge is bidirectional: if A conflicts with B, seeding either
+node suppresses the other. Energy is divided by the number of conflict edges
+on the source node (`conflictCount`).
+
+### Directional suppression — `overrides`, `deprecated-to`, `merged-into`
+
+These edges carry a semantic direction: the **source** supersedes the
+**target**. Suppression therefore only fires on outbound traversal
+(source → target). When activation flows in the reverse direction — e.g.
+seeding a deprecated node — no suppression occurs, because the deprecated
+node should not suppress its replacement.
+
+The denominator for directional suppressive energy is
+`directionalSuppressiveCount`, counted independently from `conflictCount`
+and `positiveCount`. This prevents the dilution problem described in
+PR #191 review (greptile-199): adding a directional edge to a node that
+already has conflict edges cannot silently halve the conflict suppression
+energy, or vice versa.
+
+### Why four denominators?
+
+| Category | Denominator | Edges counted |
+|---|---|---|
+| Positive spread | `positiveCount` | All non-suppressive, non-affinity real edges |
+| Conflict suppression | `conflictCount` | `conflicts` edges (both directions) |
+| Directional suppression | `directionalSuppressiveCount` | `overrides` / `deprecated-to` / `merged-into` (outbound only) |
+| Virtual affinity | `virtualOutDegree` | Feature-affinity edges (tag-derived) |
+
+Each category normalizes against its own count, so the four pools of energy
+are orthogonal. This is a semantic change introduced in PR #199 (issue #191) that
+supersedes the simpler two-pool model from PR #188/189.
+
 ## Embedding-Based Retrieval
 
 While spreading activation excels at exploiting graph structure, it requires behaviors to be reachable via edges from seed nodes. Embedding-based retrieval complements this by finding semantically relevant behaviors through vector similarity, even when no graph path exists.

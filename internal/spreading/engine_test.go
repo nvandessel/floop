@@ -835,6 +835,206 @@ func TestEngine_ConflictEdgesDoNotDilutePositiveSpread(t *testing.T) {
 	}
 }
 
+func TestEngine_DirectionalSuppressiveEdges(t *testing.T) {
+	// Test that directional suppressive edges (overrides, deprecated-to, merged-into)
+	// only suppress in the outbound direction (source → target), not reverse.
+	now := time.Now()
+
+	edgeKinds := []struct {
+		name string
+		kind store.EdgeKind
+	}{
+		{"overrides", store.EdgeKindOverrides},
+		{"deprecated-to", store.EdgeKindDeprecatedTo},
+		{"merged-into", store.EdgeKindMergedInto},
+	}
+
+	cfg := DefaultConfig()
+	cfg.Inhibition = nil // Isolate spreading behavior
+
+	for _, ek := range edgeKinds {
+		t.Run(ek.name+" outbound suppresses target", func(t *testing.T) {
+			// Seed -> A (requires), Seed -> B (requires, w=0.2), A -> B (suppressive)
+			// B has an independent positive activation path via Seed -> B.
+			// The suppressive A -> B edge should reduce B's activation below
+			// the baseline where A -> B is a normal requires edge instead.
+			s := store.NewInMemoryGraphStore()
+			addNode(t, s, "Seed")
+			addNode(t, s, "A")
+			addNode(t, s, "B")
+			addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 0.2, timePtr(now))
+			addEdge(t, s, "A", "B", ek.kind, 1.0, timePtr(now))
+
+			eng := NewEngine(s, cfg)
+			results, err := eng.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Baseline: same graph but A -> B is a normal requires edge.
+			sBase := store.NewInMemoryGraphStore()
+			addNode(t, sBase, "Seed")
+			addNode(t, sBase, "A")
+			addNode(t, sBase, "B")
+			addEdge(t, sBase, "Seed", "A", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, sBase, "Seed", "B", store.EdgeKindRequires, 0.2, timePtr(now))
+			addEdge(t, sBase, "A", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+
+			engBase := NewEngine(sBase, cfg)
+			baseResults, err := engBase.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rB := findResult(results, "B")
+			rBBase := findResult(baseResults, "B")
+			if rB == nil {
+				t.Fatal("expected B in suppressive results (has positive path via Seed)")
+			}
+			if rBBase == nil {
+				t.Fatal("expected B in baseline results")
+			}
+
+			if rB.Activation >= rBBase.Activation {
+				t.Errorf("%s edge should reduce B's activation: suppressive=%f, baseline=%f",
+					ek.name, rB.Activation, rBBase.Activation)
+			}
+		})
+
+		t.Run(ek.name+" reverse direction does not suppress source", func(t *testing.T) {
+			// A -> B (suppressive edge), Seed -> B (requires), Seed -> A (requires)
+			// Seeding B (the target) should NOT suppress A via reverse traversal.
+			// A's activation should match a baseline without the suppressive edge.
+			s := store.NewInMemoryGraphStore()
+			addNode(t, s, "Seed")
+			addNode(t, s, "A")
+			addNode(t, s, "B")
+			addEdge(t, s, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, s, "A", "B", ek.kind, 1.0, timePtr(now))
+			addEdge(t, s, "Seed", "A", store.EdgeKindRequires, 0.5, timePtr(now))
+
+			eng := NewEngine(s, cfg)
+			results, err := eng.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			rA := findResult(results, "A")
+			if rA == nil {
+				t.Fatal("expected A in results — reverse suppression should not remove it")
+			}
+
+			// Compare against a baseline without the suppressive edge to ensure
+			// the reverse traversal doesn't dilute A's activation via the
+			// suppressiveCount denominator.
+			sBase := store.NewInMemoryGraphStore()
+			addNode(t, sBase, "Seed")
+			addNode(t, sBase, "A")
+			addNode(t, sBase, "B")
+			addEdge(t, sBase, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+			addEdge(t, sBase, "Seed", "A", store.EdgeKindRequires, 0.5, timePtr(now))
+
+			engBase := NewEngine(sBase, cfg)
+			baseResults, err := engBase.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+			if err != nil {
+				t.Fatalf("baseline: %v", err)
+			}
+
+			rABase := findResult(baseResults, "A")
+			if rABase == nil {
+				t.Fatal("expected A in baseline results")
+			}
+
+			// A's activation should match the baseline — the inbound suppressive
+			// edge should have zero effect on A's incoming positive energy.
+			tolerance := 0.001
+			if math.Abs(rA.Activation-rABase.Activation) > tolerance {
+				t.Errorf("reverse %s edge diluted A's activation: with edge=%f, baseline=%f (should be equal)",
+					ek.name, rA.Activation, rABase.Activation)
+			}
+		})
+	}
+}
+
+func TestEngine_InboundDirectionalDoesNotInflateSuppressionDenominator(t *testing.T) {
+	// Regression: when a node has an inbound directional suppressive edge
+	// (e.g., C overrides B, traversed in reverse from B's perspective) AND
+	// an outgoing conflict edge, the counting loop must not include the
+	// inbound directional edge in suppressiveCount. Otherwise the conflict
+	// energy is divided by 2 instead of 1, diluting the suppression.
+	//
+	// Graph:
+	//   Seed -> B (requires, w=1.0)
+	//   C -> B (overrides — inbound to B, should NOT count as suppressive from B)
+	//   B -> X (conflicts — outgoing, should count as suppressive from B)
+	//
+	// Baseline (no inbound directional edge):
+	//   Seed -> B (requires, w=1.0)
+	//   B -> X (conflicts)
+	//
+	// With the bug, B's conflict energy toward X is divided by 2 (both edges
+	// counted), producing weaker suppression. With the fix, suppressiveCount=1
+	// and the conflict energy matches the baseline.
+	now := time.Now()
+
+	cfg := DefaultConfig()
+	cfg.Inhibition = nil // Isolate spreading behavior
+
+	// Baseline: no inbound directional edge.
+	sBase := store.NewInMemoryGraphStore()
+	addNode(t, sBase, "Seed")
+	addNode(t, sBase, "B")
+	addNode(t, sBase, "X")
+	addEdge(t, sBase, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sBase, "B", "X", store.EdgeKindConflicts, 1.0, timePtr(now))
+
+	engBase := NewEngine(sBase, cfg)
+	baseResults, err := engBase.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	// Test: add an inbound overrides edge (C -> B).
+	sTest := store.NewInMemoryGraphStore()
+	addNode(t, sTest, "Seed")
+	addNode(t, sTest, "B")
+	addNode(t, sTest, "X")
+	addNode(t, sTest, "C")
+	addEdge(t, sTest, "Seed", "B", store.EdgeKindRequires, 1.0, timePtr(now))
+	addEdge(t, sTest, "B", "X", store.EdgeKindConflicts, 1.0, timePtr(now))
+	addEdge(t, sTest, "C", "B", store.EdgeKindOverrides, 1.0, timePtr(now)) // inbound to B
+
+	engTest := NewEngine(sTest, cfg)
+	testResults, err := engTest.Activate(context.Background(), []Seed{{BehaviorID: "Seed", Activation: 1.0, Source: "test"}})
+	if err != nil {
+		t.Fatalf("test case: %v", err)
+	}
+
+	// X's activation should be the same in both cases — the inbound overrides
+	// edge from C should not inflate B's suppressiveCount denominator.
+	rXBase := findResult(baseResults, "X")
+	rXTest := findResult(testResults, "X")
+
+	// Both results may or may not contain X (conflict suppresses it).
+	// The key assertion: activation values must match.
+	baseAct := 0.0
+	testAct := 0.0
+	if rXBase != nil {
+		baseAct = rXBase.Activation
+	}
+	if rXTest != nil {
+		testAct = rXTest.Activation
+	}
+
+	tolerance := 0.001
+	if math.Abs(baseAct-testAct) > tolerance {
+		t.Errorf("inbound directional edge inflated suppressiveCount denominator: "+
+			"baseline X=%f, with inbound overrides X=%f (should be equal)",
+			baseAct, testAct)
+	}
+}
+
 // --- ActivateWithSteps tests ---
 
 func TestActivateWithSteps_LinearChain(t *testing.T) {
