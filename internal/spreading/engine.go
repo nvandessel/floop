@@ -136,8 +136,9 @@ func (e *Engine) propagateStep(ctx context.Context, activation, newActivation ma
 		}
 
 		// Count edges by category: virtual affinity, conflict, directional suppressive, and positive.
-		// Conflicts and directional suppressive edges use independent denominators so they
-		// don't dilute each other's normalization (floop-g30, greptile-199).
+		// Each category uses an independent denominator so they don't dilute each other's
+		// normalization. See docs/SCIENCE.md "Suppressive Edge Semantics" for the design
+		// rationale and the three-denominator model (floop-g30, greptile-199).
 		var virtualOutDegree float64
 		var positiveCount, conflictCount, directionalSuppressiveCount int
 		for _, edge := range edges {
