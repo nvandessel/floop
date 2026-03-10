@@ -280,7 +280,11 @@ func (c *SubagentClient) isAllowedPath(cliPath string) bool {
 		if err != nil {
 			continue
 		}
-		if resolved == absDir || strings.HasPrefix(resolved, absDir+string(filepath.Separator)) {
+		resolvedDir, err := filepath.EvalSymlinks(absDir)
+		if err != nil {
+			resolvedDir = absDir
+		}
+		if resolved == resolvedDir || strings.HasPrefix(resolved, resolvedDir+string(filepath.Separator)) {
 			return true
 		}
 	}
