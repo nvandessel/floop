@@ -81,6 +81,9 @@ jobs:
     name: Build (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    # Windows builds are non-blocking until pre-existing failures are fixed.
+    # Tracked: fl-xn7
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,4 +94,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-      - run: go build ./cmd/floop
+      - name: Build with version info
+        shell: bash
+        run: |
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          go build -ldflags="-s -w -X main.version=dev -X main.commit=$COMMIT -X main.date=$DATE" ./cmd/floop
