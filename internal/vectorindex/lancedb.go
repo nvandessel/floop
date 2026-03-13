@@ -1,3 +1,5 @@
+//go:build cgo
+
 package vectorindex
 
 import (
@@ -16,15 +18,6 @@ import (
 )
 
 const lanceTableName = "behaviors"
-
-// LanceDBConfig holds configuration for LanceDBIndex.
-type LanceDBConfig struct {
-	// Dir is the directory where LanceDB stores its data files.
-	Dir string
-
-	// Dims is the dimensionality of the embedding vectors.
-	Dims int
-}
 
 // LanceDBIndex performs approximate nearest neighbor search using LanceDB,
 // an embedded vector database. Thread-safe.
