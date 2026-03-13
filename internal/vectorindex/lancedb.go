@@ -64,8 +64,10 @@ func NewLanceDBIndex(cfg LanceDBConfig) (*LanceDBIndex, error) {
 		// Validate that the on-disk schema matches the configured dimensions.
 		// A mismatch means the embedding model changed; the user must delete .floop/vectors/.
 		if schema, serr := table.Schema(ctx); serr == nil {
+			vectorFieldFound := false
 			for _, field := range schema.Fields() {
 				if field.Name == "vector" {
+					vectorFieldFound = true
 					if fsl, ok := field.Type.(*arrow.FixedSizeListType); ok {
 						if int(fsl.Len()) != cfg.Dims {
 							table.Close()
@@ -78,6 +80,14 @@ func NewLanceDBIndex(cfg LanceDBConfig) (*LanceDBIndex, error) {
 						}
 					}
 				}
+			}
+			if !vectorFieldFound {
+				table.Close()
+				db.Close()
+				return nil, fmt.Errorf(
+					"existing table is missing the 'vector' field; " +
+						"delete .floop/vectors/ to rebuild",
+				)
 			}
 		}
 	} else {
