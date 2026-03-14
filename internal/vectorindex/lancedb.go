@@ -165,9 +165,13 @@ func (l *LanceDBIndex) Add(ctx context.Context, behaviorID string, vector []floa
 	copy(cp, vector)
 
 	// Delete existing entry for upsert semantics.
-	// Note: each delete creates a tombstone. LanceDB v0.1.2 does not expose
-	// Optimize/Compact — tombstones are cleaned up on the next full rewrite
-	// (e.g., index rebuild). This is acceptable for the expected write volume.
+	// Note: this is non-atomic — if Delete succeeds but Add fails (e.g., context
+	// cancellation, I/O error), the vector is lost from the index. The embedding
+	// remains in SQLite, but the idx.Len()>0 guard skips re-sync on restart.
+	// Recovery: delete .floop/vectors/ to force a full rebuild from SQLite.
+	// LanceDB v0.1.2 does not expose transactions or Optimize/Compact.
+	// Tombstones are cleaned up on the next full rewrite (e.g., index rebuild).
+	// This is acceptable for the expected write volume.
 	escaped := strings.ReplaceAll(behaviorID, "'", "''")
 	if err := l.table.Delete(ctx, fmt.Sprintf("id = '%s'", escaped)); err != nil {
 		return fmt.Errorf("delete existing entry: %w", err)
