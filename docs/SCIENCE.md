@@ -181,16 +181,14 @@ This is analogous to how modern search engines use embedding retrieval for recal
 
 ### Vector Indexing Strategy
 
-The vector pre-filter uses a **TieredIndex** that automatically selects the optimal search backend based on the number of stored embeddings:
+The vector pre-filter uses **LanceDB**, an embedded vector database ("the SQLite of vector DBs"). It implements the `VectorIndex` interface and provides:
 
-| Backend | Threshold | Complexity | Notes |
-|---------|-----------|------------|-------|
-| **BruteForceIndex** | ≤1,000 vectors | O(n) | Exhaustive cosine similarity; zero overhead, exact results |
-| **HNSWIndex** | >1,000 vectors | O(log n) | Hierarchical Navigable Small World graph; approximate but fast |
+| Backend | When Used | Notes |
+|---------|-----------|-------|
+| **LanceDBIndex** | Default (CGO enabled) | Embedded vector DB via Rust bindings; auto-persists to `.floop/vectors/`, ~4MB idle memory, scales to millions of vectors |
+| **BruteForceIndex** | Fallback (no CGO) | O(n) exhaustive cosine similarity; zero dependencies, exact results |
 
-At small scales (~200 behaviors), brute-force completes in microseconds. When a store grows past 1,000 behaviors, the tiered index automatically promotes to HNSW — no configuration needed. The HNSW graph is persisted to disk (`.floop/hnsw.bin`) and reloaded on server restart for instant warm-start. Once promoted, the index stays HNSW (no demotion) to avoid oscillation at the boundary.
-
-The HNSW implementation wraps `github.com/coder/hnsw` with a shadow-map rebuild strategy: since the upstream library's `Delete` method can leave dangling neighbor pointers, mutations that remove nodes rebuild the graph from a shadow map of all vectors. This trades write performance for correctness — acceptable since writes (learn, deduplicate) are rare compared to reads (active).
+LanceDB auto-persists on every write — no explicit save step needed. At startup, embeddings from SQLite are loaded into the index for instant warm-start. The brute-force fallback activates automatically when CGO is unavailable (e.g. cross-compiled binaries), ensuring floop works on all platforms.
 
 ### Embedding Model
 

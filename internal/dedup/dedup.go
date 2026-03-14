@@ -42,6 +42,9 @@ type DeduplicationReport struct {
 	// MergedBehaviors contains the resulting merged behaviors.
 	MergedBehaviors []*models.Behavior `json:"merged_behaviors,omitempty" yaml:"merged_behaviors,omitempty"`
 
+	// DeletedIDs contains the IDs of behaviors removed during merging.
+	DeletedIDs []string `json:"deleted_ids,omitempty" yaml:"deleted_ids,omitempty"`
+
 	// Errors contains any errors encountered during processing.
 	Errors []string `json:"errors,omitempty" yaml:"errors,omitempty"`
 }

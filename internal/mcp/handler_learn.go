@@ -149,6 +149,16 @@ func (s *Server) handleFloopLearn(ctx context.Context, req *sdk.CallToolRequest,
 		})
 	}
 
+	// Remove the displaced behavior's vector from the index when auto-merge
+	// deletes the existing behavior from the store. Without this, LanceDB's
+	// persistence would accumulate ghost vectors on every auto-merge.
+	if s.vectorIndex != nil && learningResult.MergedIntoExisting && learningResult.MergedBehaviorID != "" {
+		if err := s.vectorIndex.Remove(ctx, learningResult.MergedBehaviorID); err != nil {
+			s.logger.Warn("failed to remove merged behavior from vector index",
+				"behavior_id", learningResult.MergedBehaviorID, "error", err)
+		}
+	}
+
 	// Background: embed the new/merged behavior for vector retrieval
 	if s.embedder != nil && s.embedder.Available() && learningResult.CandidateBehavior.ID != "" {
 		bid := learningResult.CandidateBehavior.ID

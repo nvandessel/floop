@@ -216,7 +216,7 @@ floop active [flags]
 
 Lists all behaviors that are currently active based on the current context (file, task, language, etc.). Loads behaviors from both local and global stores.
 
-When local embeddings are configured, `floop active` uses vector similarity search as a pre-filter before applying spreading activation. The vector index automatically selects between brute-force (≤1,000 vectors) and HNSW (>1,000 vectors) backends for optimal performance. See [EMBEDDINGS.md](EMBEDDINGS.md) for details.
+When local embeddings are configured, `floop active` uses vector similarity search as a pre-filter before applying spreading activation. The vector index uses LanceDB (an embedded vector database) for fast ANN search, with a brute-force fallback when CGO is unavailable. See [EMBEDDINGS.md](EMBEDDINGS.md) for details.
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|

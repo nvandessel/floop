@@ -34,6 +34,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0" # LanceDB requires native libs; no-CGO stub falls back to BruteForce
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -46,6 +48,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0" # LanceDB requires native libs; no-CGO stub falls back to BruteForce
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -61,6 +65,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0" # LanceDB requires native libs; no-CGO stub falls back to BruteForce
     # govulncheck is now a hard gate — Go toolchain must stay current
     steps:
       - uses: actions/checkout@v6
@@ -75,6 +81,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0" # LanceDB requires native libs; no-CGO stub falls back to BruteForce
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -83,3 +91,27 @@ jobs:
       - run: make build
       - name: Cross-compile for Windows
         run: GOOS=windows GOARCH=amd64 go build -o floop.exe ./cmd/floop
+
+  test-cgo:
+    name: Test (CGO + LanceDB)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+      CGO_CFLAGS: "-I${{ github.workspace }}/include"
+      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/linux_amd64 -llancedb_go"
+      LD_LIBRARY_PATH: "${{ github.workspace }}/lib/linux_amd64"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Download Go modules
+        run: go mod download
+      - name: Download LanceDB native libraries
+        run: |
+          LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+          bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
+      - name: Run CGO tests
+        run: go test -race -count=1 ./...

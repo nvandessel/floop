@@ -203,6 +203,9 @@ func (d *StoreDeduplicator) DeduplicateStore(ctx context.Context, s store.GraphS
 
 			report.MergesPerformed++
 			report.MergedBehaviors = append(report.MergedBehaviors, merged)
+			for _, dup := range duplicates {
+				report.DeletedIDs = append(report.DeletedIDs, dup.Behavior.ID)
+			}
 
 			// Update the store with the merged behavior, routing to correct scope
 			node := models.BehaviorToNode(merged)

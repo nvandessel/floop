@@ -5,3 +5,6 @@ floop.db-wal
 
 # Audit logs (runtime data, not version controlled)
 audit.jsonl
+
+# LanceDB vector index (runtime data)
+vectors/

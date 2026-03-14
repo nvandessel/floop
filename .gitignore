@@ -21,6 +21,10 @@ coverage.html
 # Build artifacts
 build/
 
+# LanceDB native libraries (downloaded via scripts/download-artifacts.sh)
+lib/
+include/lancedb.h
+
 # Git worktrees for parallel agent work
 .worktrees/
 

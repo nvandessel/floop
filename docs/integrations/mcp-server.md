@@ -79,7 +79,7 @@ Get active behaviors for the current context.
 }
 ```
 
-**Vector pre-filtering:** When local embeddings are configured (see [EMBEDDINGS.md](../EMBEDDINGS.md)), `floop_active` uses vector similarity search to pre-filter candidate behaviors before applying spreading activation. The vector index automatically selects between brute-force (≤1,000 behaviors) and HNSW (>1,000 behaviors) backends. This finds semantically relevant behaviors even when their `when` predicates don't exactly match the current context. The system falls back to loading all behaviors when embeddings are unavailable.
+**Vector pre-filtering:** When local embeddings are configured (see [EMBEDDINGS.md](../EMBEDDINGS.md)), `floop_active` uses vector similarity search to pre-filter candidate behaviors before applying spreading activation. The vector index uses LanceDB (embedded vector database) with a brute-force fallback when CGO is unavailable. This finds semantically relevant behaviors even when their `when` predicates don't exactly match the current context. The system falls back to loading all behaviors when embeddings are unavailable.
 
 **Example Response:**
 ```json

@@ -16,7 +16,7 @@ A correction becomes a behavior. Behaviors connect into a graph. The graph uses 
 - **Learns from corrections** — Tell the agent what it did wrong and what to do instead; floop turns that into a durable behavior
 - **Context-aware activation** — Behaviors fire based on file type, task, and semantic relevance — not a static prompt dump
 - **Spreading activation** — Graph-based memory retrieval inspired by cognitive science (Collins & Loftus, ACT-R) — triggered behaviors propagate energy to related nodes, pulling in associative context
-- **Vector-accelerated retrieval** — Local embeddings with a tiered vector index (brute-force → HNSW) pre-filter candidates before spreading activation, scaling to thousands of behaviors
+- **Vector-accelerated retrieval** — Local embeddings with LanceDB (embedded vector database) pre-filter candidates before spreading activation, scaling to thousands of behaviors
 - **Token-optimized** — Budget-aware assembly keeps injected context within limits
 - **Store management** — Stats, deduplication, backup/restore, and graph visualization keep your behavior store healthy
 - **MCP server** — Works with any AI tool that supports the Model Context Protocol

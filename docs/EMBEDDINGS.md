@@ -85,18 +85,16 @@ Embeddings are stored as BLOB columns in the behaviors SQLite table (768 dimensi
 
 ### Vector Index
 
-At startup, the MCP server loads all stored embeddings into an in-memory **VectorIndex** for fast approximate nearest neighbor (ANN) search. The index uses a tiered architecture that automatically selects the right backend:
+At startup, the MCP server loads all stored embeddings into a **LanceDBIndex** for fast approximate nearest neighbor (ANN) search. LanceDB is an embedded vector database that auto-persists to `.floop/vectors/` — no separate server needed.
 
-| Backend | When Used | Complexity |
-|---------|-----------|------------|
-| **BruteForceIndex** | ≤1,000 vectors | O(n) exhaustive cosine similarity |
-| **HNSWIndex** | >1,000 vectors | O(log n) via Hierarchical Navigable Small World graph |
-
-Promotion from brute-force to HNSW happens automatically when the vector count crosses the threshold. Once promoted, the index stays HNSW (no demotion) to avoid oscillation. The HNSW graph is persisted to `.floop/hnsw.bin` and reloaded on startup.
+| Backend | When Used | Notes |
+|---------|-----------|-------|
+| **LanceDBIndex** | Default (CGO enabled) | Embedded vector DB, auto-persists, scales to millions |
+| **BruteForceIndex** | Fallback (no CGO) | O(n) exhaustive cosine similarity, in-memory only |
 
 ### Performance
 
-At typical scales (~200 behaviors), brute-force search completes in microseconds. For larger stores (1,000+ behaviors), the HNSW index provides sub-millisecond search with O(log n) scaling. The tiered approach means no manual configuration is needed — the system adapts automatically.
+At typical scales (~200 behaviors), search completes in microseconds. LanceDB scales efficiently to much larger stores without manual configuration. The brute-force fallback is used automatically when CGO is unavailable (e.g. cross-compiled binaries).
 
 ## Troubleshooting
 

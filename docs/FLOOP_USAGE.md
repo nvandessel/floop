@@ -242,14 +242,9 @@ This downloads two runtime dependencies (~130 MB total, cached in `~/.floop/`):
 
 Behaviors without embeddings are always included in candidates — no behavior is silently dropped during migration.
 
-### Vector Index Tiers
+### Vector Index
 
-The vector index automatically selects the optimal backend based on your store size:
-
-- **≤1,000 behaviors** — Brute-force cosine similarity (exact, microsecond latency)
-- **>1,000 behaviors** — HNSW approximate nearest neighbor (O(log n), persisted to `.floop/hnsw.bin`)
-
-Promotion from brute-force to HNSW happens automatically — no configuration needed.
+The vector index uses **LanceDB**, an embedded vector database that auto-persists to `.floop/vectors/`. No separate server or manual configuration needed. When CGO is unavailable, floop falls back to a brute-force in-memory index automatically.
 
 For setup details, see [EMBEDDINGS.md](EMBEDDINGS.md). For the theory behind vector retrieval, see [SCIENCE.md](SCIENCE.md).
 

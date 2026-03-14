@@ -152,7 +152,7 @@ func (c *ContextSnapshot) Matches(predicate map[string]any) bool { ... }
 - Current dependencies:
   - `github.com/spf13/cobra` - CLI framework
   - `gopkg.in/yaml.v3` - YAML parsing
-  - `github.com/coder/hnsw` - HNSW vector index (non-Windows only; see `//go:build` tags)
+  - `github.com/lancedb/lancedb-go` - LanceDB embedded vector database (requires CGO for Rust bindings)
 
 ## 9. CLI Patterns (Cobra)
 

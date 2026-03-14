@@ -9,10 +9,18 @@ build:
 	go build -ldflags="$(LDFLAGS)" -o ./floop ./cmd/floop
 
 test:
+ifeq ($(CGO_ENABLED),0)
+	go test ./...
+else
 	go test -race ./...
+endif
 
 test-coverage:
+ifeq ($(CGO_ENABLED),0)
+	go test -coverprofile=coverage.out ./...
+else
 	go test -race -coverprofile=coverage.out ./...
+endif
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 

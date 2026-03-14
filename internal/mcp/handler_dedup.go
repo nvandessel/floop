@@ -78,7 +78,16 @@ func (s *Server) handleFloopDeduplicate(ctx context.Context, req *sdk.CallToolRe
 			return nil, FloopDeduplicateOutput{}, fmt.Errorf("failed to sync store: %w", err)
 		}
 
-		// Embed merged behaviors for vector retrieval
+		// Remove deleted behaviors' vectors from the index.
+		if s.vectorIndex != nil && len(report.DeletedIDs) > 0 {
+			for _, deletedID := range report.DeletedIDs {
+				if err := s.vectorIndex.Remove(ctx, deletedID); err != nil {
+					s.logger.Warn("failed to remove deleted behavior from vector index", "behavior_id", deletedID, "error", err)
+				}
+			}
+		}
+
+		// Embed merged behaviors for vector retrieval.
 		if report.MergesPerformed > 0 && s.embedder != nil && s.embedder.Available() {
 			for _, merged := range report.MergedBehaviors {
 				bid := merged.ID
