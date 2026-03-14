@@ -196,7 +196,7 @@ func NewServer(cfg *Config) (*Server, error) {
 
 		vectorDir := filepath.Join(cfg.Root, ".floop", "vectors")
 		if err := os.MkdirAll(vectorDir, 0o755); err != nil {
-			s.logger.Warn("failed to create vector directory, falling back to brute-force", "error", err)
+			s.logger.Warn("failed to create vector directory", "error", err)
 		}
 		s.vectorIndex = s.initVectorIndex(graphStore, vectorDir)
 	}
@@ -248,8 +248,11 @@ func (s *Server) initVectorIndex(graphStore *store.MultiGraphStore, vectorDir st
 	}
 
 	dims := 768 // default: nomic-embed-text-v1.5 output dimensions
-	if len(allEmb) > 0 {
-		dims = len(allEmb[0].Embedding)
+	for _, emb := range allEmb {
+		if len(emb.Embedding) > 0 {
+			dims = len(emb.Embedding)
+			break
+		}
 	}
 
 	idx, err := vectorindex.NewLanceDBIndex(vectorindex.LanceDBConfig{
