@@ -247,7 +247,12 @@ func (s *Server) initVectorIndex(graphStore *store.MultiGraphStore, vectorDir st
 		s.logger.Warn("failed to load embeddings for index", "error", loadErr)
 	}
 
-	dims := 768 // default: nomic-embed-text-v1.5 output dimensions
+	// Default matches nomic-embed-text-v1.5 (768-dim), the only supported model.
+	// On fresh installs (no embeddings yet), this creates the table with 768 dims.
+	// If a future model has different dims, the first Add will fail with a clear
+	// dimension mismatch error, and on restart the schema validation will catch the
+	// mismatch and fall back to BruteForce until the user deletes .floop/vectors/.
+	dims := 768
 	for _, emb := range allEmb {
 		if len(emb.Embedding) > 0 {
 			dims = len(emb.Embedding)

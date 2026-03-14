@@ -73,16 +73,24 @@ func NewLanceDBIndex(cfg LanceDBConfig) (*LanceDBIndex, error) {
 		for _, field := range schema.Fields() {
 			if field.Name == "vector" {
 				vectorFieldFound = true
-				if fsl, ok := field.Type.(*arrow.FixedSizeListType); ok {
-					if int(fsl.Len()) != cfg.Dims {
-						table.Close()
-						db.Close()
-						return nil, fmt.Errorf(
-							"vector dimension mismatch: table has %d but config expects %d "+
-								"(embedding model changed? delete .floop/vectors/ to rebuild)",
-							fsl.Len(), cfg.Dims,
-						)
-					}
+				fsl, ok := field.Type.(*arrow.FixedSizeListType)
+				if !ok {
+					table.Close()
+					db.Close()
+					return nil, fmt.Errorf(
+						"vector field has unexpected type %T; "+
+							"delete .floop/vectors/ to rebuild",
+						field.Type,
+					)
+				}
+				if int(fsl.Len()) != cfg.Dims {
+					table.Close()
+					db.Close()
+					return nil, fmt.Errorf(
+						"vector dimension mismatch: table has %d but config expects %d "+
+							"(embedding model changed? delete .floop/vectors/ to rebuild)",
+						fsl.Len(), cfg.Dims,
+					)
 				}
 			}
 		}
