@@ -15,7 +15,7 @@ const (
 	BehaviorKindProcedure  BehaviorKind = "procedure"  // Multi-step process
 	BehaviorKindPreference BehaviorKind = "preference" // Prefer X over Y
 	BehaviorKindEpisodic   BehaviorKind = "episodic"   // Record of a specific event or session
-	BehaviorKindWorkflow   BehaviorKind = "workflow"    // Multi-step workflow with conditions
+	BehaviorKindWorkflow   BehaviorKind = "workflow"   // Multi-step workflow with conditions
 )
 
 // Behavior status kinds represent lifecycle states set by curation commands.

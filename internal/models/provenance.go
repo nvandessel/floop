@@ -8,8 +8,8 @@ import (
 type SourceType string
 
 const (
-	SourceTypeAuthored SourceType = "authored" // Human wrote it directly
-	SourceTypeLearned  SourceType = "learned"  // Extracted from a correction
+	SourceTypeAuthored     SourceType = "authored"     // Human wrote it directly
+	SourceTypeLearned      SourceType = "learned"      // Extracted from a correction
 	SourceTypeImported     SourceType = "imported"     // From an external package
 	SourceTypeConsolidated SourceType = "consolidated" // Consolidated from multiple events
 )
@@ -30,9 +30,9 @@ type Provenance struct {
 	PackageVersion string `json:"package_version,omitempty" yaml:"package_version,omitempty"`
 
 	// Consolidation lineage
-	ConsolidatedBy string    `json:"consolidated_by,omitempty" yaml:"consolidated_by,omitempty"`
+	ConsolidatedBy string     `json:"consolidated_by,omitempty" yaml:"consolidated_by,omitempty"`
 	ConsolidatedAt *time.Time `json:"consolidated_at,omitempty" yaml:"consolidated_at,omitempty"`
-	SourceEvents   []string  `json:"source_events,omitempty" yaml:"source_events,omitempty"`
+	SourceEvents   []string   `json:"source_events,omitempty" yaml:"source_events,omitempty"`
 	// Confidence is the consolidator's confidence at extraction time (snapshot).
 	// Distinct from Behavior.Confidence which evolves via activation/confirmation.
 	Confidence float64 `json:"confidence,omitempty" yaml:"confidence,omitempty"`
