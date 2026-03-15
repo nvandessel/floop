@@ -281,17 +281,30 @@ func (s *Server) initVectorIndex(graphStore *store.MultiGraphStore, vectorDir st
 		return bfIdx
 	}
 
-	// Only populate from SQLite if the LanceDB table is empty (first run or after wipe).
-	// LanceDB persists across restarts, so re-upserting would just create tombstone churn.
-	if loadErr == nil && idx.Len() == 0 {
-		var addErrs int
-		for _, emb := range allEmb {
-			if err := idx.Add(context.Background(), emb.BehaviorID, emb.Embedding); err != nil {
-				addErrs++
+	// Sync SQLite embeddings to LanceDB.
+	// - Empty table (first run or after wipe): bulk add all embeddings.
+	// - Count mismatch: some vectors are missing — re-add all. The upsert
+	//   (delete+add) creates tombstones for existing entries, but this only
+	//   happens on recovery, not on every restart.
+	// - Counts match: skip sync entirely (no tombstone churn).
+	if loadErr == nil {
+		lanceCount := idx.Len()
+		sqliteCount := len(allEmb)
+		if lanceCount < sqliteCount {
+			var addErrs int
+			for _, emb := range allEmb {
+				if err := idx.Add(context.Background(), emb.BehaviorID, emb.Embedding); err != nil {
+					addErrs++
+				}
 			}
-		}
-		if addErrs > 0 {
-			s.logger.Warn("some embeddings failed to load into vector index", "errors", addErrs, "total", len(allEmb))
+			if addErrs > 0 {
+				s.logger.Warn("some embeddings failed to load into vector index",
+					"errors", addErrs, "total", sqliteCount)
+			}
+			if lanceCount > 0 {
+				s.logger.Info("recovered missing vectors from SQLite",
+					"before", lanceCount, "after", idx.Len(), "sqlite_total", sqliteCount)
+			}
 		}
 	}
 	return idx
