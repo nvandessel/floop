@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/utils"
 	_ "modernc.org/sqlite"
 )
 
@@ -153,6 +154,11 @@ func TestEventsCmdPrune(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("failed to add event: %v", err)
 	}
+
+	// Mark as consolidated so prune can delete it
+	if err := es.MarkConsolidated(ctx, []string{"old-evt-1"}); err != nil {
+		t.Fatalf("failed to mark consolidated: %v", err)
+	}
 	db.Close()
 
 	rootCmd := newTestRootCmd()
@@ -194,13 +200,13 @@ func TestParseDuration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, err := parseDuration(tt.input)
+			got, err := utils.ParseDuration(tt.input)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("parseDuration(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				t.Errorf("utils.ParseDuration(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr && got != tt.want {
-				t.Errorf("parseDuration(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("utils.ParseDuration(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

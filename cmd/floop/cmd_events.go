@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/utils"
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
 )
@@ -60,7 +59,7 @@ func runEvents(cmd *cobra.Command, args []string) error {
 
 	// Handle prune
 	if pruneStr != "" {
-		dur, parseErr := parseDuration(pruneStr)
+		dur, parseErr := utils.ParseDuration(pruneStr)
 		if parseErr != nil {
 			return fmt.Errorf("parsing --prune duration: %w", parseErr)
 		}
@@ -129,19 +128,4 @@ func runEvents(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// parseDuration parses a duration string that supports Go's standard durations
-// plus day syntax (e.g., "90d", "7d").
-func parseDuration(s string) (time.Duration, error) {
-	// Handle day syntax
-	if strings.HasSuffix(s, "d") {
-		dayStr := strings.TrimSuffix(s, "d")
-		days, err := strconv.Atoi(dayStr)
-		if err != nil {
-			return 0, fmt.Errorf("invalid day count %q: %w", dayStr, err)
-		}
-		return time.Duration(days) * 24 * time.Hour, nil
-	}
-	return time.ParseDuration(s)
 }

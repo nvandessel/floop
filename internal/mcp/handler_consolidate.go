@@ -11,6 +11,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/floop/internal/consolidation"
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/utils"
 	_ "modernc.org/sqlite" // SQLite driver
 )
 
@@ -56,7 +57,11 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 	if err != nil {
 		return nil, FloopConsolidateOutput{}, fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	dbPath := filepath.Join(homeDir, ".floop", "floop.db")
+	dbDir := filepath.Join(homeDir, ".floop")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return nil, FloopConsolidateOutput{}, fmt.Errorf("creating .floop directory: %w", err)
+	}
+	dbPath := filepath.Join(dbDir, "floop.db")
 
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
 	if err != nil {
@@ -75,7 +80,7 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 	var evts []events.Event
 	switch {
 	case args.Since != "":
-		dur, err := parseDuration(args.Since)
+		dur, err := utils.ParseDuration(args.Since)
 		if err != nil {
 			return nil, FloopConsolidateOutput{}, fmt.Errorf("invalid 'since' duration %q: %w", args.Since, err)
 		}
@@ -157,17 +162,4 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 		Candidates:      candidateSummaries,
 		Message:         message,
 	}, nil
-}
-
-// parseDuration parses a duration string supporting 'd' suffix for days
-// in addition to standard Go duration units.
-func parseDuration(s string) (time.Duration, error) {
-	// Handle day suffix (e.g., "7d")
-	if len(s) > 1 && s[len(s)-1] == 'd' {
-		var days int
-		if _, err := fmt.Sscanf(s, "%dd", &days); err == nil {
-			return time.Duration(days) * 24 * time.Hour, nil
-		}
-	}
-	return time.ParseDuration(s)
 }

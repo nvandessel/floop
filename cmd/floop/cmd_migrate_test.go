@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -26,21 +27,16 @@ func TestMigrateCmdNoAction(t *testing.T) {
 
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newMigrateCmd())
-	rootCmd.SetArgs([]string{"migrate", "--json"})
+	rootCmd.SetArgs([]string{"migrate"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("migrate failed: %v", err)
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when no action specified, got nil")
 	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(outBuf.Bytes(), &result); err != nil {
-		t.Fatalf("failed to parse output: %v", err)
-	}
-
-	if result["error"] != "no migration action specified" {
-		t.Errorf("error = %v, want %q", result["error"], "no migration action specified")
+	if !strings.Contains(err.Error(), "no migration action specified") {
+		t.Errorf("error = %v, want containing %q", err, "no migration action specified")
 	}
 }
 

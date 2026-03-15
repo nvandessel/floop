@@ -12,6 +12,7 @@ import (
 	"github.com/nvandessel/floop/internal/consolidation"
 	"github.com/nvandessel/floop/internal/events"
 	"github.com/nvandessel/floop/internal/store"
+	"github.com/nvandessel/floop/internal/utils"
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
 )
@@ -65,7 +66,7 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	case session != "":
 		evts, err = es.GetBySession(ctx, session)
 	case since != "":
-		dur, parseErr := parseDuration(since)
+		dur, parseErr := utils.ParseDuration(since)
 		if parseErr != nil {
 			return fmt.Errorf("parsing --since duration: %w", parseErr)
 		}

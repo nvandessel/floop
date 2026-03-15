@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/nvandessel/floop/internal/project"
 	"github.com/nvandessel/floop/internal/store"
@@ -28,14 +29,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 
 	if !mergeLocal {
-		if jsonOut {
-			json.NewEncoder(out).Encode(map[string]interface{}{
-				"error": "no migration action specified",
-			})
-		} else {
-			fmt.Fprintln(out, "No migration action specified. Use --merge-local-to-global.")
-		}
-		return nil
+		return fmt.Errorf("no migration action specified; use --merge-local-to-global")
 	}
 
 	root, _ := cmd.Flags().GetString("root")
@@ -100,9 +94,11 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		// Try to insert; skip duplicates
 		_, err := globalStore.AddNode(ctx, node)
 		if err != nil {
-			// Duplicate or conflict -- skip
-			skipped++
-			continue
+			if strings.Contains(err.Error(), "UNIQUE constraint") || strings.Contains(err.Error(), "duplicate") {
+				skipped++
+				continue
+			}
+			return fmt.Errorf("migrating behavior %s: %w", node.ID, err)
 		}
 		migrated++
 	}

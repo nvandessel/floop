@@ -57,6 +57,23 @@ func (s *Server) handleFloopObserve(ctx context.Context, req *sdk.CallToolReques
 		kind = events.KindMessage
 	}
 
+	// Validate actor and kind
+	validActors := map[events.EventActor]bool{
+		events.ActorUser: true, events.ActorAgent: true,
+		events.ActorTool: true, events.ActorSystem: true,
+	}
+	if !validActors[actor] {
+		return nil, FloopObserveOutput{}, fmt.Errorf("invalid actor %q: must be user, agent, tool, or system", args.Actor)
+	}
+
+	validKinds := map[events.EventKind]bool{
+		events.KindMessage: true, events.KindAction: true,
+		events.KindResult: true, events.KindError: true, events.KindCorrection: true,
+	}
+	if !validKinds[kind] {
+		return nil, FloopObserveOutput{}, fmt.Errorf("invalid kind %q: must be message, action, result, error, or correction", args.Kind)
+	}
+
 	sessionID := args.SessionID
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("mcp-%d", time.Now().UnixNano())
@@ -80,7 +97,11 @@ func (s *Server) handleFloopObserve(ctx context.Context, req *sdk.CallToolReques
 	if err != nil {
 		return nil, FloopObserveOutput{}, fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	dbPath := filepath.Join(homeDir, ".floop", "floop.db")
+	dbDir := filepath.Join(homeDir, ".floop")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return nil, FloopObserveOutput{}, fmt.Errorf("creating .floop directory: %w", err)
+	}
+	dbPath := filepath.Join(dbDir, "floop.db")
 
 	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
 	if err != nil {
