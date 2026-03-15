@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -309,6 +310,30 @@ func TestLanceDBIndex_SpecialCharacterIDs(t *testing.T) {
 	results = mustSearch(t, idx, ctx, v2, 1)
 	if len(results) != 1 || results[0].BehaviorID != "normal-id" {
 		t.Errorf("expected normal-id, got %v", results)
+	}
+}
+
+func TestLanceDBIndex_DimensionMismatchOnReopen(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Create index with 8 dimensions and add a vector.
+	idx, err := NewLanceDBIndex(LanceDBConfig{Dir: dir, Dims: 8})
+	if err != nil {
+		t.Fatalf("NewLanceDBIndex: %v", err)
+	}
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	if err := idx.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopen with different dimensions — should fail.
+	_, err = NewLanceDBIndex(LanceDBConfig{Dir: dir, Dims: 4})
+	if err == nil {
+		t.Fatal("expected error for dimension mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "vector dimension mismatch") {
+		t.Errorf("expected dimension mismatch error, got: %v", err)
 	}
 }
 
