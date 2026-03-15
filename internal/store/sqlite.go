@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/project"
 	"github.com/nvandessel/floop/internal/utils"
 	_ "modernc.org/sqlite" // SQLite driver
 )
@@ -66,8 +67,16 @@ func NewSQLiteGraphStore(projectRoot string) (*SQLiteGraphStore, error) {
 
 	ctx := context.Background()
 
-	// Initialize schema
-	if err := InitSchema(ctx, db); err != nil {
+	// Resolve project ID for schema migration
+	projectID, err := project.ResolveProjectID(projectRoot)
+	if err != nil {
+		// Log warning but don't fail — graceful degradation to empty projectID
+		fmt.Fprintf(os.Stderr, "warning: failed to resolve project ID: %v\n", err)
+		projectID = ""
+	}
+
+	// Initialize schema with project context
+	if err := initSchemaWithProject(ctx, db, projectID); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}

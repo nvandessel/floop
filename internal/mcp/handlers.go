@@ -72,6 +72,18 @@ func (s *Server) registerTools() error {
 		Description: "Install a skill pack from a local path, URL, or GitHub shorthand (gh:owner/repo)",
 	}, s.handleFloopPackInstall)
 
+	// Register floop_observe tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_observe",
+		Description: "Record a conversation event for later consolidation into behavioral memory",
+	}, s.handleFloopObserve)
+
+	// Register floop_consolidate tool
+	sdk.AddTool(s.server, &sdk.Tool{
+		Name:        "floop_consolidate",
+		Description: "Run the memory consolidation pipeline to extract behavioral memories from recorded events",
+	}, s.handleFloopConsolidate)
+
 	return nil
 }
 

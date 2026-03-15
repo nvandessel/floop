@@ -14,6 +14,8 @@ const (
 	BehaviorKindConstraint BehaviorKind = "constraint" // Never do Y
 	BehaviorKindProcedure  BehaviorKind = "procedure"  // Multi-step process
 	BehaviorKindPreference BehaviorKind = "preference" // Prefer X over Y
+	BehaviorKindEpisodic   BehaviorKind = "episodic"   // Record of a specific event or session
+	BehaviorKindWorkflow   BehaviorKind = "workflow"   // Multi-step workflow with conditions
 )
 
 // Behavior status kinds represent lifecycle states set by curation commands.
@@ -23,6 +25,50 @@ const (
 	BehaviorKindDeprecated BehaviorKind = BehaviorKind(store.NodeKindDeprecated)
 	BehaviorKindMerged     BehaviorKind = BehaviorKind(store.NodeKindMerged)
 )
+
+// MemoryType classifies behaviors by cognitive category.
+type MemoryType string
+
+// Memory type constants for classifying behaviors by cognitive category
+const (
+	MemoryTypeSemantic   MemoryType = "semantic"
+	MemoryTypeEpisodic   MemoryType = "episodic"
+	MemoryTypeProcedural MemoryType = "procedural"
+)
+
+// MemoryTypeForKind returns the memory type classification for a given BehaviorKind.
+func MemoryTypeForKind(kind BehaviorKind) MemoryType {
+	switch kind {
+	case BehaviorKindEpisodic:
+		return MemoryTypeEpisodic
+	case BehaviorKindProcedure, BehaviorKindWorkflow:
+		return MemoryTypeProcedural
+	default:
+		return MemoryTypeSemantic
+	}
+}
+
+// EpisodeData holds type-specific data for episodic behaviors.
+type EpisodeData struct {
+	SessionID string   `json:"session_id"`
+	Timeframe string   `json:"timeframe"`
+	Actors    []string `json:"actors"`
+	Outcome   string   `json:"outcome"`
+}
+
+// WorkflowData holds type-specific data for workflow behaviors.
+type WorkflowData struct {
+	Steps    []WorkflowStep `json:"steps"`
+	Trigger  string         `json:"trigger"`
+	Verified bool           `json:"verified"`
+}
+
+// WorkflowStep represents a single step in a workflow.
+type WorkflowStep struct {
+	Action    string `json:"action"`
+	Condition string `json:"condition,omitempty"`
+	OnFailure string `json:"on_failure,omitempty"`
+}
 
 // BehaviorContent holds multiple representations of the behavior's content
 type BehaviorContent struct {
@@ -58,6 +104,11 @@ type Behavior struct {
 
 	// Provenance - where did this come from?
 	Provenance Provenance `json:"provenance" yaml:"provenance"`
+
+	// Memory consolidation fields (V9)
+	MemoryType   MemoryType    `json:"memory_type,omitempty" yaml:"memory_type,omitempty"`
+	EpisodeData  *EpisodeData  `json:"episode_data,omitempty" yaml:"episode_data,omitempty"`
+	WorkflowData *WorkflowData `json:"workflow_data,omitempty" yaml:"workflow_data,omitempty"`
 
 	// Confidence score (0.0 - 1.0)
 	// Learned behaviors start lower, increase with successful application

@@ -362,6 +362,46 @@ func TestFormatNameOnly(t *testing.T) {
 			},
 			want: "`learned/no-secrets-in-code` [constraint] #security",
 		},
+		{
+			name: "episodic behavior",
+			behavior: &models.Behavior{
+				Name: "session/2024-03-15-refactor",
+				Kind: models.BehaviorKindEpisodic,
+				Content: models.BehaviorContent{
+					Tags: []string{"refactor", "config"},
+				},
+			},
+			want: "Episode: `session/2024-03-15-refactor` #refactor #config",
+		},
+		{
+			name: "episodic behavior no tags",
+			behavior: &models.Behavior{
+				Name:    "session/2024-03-10-bugfix",
+				Kind:    models.BehaviorKindEpisodic,
+				Content: models.BehaviorContent{},
+			},
+			want: "Episode: `session/2024-03-10-bugfix`",
+		},
+		{
+			name: "workflow behavior",
+			behavior: &models.Behavior{
+				Name: "workflow/deploy-pipeline",
+				Kind: models.BehaviorKindWorkflow,
+				Content: models.BehaviorContent{
+					Tags: []string{"deploy", "ci"},
+				},
+			},
+			want: "Workflow: `workflow/deploy-pipeline` #deploy #ci",
+		},
+		{
+			name: "workflow behavior no tags",
+			behavior: &models.Behavior{
+				Name:    "workflow/test-suite",
+				Kind:    models.BehaviorKindWorkflow,
+				Content: models.BehaviorContent{},
+			},
+			want: "Workflow: `workflow/test-suite`",
+		},
 	}
 
 	for _, tt := range tests {

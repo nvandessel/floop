@@ -164,6 +164,11 @@ context-aware behavior activation for consistent agent operation.`,
 		newTagsCmd(),
 		// Native hook commands (replacing shell scripts)
 		newHookCmd(),
+		// Memory consolidation commands
+		newIngestCmd(),
+		newConsolidateCmd(),
+		newEventsCmd(),
+		newMigrateCmd(),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
