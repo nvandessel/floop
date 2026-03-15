@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/utils"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,6 +34,12 @@ type FloopConfig struct {
 
 	// Packs tracks installed skill packs.
 	Packs PacksConfig `json:"packs" yaml:"packs"`
+
+	// Consolidation contains settings for memory consolidation.
+	Consolidation ConsolidationConfig `json:"consolidation" yaml:"consolidation"`
+
+	// Events contains settings for the raw event buffer.
+	Events EventsConfig `json:"events" yaml:"events"`
 }
 
 // TokenBudgetConfig configures token budget limits for behavior injection.
@@ -178,6 +185,23 @@ type DeduplicationConfig struct {
 	SimilarityThreshold float64 `json:"similarity_threshold" yaml:"similarity_threshold"`
 }
 
+// ConsolidationConfig configures memory consolidation behavior.
+type ConsolidationConfig struct {
+	// AutoConsolidate enables automatic consolidation after session end.
+	AutoConsolidate bool `json:"auto_consolidate" yaml:"auto_consolidate"`
+
+	// Executor specifies which consolidation engine to use.
+	// Values: "heuristic" (v0), "llm" (v1), "local" (v2).
+	Executor string `json:"executor" yaml:"executor"`
+}
+
+// EventsConfig configures the raw event buffer.
+type EventsConfig struct {
+	// RetentionDays is the number of days to retain raw events.
+	// Default: 90.
+	RetentionDays int `json:"retention_days" yaml:"retention_days"`
+}
+
 // Default returns a FloopConfig with sensible defaults.
 func Default() *FloopConfig {
 	return &FloopConfig{
@@ -207,6 +231,13 @@ func Default() *FloopConfig {
 			Retention: RetentionConfig{
 				MaxCount: constants.MaxBackupRotation,
 			},
+		},
+		Consolidation: ConsolidationConfig{
+			AutoConsolidate: false,
+			Executor:        "heuristic",
+		},
+		Events: EventsConfig{
+			RetentionDays: 90,
 		},
 	}
 }
@@ -286,7 +317,7 @@ func (c *FloopConfig) Validate() error {
 	}
 
 	if c.Backup.Retention.MaxAge != "" {
-		if _, err := parseDurationSimple(c.Backup.Retention.MaxAge); err != nil {
+		if _, err := utils.ParseDuration(c.Backup.Retention.MaxAge); err != nil {
 			return fmt.Errorf("backup.retention.max_age: %w", err)
 		}
 	}
@@ -297,33 +328,18 @@ func (c *FloopConfig) Validate() error {
 		}
 	}
 
-	return nil
-}
+	// Consolidation validation
+	validExecutors := map[string]bool{"": true, "heuristic": true, "llm": true, "local": true}
+	if !validExecutors[c.Consolidation.Executor] {
+		return fmt.Errorf("invalid consolidation executor: %s (valid: heuristic, llm, local, or empty)", c.Consolidation.Executor)
+	}
 
-// parseDurationSimple validates duration strings like "30d", "2w", "720h".
-func parseDurationSimple(s string) (time.Duration, error) {
-	if s == "" {
-		return 0, fmt.Errorf("empty duration string")
+	// Events validation
+	if c.Events.RetentionDays < 0 {
+		return fmt.Errorf("events.retention_days must be non-negative, got %d", c.Events.RetentionDays)
 	}
-	if d, err := time.ParseDuration(s); err == nil {
-		return d, nil
-	}
-	if len(s) < 2 {
-		return 0, fmt.Errorf("invalid duration: %q", s)
-	}
-	suffix := s[len(s)-1]
-	num, err := strconv.Atoi(s[:len(s)-1])
-	if err != nil {
-		return 0, fmt.Errorf("invalid duration: %q", s)
-	}
-	switch suffix {
-	case 'd':
-		return time.Duration(num) * 24 * time.Hour, nil
-	case 'w':
-		return time.Duration(num) * 7 * 24 * time.Hour, nil
-	default:
-		return 0, fmt.Errorf("unknown duration suffix %q in %q", string(suffix), s)
-	}
+
+	return nil
 }
 
 // parseSizeSimple validates size strings like "100MB", "1GB".
