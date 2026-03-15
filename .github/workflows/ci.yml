@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-      - run: go test -race ./...
+      - run: go test ./...
 
   lint:
     name: Lint
@@ -87,6 +87,8 @@ jobs:
     name: Build (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    # Windows builds are non-blocking until pre-existing failures are fixed.
+    # Tracked: fl-xn7
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false

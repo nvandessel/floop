@@ -38,6 +38,7 @@ node_modules/
 .runtime/
 .claude/
 .logs/
+__pycache__/
 
 # Dolt database files (added by bd init)
 .dolt/
