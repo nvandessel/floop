@@ -35,6 +35,13 @@ dolt-server.port
 # Backup data (auto-exported JSONL, local-only)
 backup/
 
+# JSONL snapshots (now served live from shared Dolt server)
+issues.jsonl
+interactions.jsonl
+
+# Push state (machine-specific)
+push-state.json
+
 # Legacy files (from pre-Dolt versions)
 *.db
 *.db?*

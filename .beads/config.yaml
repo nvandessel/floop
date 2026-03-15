@@ -1,2 +1,4 @@
 sync:
     mode: dolt-native
+dolt:
+    shared-server: true
