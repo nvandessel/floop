@@ -206,21 +206,38 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 			continue
 		}
 
+		// Build content map matching BehaviorToNode schema so NodeToBehavior
+		// can reconstruct the Behavior on read.
+		contentMap := map[string]interface{}{
+			"canonical":  mem.Content.Canonical,
+			"summary":    mem.Content.Summary,
+			"tags":       mem.Content.Tags,
+			"structured": mem.Content.Structured,
+		}
+		if mem.EpisodeData != nil {
+			contentMap["episode_data"] = mem.EpisodeData
+		}
+		if mem.WorkflowData != nil {
+			contentMap["workflow_data"] = mem.WorkflowData
+		}
+
 		node := store.Node{
 			ID:   fmt.Sprintf("consolidated-%d-%d", baseTS, i),
 			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
-				"canonical":     mem.Content.Canonical,
-				"summary":       mem.Content.Summary,
-				"tags":          mem.Content.Tags,
-				"behavior_type": string(mem.Kind),
-				"memory_type":   string(mem.MemoryType),
-				"scope":         mem.Scope,
+				"name":        mem.Content.Summary,
+				"kind":        string(mem.Kind),
+				"content":     contentMap,
+				"memory_type": string(mem.MemoryType),
+				"scope":       mem.Scope,
 			},
 			Metadata: map[string]interface{}{
-				"provenance_source_type":     string(models.SourceTypeConsolidated),
-				"provenance_consolidated_by": "heuristic-v0",
-				"confidence":                 mem.Confidence,
+				"confidence": mem.Confidence,
+				"provenance": map[string]interface{}{
+					"source_type":     string(models.SourceTypeConsolidated),
+					"consolidated_by": "heuristic-v0",
+					"source_events":   mem.SourceEvents,
+				},
 			},
 		}
 

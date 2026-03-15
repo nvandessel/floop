@@ -289,17 +289,26 @@ func TestHeuristicPromote(t *testing.T) {
 	}
 
 	node := nodes[0]
-	if node.Content["canonical"] != "Use fmt.Errorf to wrap errors." {
-		t.Errorf("unexpected canonical: %v", node.Content["canonical"])
-	}
-	if node.Content["behavior_type"] != "directive" {
-		t.Errorf("unexpected behavior_type: %v", node.Content["behavior_type"])
+	// Verify nested content schema matches BehaviorToNode/NodeToBehavior
+	if node.Content["kind"] != "directive" {
+		t.Errorf("unexpected kind: %v", node.Content["kind"])
 	}
 	if node.Content["memory_type"] != "semantic" {
 		t.Errorf("unexpected memory_type: %v", node.Content["memory_type"])
 	}
-	if node.Metadata["provenance_consolidated_by"] != "heuristic-v0" {
-		t.Errorf("unexpected provenance_consolidated_by: %v", node.Metadata["provenance_consolidated_by"])
+	contentMap, ok := node.Content["content"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("content is not a map: %T", node.Content["content"])
+	}
+	if contentMap["canonical"] != "Use fmt.Errorf to wrap errors." {
+		t.Errorf("unexpected canonical: %v", contentMap["canonical"])
+	}
+	provMap, ok := node.Metadata["provenance"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("provenance is not a map: %T", node.Metadata["provenance"])
+	}
+	if provMap["consolidated_by"] != "heuristic-v0" {
+		t.Errorf("unexpected consolidated_by: %v", provMap["consolidated_by"])
 	}
 }
 
