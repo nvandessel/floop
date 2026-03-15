@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type EventStore interface {
 	GetBySession(ctx context.Context, sessionID string) ([]Event, error)
 	GetSince(ctx context.Context, since time.Time) ([]Event, error)
 	GetUnconsolidated(ctx context.Context) ([]Event, error)
+	MarkConsolidated(ctx context.Context, ids []string) error
 	Prune(ctx context.Context, olderThan time.Duration) (int, error)
 	Count(ctx context.Context) (int, error)
 }
@@ -190,12 +192,31 @@ func (s *SQLiteEventStore) GetUnconsolidated(ctx context.Context) ([]Event, erro
 	return scanEvents(rows)
 }
 
-// Prune deletes events older than the given duration and returns the count deleted.
+// MarkConsolidated marks the given event IDs as consolidated.
+func (s *SQLiteEventStore) MarkConsolidated(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf("UPDATE events SET consolidated = 1 WHERE id IN (%s)", strings.Join(placeholders, ","))
+	_, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("mark consolidated: %w", err)
+	}
+	return nil
+}
+
+// Prune deletes consolidated events older than the given duration and returns the count deleted.
 func (s *SQLiteEventStore) Prune(ctx context.Context, olderThan time.Duration) (int, error) {
 	cutoff := time.Now().Add(-olderThan)
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM events
-		WHERE timestamp < ?
+		WHERE timestamp < ? AND consolidated = 1
 	`, cutoff.Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, fmt.Errorf("pruning events: %w", err)

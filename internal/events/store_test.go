@@ -244,7 +244,12 @@ func TestPrune(t *testing.T) {
 		t.Fatalf("AddBatch: %v", err)
 	}
 
-	// Prune events older than 24 hours
+	// Mark old events as consolidated so they can be pruned
+	if err := store.MarkConsolidated(ctx, []string{"evt-old-1", "evt-old-2"}); err != nil {
+		t.Fatalf("MarkConsolidated: %v", err)
+	}
+
+	// Prune consolidated events older than 24 hours
 	pruned, err := store.Prune(ctx, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
@@ -391,5 +396,59 @@ func TestGetUnconsolidated(t *testing.T) {
 	}
 	if got[0].ID != "evt-uncons" {
 		t.Errorf("event ID = %q, want %q", got[0].ID, "evt-uncons")
+	}
+}
+
+func TestMarkConsolidated(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	now := time.Now().Truncate(time.Microsecond)
+	event := Event{
+		ID:        "evt-mark",
+		SessionID: "session-mark",
+		Timestamp: now,
+		Source:    "test",
+		Actor:     ActorUser,
+		Kind:      KindMessage,
+		Content:   "to be consolidated",
+		CreatedAt: now,
+	}
+
+	if err := store.Add(ctx, event); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Verify it appears as unconsolidated
+	got, err := store.GetUnconsolidated(ctx)
+	if err != nil {
+		t.Fatalf("GetUnconsolidated before mark: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 unconsolidated event, got %d", len(got))
+	}
+
+	// Mark it as consolidated
+	if err := store.MarkConsolidated(ctx, []string{"evt-mark"}); err != nil {
+		t.Fatalf("MarkConsolidated: %v", err)
+	}
+
+	// Verify GetUnconsolidated returns empty
+	got, err = store.GetUnconsolidated(ctx)
+	if err != nil {
+		t.Fatalf("GetUnconsolidated after mark: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 unconsolidated events after mark, got %d", len(got))
+	}
+}
+
+func TestMarkConsolidated_Empty(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Should be a no-op, not an error
+	if err := store.MarkConsolidated(ctx, []string{}); err != nil {
+		t.Fatalf("MarkConsolidated with empty slice: %v", err)
 	}
 }
