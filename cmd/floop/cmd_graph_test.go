@@ -11,7 +11,7 @@ import (
 
 func TestGraphServeImpliesHTMLFormat(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("server cleanup race on Windows")
+		t.Skip("server cleanup race on Windows: SQLite db held open by server goroutine blocks t.TempDir() cleanup. TODO: add explicit server.Shutdown")
 	}
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)

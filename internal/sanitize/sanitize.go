@@ -157,8 +157,11 @@ func SanitizeFilePath(input string) string {
 	// Strip leading path traversal components (handle both "/" and OS separator).
 	parentPrefix := ".." + string(filepath.Separator)
 	for strings.HasPrefix(s, "../") || strings.HasPrefix(s, parentPrefix) {
-		s = strings.TrimPrefix(s, "../")
-		s = strings.TrimPrefix(s, parentPrefix)
+		if strings.HasPrefix(s, "../") {
+			s = strings.TrimPrefix(s, "../")
+		} else {
+			s = strings.TrimPrefix(s, parentPrefix)
+		}
 	}
 	if s == ".." {
 		return ""
