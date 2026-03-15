@@ -21,13 +21,10 @@ jobs:
     name: Test Release Build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
 
@@ -40,37 +37,76 @@ jobs:
 
       - name: Verify binaries
         run: |
-          echo "Checking for built binaries..."
-          ls -lh dist/*/
+          echo "Built binaries:"
+          ls -lh dist/*/floop* 2>/dev/null || true
 
-          # Test a Linux binary
-          echo -e "\nTesting Linux amd64 binary..."
-          ./dist/floop_linux_amd64_v1/floop --version
+          echo ""
+          echo "Testing Linux amd64 binary..."
+          linux_bin=$(find dist -maxdepth 2 -name "floop" -path "*linux_amd64*" | head -1)
+          test -n "$linux_bin" || { echo "linux_amd64 binary not found"; exit 1; }
+          "$linux_bin" --version
 
-      - name: Check archives
+          # Verify all 6 platform targets exist (goreleaser may add arch variant suffixes)
+          for os_arch in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
+            found=$(find dist -maxdepth 1 -type d -name "floop_${os_arch}*" | head -1)
+            if [ -n "$found" ]; then
+              echo "  ${os_arch}: OK ($(basename "$found"))"
+            else
+              echo "  ${os_arch}: MISSING" && exit 1
+            fi
+          done
+
+  test-cgo-build:
+    name: Test CGO Build (LanceDB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Install C++ toolchain
+        run: sudo apt-get update && sudo apt-get install -y g++
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Cache LanceDB native libraries
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib/
+            include/
+          key: lancedb-test-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
+
+      - name: Download LanceDB native libraries
         run: |
-          echo "Checking for expected files in archives..."
-          # The build command doesn't create archives, but we can verify the structure
-          if [ -d "dist/floop_linux_amd64_v1" ]; then
-            echo "✅ Linux amd64 build found"
-          fi
-          if [ -d "dist/floop_linux_arm64" ]; then
-            echo "✅ Linux arm64 build found"
-          fi
-          if [ -d "dist/floop_darwin_amd64_v1" ]; then
-            echo "✅ macOS amd64 build found"
-          fi
-          if [ -d "dist/floop_darwin_arm64" ]; then
-            echo "✅ macOS arm64 build found"
-          fi
-          if [ -d "dist/floop_windows_amd64_v1" ]; then
-            echo "✅ Windows amd64 build found"
-          fi
-          if [ -d "dist/floop_windows_arm64" ]; then
-            echo "✅ Windows arm64 build found"
+          PLATFORM="$(go env GOOS)_$(go env GOARCH)"
+          if [ ! -f "lib/${PLATFORM}/liblancedb_go.a" ]; then
+            rm -rf lib/ include/
+            LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+            bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
           fi
 
-      - name: Summary
+      - name: Build with CGO + LanceDB
         run: |
-          echo "✅ GoReleaser build test passed" >> $GITHUB_STEP_SUMMARY
-          echo "All platform binaries built successfully in snapshot mode" >> $GITHUB_STEP_SUMMARY
+          PLATFORM="$(go env GOOS)_$(go env GOARCH)"
+          CGO_ENABLED=1 \
+          CGO_CFLAGS="-I$(pwd)/include" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
+          go build -ldflags "-s -w -X main.version=test-cgo" \
+            -o floop-cgo ./cmd/floop
+
+      - name: Verify CGO binary
+        run: |
+          ./floop-cgo --version
+          echo ""
+          echo "LanceDB static linking check:"
+          ldd_output=$(ldd floop-cgo 2>&1) || { echo "FAIL: ldd failed"; exit 1; }
+          if echo "$ldd_output" | grep -q liblancedb_go; then
+            echo "FAIL: liblancedb_go.so linked dynamically"
+            echo "$ldd_output"
+            exit 1
+          else
+            echo "OK: LanceDB statically linked (no liblancedb_go.so dependency)"
+          fi
