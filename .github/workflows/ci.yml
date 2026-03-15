@@ -110,54 +110,24 @@ jobs:
           go build -ldflags="-s -w -X main.version=dev -X main.commit=$COMMIT -X main.date=$DATE" ./cmd/floop
 
   test-cgo:
-    name: Test (CGO + LanceDB)
+    name: Test (CGO + LanceDB, ${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            lib_dir: linux_amd64
+          - os: macos-latest
+            lib_dir: darwin_arm64
+    runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "1"
       CGO_CFLAGS: "-I${{ github.workspace }}/include"
-      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/linux_amd64 -llancedb_go"
-      LD_LIBRARY_PATH: "${{ github.workspace }}/lib/linux_amd64"
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: "go.mod"
-      - name: Download Go modules
-        run: go mod download
-      - name: Cache LanceDB native libraries
-        uses: actions/cache@v4
-        with:
-          path: |
-            lib/
-            include/
-          key: lancedb-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
-      - name: Download LanceDB native libraries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ ! -d "lib/" ]; then
-            LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
-            gh release download "${LANCE_VERSION}" \
-              --repo lancedb/lancedb-go \
-              --pattern 'lancedb-go-native-binaries.tar.gz'
-            tar -xzf lancedb-go-native-binaries.tar.gz
-            rm -f lancedb-go-native-binaries.tar.gz
-          fi
-      - name: Run CGO tests
-        run: go test -race -count=1 ./...
-
-  test-cgo-macos:
-    name: Test (CGO + LanceDB, macOS)
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: macos-latest
-    env:
-      CGO_ENABLED: "1"
-      CGO_CFLAGS: "-I${{ github.workspace }}/include"
-      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/darwin_arm64 -llancedb_go"
-      DYLD_LIBRARY_PATH: "${{ github.workspace }}/lib/darwin_arm64"
+      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/${{ matrix.lib_dir }} -llancedb_go"
+      LD_LIBRARY_PATH: "${{ github.workspace }}/lib/${{ matrix.lib_dir }}"
+      DYLD_LIBRARY_PATH: "${{ github.workspace }}/lib/${{ matrix.lib_dir }}"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
