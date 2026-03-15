@@ -179,6 +179,16 @@ func extractTags(text string) []string {
 	return tags
 }
 
+// toInterfaceSlice converts []string to []interface{} for NodeToBehavior compatibility.
+// Go's type system requires this explicit conversion for type assertions to work.
+func toInterfaceSlice(ss []string) []interface{} {
+	result := make([]interface{}, len(ss))
+	for i, s := range ss {
+		result[i] = s
+	}
+	return result
+}
+
 // Relate is a v0 passthrough that returns empty edges and merge proposals.
 func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
 	return nil, nil, nil
@@ -211,7 +221,7 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		contentMap := map[string]interface{}{
 			"canonical":  mem.Content.Canonical,
 			"summary":    mem.Content.Summary,
-			"tags":       mem.Content.Tags,
+			"tags":       toInterfaceSlice(mem.Content.Tags),
 			"structured": mem.Content.Structured,
 		}
 		if mem.EpisodeData != nil {

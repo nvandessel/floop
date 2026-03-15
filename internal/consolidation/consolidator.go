@@ -14,7 +14,7 @@ import (
 type Candidate struct {
 	SourceEvents   []string       // event IDs
 	RawText        string         // relevant excerpt
-	CandidateType  string         // correction, discovery, decision, failure, workflow, context
+	CandidateType  string         // correction, discovery, decision, failure, workflow
 	Confidence     float64        // 0.0-1.0
 	SessionContext map[string]any // project, file, task, branch, model
 }
