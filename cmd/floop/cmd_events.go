@@ -86,7 +86,8 @@ func runEvents(cmd *cobra.Command, args []string) error {
 		}
 		if jsonOut {
 			json.NewEncoder(out).Encode(map[string]interface{}{
-				"count": count,
+				"status": "count",
+				"count":  count,
 			})
 		} else {
 			fmt.Fprintf(out, "Event count: %d\n", count)
