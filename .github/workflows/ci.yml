@@ -115,3 +115,27 @@ jobs:
           bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
       - name: Run CGO tests
         run: go test -race -count=1 ./...
+
+  test-cgo-macos:
+    name: Test (CGO + LanceDB, macOS)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-latest
+    env:
+      CGO_ENABLED: "1"
+      CGO_CFLAGS: "-I${{ github.workspace }}/include"
+      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/darwin_arm64 -llancedb_go"
+      DYLD_LIBRARY_PATH: "${{ github.workspace }}/lib/darwin_arm64"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Download Go modules
+        run: go mod download
+      - name: Download LanceDB native libraries
+        run: |
+          LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+          bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
+      - name: Run CGO tests
+        run: go test -race -count=1 ./...
