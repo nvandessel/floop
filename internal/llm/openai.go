@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/nvandessel/floop/internal/models"
 )
 
 const (
@@ -95,65 +93,19 @@ type openAIChatResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// CompareBehaviors compares two behaviors using the OpenAI API.
-// It sends a structured prompt and parses the JSON response into a ComparisonResult.
-func (c *OpenAIClient) CompareBehaviors(ctx context.Context, a, b *models.Behavior) (*ComparisonResult, error) {
-	prompt := ComparisonPrompt(a, b)
-
-	response, err := c.callAPI(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("calling OpenAI API: %w", err)
+// Complete sends messages to the OpenAI API and returns the response text.
+func (c *OpenAIClient) Complete(ctx context.Context, messages []Message) (string, error) {
+	var apiMsgs []openAIChatMessage
+	for _, m := range messages {
+		apiMsgs = append(apiMsgs, openAIChatMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		})
 	}
 
-	result, err := ParseComparisonResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing comparison response: %w", err)
-	}
-
-	return result, nil
-}
-
-// MergeBehaviors merges multiple behaviors using the OpenAI API.
-// It sends a structured prompt and parses the JSON response into a MergeResult.
-func (c *OpenAIClient) MergeBehaviors(ctx context.Context, behaviors []*models.Behavior) (*MergeResult, error) {
-	if len(behaviors) == 0 {
-		return &MergeResult{Merged: nil, SourceIDs: []string{}, Reasoning: "No behaviors to merge"}, nil
-	}
-	if len(behaviors) == 1 {
-		return &MergeResult{Merged: behaviors[0], SourceIDs: []string{behaviors[0].ID}, Reasoning: "Single behavior, no merge needed"}, nil
-	}
-
-	prompt := MergePrompt(behaviors)
-
-	response, err := c.callAPI(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("calling OpenAI API: %w", err)
-	}
-
-	result, err := ParseMergeResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing merge response: %w", err)
-	}
-
-	return result, nil
-}
-
-// Available returns true if the client is ready to make requests.
-// For OpenAI, this requires an API key. For Ollama, no key is needed.
-func (c *OpenAIClient) Available() bool {
-	if c.provider == "ollama" {
-		return true // Ollama doesn't require API key
-	}
-	return c.apiKey != ""
-}
-
-// callAPI makes a request to the OpenAI-compatible chat completions API.
-func (c *OpenAIClient) callAPI(ctx context.Context, prompt string) (string, error) {
 	reqBody := openAIChatRequest{
-		Model: c.model,
-		Messages: []openAIChatMessage{
-			{Role: "user", Content: prompt},
-		},
+		Model:    c.model,
+		Messages: apiMsgs,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -201,4 +153,13 @@ func (c *OpenAIClient) callAPI(ctx context.Context, prompt string) (string, erro
 	}
 
 	return chatResp.Choices[0].Message.Content, nil
+}
+
+// Available returns true if the client is ready to make requests.
+// For OpenAI, this requires an API key. For Ollama, no key is needed.
+func (c *OpenAIClient) Available() bool {
+	if c.provider == "ollama" {
+		return true // Ollama doesn't require API key
+	}
+	return c.apiKey != ""
 }

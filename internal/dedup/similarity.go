@@ -49,14 +49,19 @@ func ComputeSimilarity(a, b *models.Behavior, cfg SimilarityConfig) SimilarityRe
 		}
 
 		// Try full LLM comparison
-		result, err := cfg.LLMClient.CompareBehaviors(ctx, a, b)
-		if err == nil && result != nil {
-			logSimilarity(a, b, result.SemanticSimilarity, "llm", cfg)
-			return SimilarityResult{Score: result.SemanticSimilarity, Method: "llm"}
+		prompt := ComparisonPrompt(a, b)
+		msgs := []llm.Message{{Role: "user", Content: prompt}}
+		response, completeErr := cfg.LLMClient.Complete(ctx, msgs)
+		if completeErr == nil {
+			result, parseErr := ParseComparisonResponse(response)
+			if parseErr == nil && result != nil {
+				logSimilarity(a, b, result.SemanticSimilarity, "llm", cfg)
+				return SimilarityResult{Score: result.SemanticSimilarity, Method: "llm"}
+			}
 		}
 		// Fall through to Jaccard on error
 		if cfg.Logger != nil {
-			cfg.Logger.Debug("LLM comparison failed, falling back to jaccard", "error", err)
+			cfg.Logger.Debug("LLM comparison failed, falling back to jaccard", "error", completeErr)
 		}
 	}
 

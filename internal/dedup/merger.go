@@ -130,9 +130,16 @@ func (m *BehaviorMerger) shouldUseLLM() bool {
 
 // llmMerge performs LLM-assisted behavior merging.
 func (m *BehaviorMerger) llmMerge(ctx context.Context, behaviors []*models.Behavior) (*models.Behavior, error) {
-	result, err := m.llmClient.MergeBehaviors(ctx, behaviors)
+	prompt := MergePrompt(behaviors)
+	msgs := []llm.Message{{Role: "user", Content: prompt}}
+	response, err := m.llmClient.Complete(ctx, msgs)
 	if err != nil {
 		return nil, fmt.Errorf("llm merge failed: %w", err)
+	}
+
+	result, err := ParseMergeResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("parsing merge response: %w", err)
 	}
 
 	if result.Merged == nil {

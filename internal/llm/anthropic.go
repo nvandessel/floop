@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/nvandessel/floop/internal/models"
 )
 
 const (
@@ -61,6 +59,7 @@ func NewAnthropicClient(config ClientConfig) *AnthropicClient {
 type anthropicRequest struct {
 	Model     string             `json:"model"`
 	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 }
 
@@ -86,72 +85,31 @@ type anthropicResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// CompareBehaviors compares two behaviors using the Anthropic API.
-// It sends a structured prompt and parses the JSON response.
-func (c *AnthropicClient) CompareBehaviors(ctx context.Context, a, b *models.Behavior) (*ComparisonResult, error) {
+// Complete sends messages to the Anthropic API and returns the response text.
+func (c *AnthropicClient) Complete(ctx context.Context, messages []Message) (string, error) {
 	if !c.Available() {
-		return nil, fmt.Errorf("anthropic client not available: missing API key")
+		return "", fmt.Errorf("anthropic client not available: missing API key")
 	}
 
-	prompt := ComparisonPrompt(a, b)
-	response, err := c.sendRequest(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("comparing behaviors: %w", err)
+	// Separate system messages from user/assistant messages
+	var system string
+	var apiMsgs []anthropicMessage
+	for _, m := range messages {
+		if m.Role == "system" {
+			system = m.Content
+		} else {
+			apiMsgs = append(apiMsgs, anthropicMessage{
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
 	}
 
-	result, err := ParseComparisonResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing comparison response: %w", err)
-	}
-
-	return result, nil
-}
-
-// MergeBehaviors merges multiple behaviors using the Anthropic API.
-// It sends a structured prompt and parses the JSON response.
-func (c *AnthropicClient) MergeBehaviors(ctx context.Context, behaviors []*models.Behavior) (*MergeResult, error) {
-	if !c.Available() {
-		return nil, fmt.Errorf("anthropic client not available: missing API key")
-	}
-
-	if len(behaviors) == 0 {
-		return &MergeResult{Merged: nil, SourceIDs: []string{}, Reasoning: "No behaviors to merge"}, nil
-	}
-	if len(behaviors) == 1 {
-		return &MergeResult{
-			Merged:    behaviors[0],
-			SourceIDs: []string{behaviors[0].ID},
-			Reasoning: "Single behavior, no merge needed",
-		}, nil
-	}
-
-	prompt := MergePrompt(behaviors)
-	response, err := c.sendRequest(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("merging behaviors: %w", err)
-	}
-
-	result, err := ParseMergeResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing merge response: %w", err)
-	}
-
-	return result, nil
-}
-
-// Available returns true if the API key is present.
-func (c *AnthropicClient) Available() bool {
-	return c.apiKey != ""
-}
-
-// sendRequest sends a prompt to the Anthropic API and returns the response text.
-func (c *AnthropicClient) sendRequest(ctx context.Context, prompt string) (string, error) {
 	reqBody := anthropicRequest{
 		Model:     c.model,
 		MaxTokens: 1024,
-		Messages: []anthropicMessage{
-			{Role: "user", Content: prompt},
-		},
+		System:    system,
+		Messages:  apiMsgs,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -204,4 +162,9 @@ func (c *AnthropicClient) sendRequest(ctx context.Context, prompt string) (strin
 	}
 
 	return "", fmt.Errorf("no text content in API response")
+}
+
+// Available returns true if the API key is present.
+func (c *AnthropicClient) Available() bool {
+	return c.apiKey != ""
 }

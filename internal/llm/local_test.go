@@ -4,9 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/nvandessel/floop/internal/models"
 )
 
 func TestNewLocalClient(t *testing.T) {
@@ -136,34 +135,16 @@ func TestLocalClient_CompareEmbeddings_NoConfig(t *testing.T) {
 	}
 }
 
-func TestLocalClient_CompareBehaviors_NoConfig(t *testing.T) {
+func TestLocalClient_Complete_ReturnsError(t *testing.T) {
 	client := NewLocalClient(LocalConfig{})
 	ctx := context.Background()
 
-	a := &models.Behavior{ID: "a", Content: models.BehaviorContent{Canonical: "test"}}
-	b := &models.Behavior{ID: "b", Content: models.BehaviorContent{Canonical: "test"}}
-
-	_, err := client.CompareBehaviors(ctx, a, b)
+	_, err := client.Complete(ctx, []Message{{Role: "user", Content: "test"}})
 	if err == nil {
-		t.Error("CompareBehaviors should return error with no config")
+		t.Error("Complete should return error for local client (embedding-only)")
 	}
-}
-
-func TestLocalClient_MergeBehaviors(t *testing.T) {
-	client := NewLocalClient(LocalConfig{})
-	ctx := context.Background()
-
-	behaviors := []*models.Behavior{
-		{ID: "a", Content: models.BehaviorContent{Canonical: "test a"}},
-		{ID: "b", Content: models.BehaviorContent{Canonical: "test b"}},
-	}
-
-	result, err := client.MergeBehaviors(ctx, behaviors)
-	if err != nil {
-		t.Errorf("MergeBehaviors should delegate to fallback, got error: %v", err)
-	}
-	if result == nil {
-		t.Error("MergeBehaviors should return a result from fallback")
+	if !strings.Contains(err.Error(), "does not support text generation") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 

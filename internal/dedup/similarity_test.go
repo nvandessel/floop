@@ -44,9 +44,7 @@ func TestComputeSimilarity_EmbeddingPath(t *testing.T) {
 func TestComputeSimilarity_LLMFallbackWhenEmbeddingErrors(t *testing.T) {
 	mock := llm.NewMockClient().
 		WithCompareEmbeddingsError(errors.New("embedding error")).
-		WithComparisonResult(&llm.ComparisonResult{
-			SemanticSimilarity: 0.92,
-		})
+		WithCompleteResponse(`{"semantic_similarity": 0.92, "intent_match": false, "merge_candidate": false}`)
 
 	a := &models.Behavior{Content: models.BehaviorContent{Canonical: "use pathlib"}}
 	b := &models.Behavior{Content: models.BehaviorContent{Canonical: "prefer pathlib"}}
