@@ -106,11 +106,6 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 	return c.heuristic.Extract(ctx, evts)
 }
 
-// Classify delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) ([]ClassifiedMemory, error) {
-	return c.heuristic.Classify(ctx, candidates)
-}
-
 // Relate delegates to the heuristic consolidator (stub).
 func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
 	return c.heuristic.Relate(ctx, memories, s)
