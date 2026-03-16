@@ -1,0 +1,122 @@
+package consolidation
+
+import (
+	"context"
+
+	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/llm"
+	"github.com/nvandessel/floop/internal/logging"
+	"github.com/nvandessel/floop/internal/store"
+)
+
+// LLMConsolidatorConfig configures the LLM-based consolidator.
+type LLMConsolidatorConfig struct {
+	// Model is the LLM model identifier to use for consolidation.
+	Model string
+
+	// ChunkSize is the number of events to process per LLM call.
+	ChunkSize int
+
+	// MaxCandidates is the maximum number of candidates to extract per run.
+	MaxCandidates int
+
+	// TopK is the number of similar behaviors to retrieve during Relate.
+	TopK int
+
+	// RetryOnce enables a single retry on transient LLM errors.
+	RetryOnce bool
+}
+
+// DefaultLLMConsolidatorConfig returns an LLMConsolidatorConfig with sensible defaults.
+func DefaultLLMConsolidatorConfig() LLMConsolidatorConfig {
+	return LLMConsolidatorConfig{
+		Model:         "",
+		ChunkSize:     20,
+		MaxCandidates: 30,
+		TopK:          5,
+		RetryOnce:     true,
+	}
+}
+
+// ChunkSummary represents a summarized chunk of events for LLM processing.
+type ChunkSummary struct {
+	ChunkIndex int      `json:"chunk_index"`
+	EventIDs   []string `json:"event_ids"`
+	Summary    string   `json:"summary"`
+}
+
+// ArcSummary captures a narrative arc across multiple chunks.
+type ArcSummary struct {
+	ArcID       string   `json:"arc_id"`
+	ChunkIDs    []int    `json:"chunk_ids"`
+	Description string   `json:"description"`
+	Importance  float64  `json:"importance"`
+	Tags        []string `json:"tags"`
+}
+
+// RelationshipProposal proposes a relationship between a new memory and existing behaviors.
+type RelationshipProposal struct {
+	MemoryIndex int     `json:"memory_index"`
+	TargetID    string  `json:"target_id"`
+	Relation    string  `json:"relation"` // "similar_to", "overrides", "specializes"
+	Similarity  float64 `json:"similarity"`
+}
+
+// MergeDetail describes a merge between a new memory and an existing behavior.
+type MergeDetail struct {
+	MemoryIndex int    `json:"memory_index"`
+	TargetID    string `json:"target_id"`
+	Strategy    string `json:"strategy"` // "absorb", "supersede", "supplement"
+	Reasoning   string `json:"reasoning"`
+}
+
+// ConsolidationRunRecord records metadata about a consolidation run.
+type ConsolidationRunRecord struct {
+	Executor        string `json:"executor"` // "heuristic", "llm", "local"
+	EventsProcessed int    `json:"events_processed"`
+	CandidatesFound int    `json:"candidates_found"`
+	Classified      int    `json:"classified"`
+	Promoted        int    `json:"promoted"`
+	DurationMS      int64  `json:"duration_ms"`
+}
+
+// LLMConsolidator implements the Consolidator interface using an LLM client
+// for extraction and classification. It delegates to HeuristicConsolidator
+// as a stub until real LLM-based stages are implemented.
+type LLMConsolidator struct {
+	client    llm.Client
+	heuristic *HeuristicConsolidator
+	decisions *logging.DecisionLogger
+	config    LLMConsolidatorConfig
+}
+
+// NewLLMConsolidator creates a new LLM-based consolidator.
+// All four pipeline stages currently delegate to heuristic as a stub.
+func NewLLMConsolidator(client llm.Client, decisions *logging.DecisionLogger, config LLMConsolidatorConfig) *LLMConsolidator {
+	return &LLMConsolidator{
+		client:    client,
+		heuristic: NewHeuristicConsolidator(),
+		decisions: decisions,
+		config:    config,
+	}
+}
+
+// Extract delegates to the heuristic consolidator (stub).
+func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]Candidate, error) {
+	return c.heuristic.Extract(ctx, evts)
+}
+
+// Classify delegates to the heuristic consolidator (stub).
+func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) ([]ClassifiedMemory, error) {
+	return c.heuristic.Classify(ctx, candidates)
+}
+
+// Relate delegates to the heuristic consolidator (stub).
+func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
+	return c.heuristic.Relate(ctx, memories, s)
+}
+
+// Promote delegates to the heuristic consolidator (stub).
+func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error {
+	return c.heuristic.Promote(ctx, memories, edges, merges, s)
+}

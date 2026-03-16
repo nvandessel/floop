@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
-	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/vecmath"
 )
 
@@ -47,9 +47,6 @@ type LocalClient struct {
 	loaded  bool
 	loadErr error
 	once    sync.Once
-
-	// fallback handles MergeBehaviors until local generation is implemented.
-	fallback *FallbackClient
 }
 
 // LocalConfig configures the local LLM client.
@@ -91,7 +88,6 @@ func NewLocalClient(cfg LocalConfig) *LocalClient {
 		embeddingModelPath: embPath,
 		gpuLayers:          cfg.GPULayers,
 		contextSize:        ctxSize,
-		fallback:           NewFallbackClient(),
 	}
 }
 
@@ -158,6 +154,19 @@ func (c *LocalClient) Available() bool {
 	return err == nil
 }
 
+// Complete concatenates messages into a prompt and returns a stub response.
+// LocalClient is primarily an embedding provider; text generation support
+// will be added in a future phase.
+func (c *LocalClient) Complete(_ context.Context, messages []Message) (string, error) {
+	// LocalClient is an embedding-only provider today.
+	// Concatenate messages for error context.
+	var parts []string
+	for _, m := range messages {
+		parts = append(parts, m.Content)
+	}
+	return "", fmt.Errorf("local client does not support text generation (prompt length: %d)", len(strings.Join(parts, " ")))
+}
+
 // Embed returns a dense vector embedding for the given text.
 // Creates a fresh llama context per call and frees it immediately.
 func (c *LocalClient) Embed(ctx context.Context, text string) ([]float32, error) {
@@ -216,27 +225,6 @@ func (c *LocalClient) CompareEmbeddings(ctx context.Context, a, b string) (float
 		return 0, fmt.Errorf("embedding text b: %w", err)
 	}
 	return vecmath.CosineSimilarity(embA, embB), nil
-}
-
-// CompareBehaviors compares two behaviors using embedding-based cosine similarity.
-func (c *LocalClient) CompareBehaviors(ctx context.Context, a, b *models.Behavior) (*ComparisonResult, error) {
-	similarity, err := c.CompareEmbeddings(ctx, a.Content.Canonical, b.Content.Canonical)
-	if err != nil {
-		return nil, fmt.Errorf("comparing behaviors: %w", err)
-	}
-
-	return &ComparisonResult{
-		SemanticSimilarity: similarity,
-		IntentMatch:        similarity > 0.8,
-		MergeCandidate:     similarity > 0.7,
-		Reasoning:          "Local embedding-based cosine similarity comparison",
-	}, nil
-}
-
-// MergeBehaviors delegates to the rule-based FallbackClient.
-// Phase 2 will add generation-based merging with a local text model.
-func (c *LocalClient) MergeBehaviors(ctx context.Context, behaviors []*models.Behavior) (*MergeResult, error) {
-	return c.fallback.MergeBehaviors(ctx, behaviors)
 }
 
 // Close releases the model resources. Safe to call multiple times.

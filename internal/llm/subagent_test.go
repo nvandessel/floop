@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/logging"
-	"github.com/nvandessel/floop/internal/models"
 )
 
 func TestDefaultSubagentConfig(t *testing.T) {
@@ -635,50 +634,18 @@ func TestDetectAndCreate(t *testing.T) {
 	})
 }
 
-func TestSubagentClient_CompareBehaviors_NotAvailable(t *testing.T) {
+func TestSubagentClient_Complete_NotAvailable(t *testing.T) {
 	// Create a client that's explicitly not available
 	client := &SubagentClient{
 		availableOnce: true,
 		available:     false,
 	}
 
-	_, err := client.CompareBehaviors(context.TODO(), nil, nil)
+	_, err := client.Complete(context.TODO(), []Message{{Role: "user", Content: "test"}})
 	if err == nil {
 		t.Error("expected error when client not available")
 	}
 	if err.Error() != "subagent client not available" {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestSubagentClient_MergeBehaviors_NotAvailable(t *testing.T) {
-	// Create a client that's explicitly not available
-	client := &SubagentClient{
-		availableOnce: true,
-		available:     false,
-	}
-
-	_, err := client.MergeBehaviors(context.TODO(), nil)
-	if err == nil {
-		t.Error("expected error when client not available")
-	}
-	if err.Error() != "subagent client not available" {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestSubagentClient_MergeBehaviors_EmptyInput(t *testing.T) {
-	// Create a client that's available but will fail on empty input
-	client := &SubagentClient{
-		availableOnce: true,
-		available:     true,
-	}
-
-	_, err := client.MergeBehaviors(context.TODO(), []*models.Behavior{})
-	if err == nil {
-		t.Error("expected error for empty behaviors")
-	}
-	if err.Error() != "no behaviors to merge" {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }

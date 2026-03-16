@@ -6,8 +6,6 @@ import (
 	"context"
 	"os"
 	"testing"
-
-	"github.com/nvandessel/floop/internal/models"
 )
 
 // These tests require yzma shared libraries and a GGUF embedding model.
@@ -146,7 +144,7 @@ func TestLocalClient_Integration_CompareEmbeddings(t *testing.T) {
 	}
 }
 
-func TestLocalClient_Integration_CompareBehaviors(t *testing.T) {
+func TestLocalClient_Integration_CompareEmbeddings_Behaviors(t *testing.T) {
 	libPath := integrationLibPath(t)
 	modelPath := integrationModelPath(t)
 
@@ -161,40 +159,37 @@ func TestLocalClient_Integration_CompareBehaviors(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name               string
-		aCanonical         string
-		bCanonical         string
-		wantMergeCandidate bool
+		name     string
+		a        string
+		b        string
+		wantHigh bool // expect similarity > 0.7
 	}{
 		{
-			name:               "near-duplicate behaviors",
-			aCanonical:         "Always run go test before committing changes",
-			bCanonical:         "Run go test prior to each commit to catch regressions",
-			wantMergeCandidate: true,
+			name:     "near-duplicate behaviors",
+			a:        "Always run go test before committing changes",
+			b:        "Run go test prior to each commit to catch regressions",
+			wantHigh: true,
 		},
 		{
-			name:               "unrelated behaviors",
-			aCanonical:         "Use table-driven tests with t.Run",
-			bCanonical:         "Never commit secrets or API keys to the repository",
-			wantMergeCandidate: false,
+			name:     "unrelated behaviors",
+			a:        "Use table-driven tests with t.Run",
+			b:        "Never commit secrets or API keys to the repository",
+			wantHigh: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := testBehavior("a", tt.aCanonical)
-			b := testBehavior("b", tt.bCanonical)
-
-			result, err := client.CompareBehaviors(ctx, a, b)
+			sim, err := client.CompareEmbeddings(ctx, tt.a, tt.b)
 			if err != nil {
-				t.Fatalf("CompareBehaviors() error: %v", err)
+				t.Fatalf("CompareEmbeddings() error: %v", err)
 			}
-			t.Logf("similarity=%.4f intent=%v merge=%v",
-				result.SemanticSimilarity, result.IntentMatch, result.MergeCandidate)
+			t.Logf("similarity=%.4f", sim)
 
-			if result.MergeCandidate != tt.wantMergeCandidate {
-				t.Errorf("MergeCandidate = %v, want %v (similarity=%.4f)",
-					result.MergeCandidate, tt.wantMergeCandidate, result.SemanticSimilarity)
+			isHigh := sim > 0.7
+			if isHigh != tt.wantHigh {
+				t.Errorf("high similarity = %v, want %v (similarity=%.4f)",
+					isHigh, tt.wantHigh, sim)
 			}
 		})
 	}
@@ -226,14 +221,5 @@ func TestLocalClient_Integration_Close(t *testing.T) {
 	// Double close should be safe
 	if err := client.Close(); err != nil {
 		t.Fatalf("second Close() error: %v", err)
-	}
-}
-
-func testBehavior(id, canonical string) *models.Behavior {
-	return &models.Behavior{
-		ID:      id,
-		Name:    id,
-		Kind:    models.BehaviorKindDirective,
-		Content: models.BehaviorContent{Canonical: canonical},
 	}
 }
