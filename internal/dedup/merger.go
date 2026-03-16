@@ -141,10 +141,7 @@ func (m *BehaviorMerger) llmMerge(ctx context.Context, behaviors []*models.Behav
 	if err != nil {
 		return nil, fmt.Errorf("parsing merge response: %w", err)
 	}
-
-	if result.Merged == nil {
-		return nil, fmt.Errorf("llm merge returned nil result")
-	}
+	// result.Merged is guaranteed non-nil by ParseMergeResponse validation
 
 	merged := result.Merged
 

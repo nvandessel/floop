@@ -11,6 +11,9 @@ import (
 func NewConsolidator(executor string, client llm.Client, decisions *logging.DecisionLogger) Consolidator {
 	switch executor {
 	case "llm":
+		if client == nil {
+			return NewHeuristicConsolidator()
+		}
 		return NewLLMConsolidator(client, decisions, DefaultLLMConsolidatorConfig())
 	case "local":
 		// v2, not yet implemented — fall back to heuristic

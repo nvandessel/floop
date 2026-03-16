@@ -482,8 +482,9 @@ func (m *mockLLMClient) Available() bool {
 	return m.available
 }
 
-func TestLLMMerge_NilMergedResult(t *testing.T) {
-	// Test that llmMerge returns error when LLM returns nil Merged field
+func TestLLMMerge_InvalidResponseFallback(t *testing.T) {
+	// When LLM returns an invalid response (nil Merged → empty source_ids in JSON),
+	// ParseMergeResponse returns an error and the merger falls back to rule-based merge.
 	mock := &mockLLMClient{
 		available:   true,
 		mergeResult: &MergeResult{Merged: nil},
@@ -499,8 +500,8 @@ func TestLLMMerge_NilMergedResult(t *testing.T) {
 		{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective},
 	}
 
-	// The LLM merge returns nil Merged. The merger should fall back to
-	// rule-based merge (since llmMerge returns an error) and NOT panic.
+	// ParseMergeResponse rejects the response (missing required fields),
+	// so the merger falls back to rule-based merge and does NOT panic.
 	result, err := merger.Merge(context.Background(), behaviors)
 	if err != nil {
 		t.Fatalf("expected fallback to rule-based merge, got error: %v", err)
