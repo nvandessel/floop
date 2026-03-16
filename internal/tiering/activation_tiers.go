@@ -202,10 +202,20 @@ func contentForTier(b *models.Behavior, tier models.InjectionTier) string {
 }
 
 // formatNameOnly produces a compact name-only representation of a behavior.
-// Format: `{name}` [{kind}] #tag1 #tag2
+// For episodic and workflow kinds, a type prefix is used instead of the
+// generic `name` [kind] format.
 func formatNameOnly(b *models.Behavior) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("`%s` [%s]", b.Name, b.Kind))
+
+	// Add type prefix for non-standard behavior kinds
+	switch b.Kind {
+	case models.BehaviorKindEpisodic:
+		sb.WriteString(fmt.Sprintf("Episode: `%s`", b.Name))
+	case models.BehaviorKindWorkflow:
+		sb.WriteString(fmt.Sprintf("Workflow: `%s`", b.Name))
+	default:
+		sb.WriteString(fmt.Sprintf("`%s` [%s]", b.Name, b.Kind))
+	}
 
 	for _, tag := range b.Content.Tags {
 		sb.WriteString(fmt.Sprintf(" #%s", tag))

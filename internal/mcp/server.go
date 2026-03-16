@@ -3,19 +3,21 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
-
-	"path/filepath"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/floop/internal/backup"
 	"github.com/nvandessel/floop/internal/config"
 	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/events"
 	"github.com/nvandessel/floop/internal/llm"
+	"github.com/nvandessel/floop/internal/project"
 	"github.com/nvandessel/floop/internal/ranking"
 	"github.com/nvandessel/floop/internal/ratelimit"
 	"github.com/nvandessel/floop/internal/seed"
@@ -81,6 +83,11 @@ type Server struct {
 	// Structured logger for warnings and info
 	logger *slog.Logger
 
+	// Event store for consolidation (shared across MCP handlers)
+	eventStore *events.SQLiteEventStore
+	eventDB    *sql.DB // held for cleanup (Close)
+	projectID  string  // resolved at startup for event/scope stamping
+
 	// Shutdown coordination
 	done      chan struct{} // closed on shutdown
 	closeOnce sync.Once
@@ -126,6 +133,33 @@ func NewServer(cfg *Config) (*Server, error) {
 	}
 	retPolicy := buildRetentionPolicy(&floopCfg.Backup)
 
+	// Initialize shared event store for consolidation MCP tools.
+	// Uses the global DB (~/.floop/floop.db) so events are available across projects.
+	var eventStore *events.SQLiteEventStore
+	var eventDB *sql.DB
+	if homeDir != "" {
+		evtDBDir := filepath.Join(homeDir, ".floop")
+		if mkErr := os.MkdirAll(evtDBDir, 0700); mkErr == nil {
+			evtDBPath := filepath.Join(evtDBDir, "floop.db")
+			db, dbErr := sql.Open("sqlite", evtDBPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+			if dbErr == nil {
+				es := events.NewSQLiteEventStore(db)
+				if schemaErr := es.InitSchema(context.Background()); schemaErr == nil {
+					eventStore = es
+					eventDB = db
+				} else {
+					fmt.Fprintf(os.Stderr, "warning: event store schema init failed: %v\n", schemaErr)
+					db.Close()
+				}
+			} else {
+				fmt.Fprintf(os.Stderr, "warning: failed to open event store: %v\n", dbErr)
+			}
+		}
+	}
+
+	// Resolve project ID for event stamping (non-fatal — empty means universal scope)
+	resolvedProjectID, _ := project.ResolveProjectID(cfg.Root)
+
 	s := &Server{
 		server:               mcpServer,
 		store:                graphStore,
@@ -142,6 +176,9 @@ func NewServer(cfg *Config) (*Server, error) {
 		confirmedThisSession: make(map[string]struct{}),
 		coActivationTracker:  initCoActivationTracker(graphStore),
 		hebbianConfig:        spreading.DefaultHebbianConfig(),
+		eventStore:           eventStore,
+		eventDB:              eventDB,
+		projectID:            resolvedProjectID,
 		logger:               slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
 		done:                 make(chan struct{}),
 	}
@@ -464,6 +501,10 @@ func (s *Server) Close() error {
 
 		if c, ok := s.llmClient.(llm.Closer); ok {
 			c.Close()
+		}
+
+		if s.eventDB != nil {
+			s.eventDB.Close()
 		}
 
 		closeErr = s.store.Close()

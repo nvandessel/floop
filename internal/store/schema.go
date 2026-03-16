@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS behaviors (
     -- Embeddings (V6)
     embedding BLOB,           -- binary-encoded []float32 vector (little-endian)
     embedding_model TEXT,     -- model that produced the embedding
+
+    -- Memory consolidation (V9)
+    memory_type TEXT DEFAULT 'semantic',  -- 'semantic', 'episodic', 'procedural'
+    episode_data TEXT,                    -- JSON for episodic memory data
+    workflow_data TEXT,                   -- JSON for workflow memory data
 
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -131,6 +136,26 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT NOT NULL
 );
 
+-- Events (V9) — episodic memory event buffer
+CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    source TEXT NOT NULL,
+    actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
+    kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
+    content TEXT NOT NULL,
+    metadata TEXT,
+    project_id TEXT,
+    provenance TEXT,
+    consolidated INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
+CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated);
+
 -- Schema version
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -170,7 +195,16 @@ END;
 // InitSchema initializes the database schema.
 // It creates all tables and applies migrations as needed.
 // Runs integrity validation before migrations on existing databases.
+// Uses an empty project ID — callers that need project-aware migration
+// should use initSchemaWithProject directly.
 func InitSchema(ctx context.Context, db *sql.DB) error {
+	return initSchemaWithProject(ctx, db, "")
+}
+
+// initSchemaWithProject initializes the database schema with a project ID.
+// The projectID is passed through to migrateSchema and used by the V9
+// migration to transform scope values (local -> project:<id>).
+func initSchemaWithProject(ctx context.Context, db *sql.DB, projectID string) error {
 	// Check current schema version
 	currentVersion, err := getSchemaVersion(ctx, db)
 	if err != nil {
@@ -191,7 +225,7 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 				return fmt.Errorf("failed to record initial version: %w", err)
 			}
 			// Run all migrations from version 1
-			if err := migrateSchema(ctx, db, 1); err != nil {
+			if err := migrateSchema(ctx, db, 1, projectID); err != nil {
 				return fmt.Errorf("failed to migrate pre-schema_version database: %w", err)
 			}
 			return nil
@@ -214,7 +248,7 @@ func InitSchema(ctx context.Context, db *sql.DB) error {
 
 	// Apply migrations if needed
 	if currentVersion < SchemaVersion {
-		if err := migrateSchema(ctx, db, currentVersion); err != nil {
+		if err := migrateSchema(ctx, db, currentVersion, projectID); err != nil {
 			return fmt.Errorf("failed to migrate schema: %w", err)
 		}
 	}
@@ -266,7 +300,8 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 }
 
 // migrateSchema applies migrations from currentVersion to SchemaVersion.
-func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
+// The projectID is only used by the V9 migration to transform scope values.
+func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int, projectID string) error {
 	// Apply migrations sequentially
 	if currentVersion < 2 {
 		if err := migrateV1ToV2(ctx, db); err != nil {
@@ -301,6 +336,11 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int) error {
 	if currentVersion < 8 {
 		if err := migrateV7ToV8(ctx, db); err != nil {
 			return fmt.Errorf("migrate v7 to v8: %w", err)
+		}
+	}
+	if currentVersion < 9 {
+		if err := migrateV8ToV9(ctx, db, projectID); err != nil {
+			return fmt.Errorf("migrate v8 to v9: %w", err)
 		}
 	}
 	return nil
@@ -679,6 +719,136 @@ func migrateV7ToV8(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
+// migrateV8ToV9 transforms scope values, adds memory type columns, and
+// creates the events table for episodic memory.
+//
+// Scope changes:
+//   - 'global' -> 'universal'
+//   - 'local'  -> 'project:<projectID>' (or 'universal' if projectID is empty)
+//
+// New columns on behaviors:
+//   - memory_type: 'semantic' (default), 'episodic', 'procedural'
+//   - episode_data: JSON for episodic memory data
+//   - workflow_data: JSON for workflow memory data
+//
+// New table: events (episodic memory event buffer)
+func migrateV8ToV9(ctx context.Context, db *sql.DB, projectID string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Transform scope values
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE behaviors SET scope = 'universal' WHERE scope = 'global'`); err != nil {
+		return fmt.Errorf("migrate global scope: %w", err)
+	}
+	if projectID != "" {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE behaviors SET scope = 'project:' || ? WHERE scope = 'local'`, projectID); err != nil {
+			return fmt.Errorf("migrate local scope: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE behaviors SET scope = 'universal' WHERE scope = 'local'`); err != nil {
+			return fmt.Errorf("migrate local scope fallback: %w", err)
+		}
+	}
+
+	// Add new columns idempotently (safe if migration is retried after partial failure)
+	existingCols := make(map[string]bool)
+	colRows, err := tx.QueryContext(ctx, `PRAGMA table_info(behaviors)`)
+	if err != nil {
+		return fmt.Errorf("check behaviors columns: %w", err)
+	}
+	for colRows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			colRows.Close()
+			return fmt.Errorf("scan column info: %w", err)
+		}
+		existingCols[name] = true
+	}
+	colRows.Close()
+	if err := colRows.Err(); err != nil {
+		return fmt.Errorf("iterating column info: %w", err)
+	}
+
+	v9Columns := []struct {
+		name string
+		def  string
+	}{
+		{"memory_type", "TEXT DEFAULT 'semantic'"},
+		{"episode_data", "TEXT"},
+		{"workflow_data", "TEXT"},
+	}
+	for _, col := range v9Columns {
+		if !existingCols[col.name] {
+			if _, err := tx.ExecContext(ctx,
+				fmt.Sprintf(`ALTER TABLE behaviors ADD COLUMN %s %s`, col.name, col.def)); err != nil {
+				return fmt.Errorf("add %s column: %w", col.name, err)
+			}
+		}
+	}
+
+	// Backfill memory_type for existing behavior types
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE behaviors SET memory_type = 'procedural' WHERE behavior_type IN ('procedure', 'workflow')`); err != nil {
+		return fmt.Errorf("backfill procedural memory_type: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE behaviors SET memory_type = 'episodic' WHERE behavior_type = 'episodic'`); err != nil {
+		return fmt.Errorf("backfill episodic memory_type: %w", err)
+	}
+
+	// Create events table
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS events (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			timestamp DATETIME NOT NULL,
+			source TEXT NOT NULL,
+			actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
+			kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
+			content TEXT NOT NULL,
+			metadata TEXT,
+			project_id TEXT,
+			provenance TEXT,
+			consolidated INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+		return fmt.Errorf("create events table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`); err != nil {
+		return fmt.Errorf("create events session index: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`); err != nil {
+		return fmt.Errorf("create events timestamp index: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id)`); err != nil {
+		return fmt.Errorf("create events project index: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated)`); err != nil {
+		return fmt.Errorf("create events consolidated index: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`, 9)
+	if err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // validateStructuralIntegrity checks for SQLite database corruption.
 // It only runs PRAGMA integrity_check — not foreign_key_check.
 // Use ValidateIntegrity for full validation including FK checks.
@@ -750,6 +920,7 @@ func ValidateIntegrity(ctx context.Context, db *sql.DB) error {
 func ResetSchema(ctx context.Context, db *sql.DB) error {
 	// Drop all tables
 	tables := []string{
+		"events",
 		"co_activations",
 		"dirty_behaviors",
 		"behavior_stats",
