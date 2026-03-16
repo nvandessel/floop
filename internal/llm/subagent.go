@@ -1,4 +1,4 @@
-// Package llm provides interfaces and types for LLM-based behavior comparison and merging.
+// Package llm provides interfaces and types for LLM-based text completion.
 package llm
 
 import (
@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/logging"
-	"github.com/nvandessel/floop/internal/models"
 )
 
 // SubagentClient implements the Client interface using the parent CLI's LLM session.
@@ -101,48 +100,26 @@ func NewSubagentClient(cfg SubagentConfig) *SubagentClient {
 	}
 }
 
-// CompareBehaviors semantically compares two behaviors using a subagent.
-func (c *SubagentClient) CompareBehaviors(ctx context.Context, a, b *models.Behavior) (*ComparisonResult, error) {
+// Complete sends messages to the subagent CLI and returns the response text.
+// Messages are concatenated into a single prompt string.
+func (c *SubagentClient) Complete(ctx context.Context, messages []Message) (string, error) {
 	if !c.Available() {
-		return nil, fmt.Errorf("subagent client not available")
+		return "", fmt.Errorf("subagent client not available")
 	}
 
-	prompt := ComparisonPrompt(a, b)
-	response, err := c.runSubagent(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("running comparison subagent: %w", err)
+	// Concatenate messages into a prompt string
+	var prompt strings.Builder
+	for _, m := range messages {
+		if m.Role == "system" {
+			fmt.Fprintf(&prompt, "[System]\n%s\n\n", m.Content)
+		} else if m.Role == "assistant" {
+			fmt.Fprintf(&prompt, "[Assistant]\n%s\n\n", m.Content)
+		} else {
+			fmt.Fprintf(&prompt, "%s\n\n", m.Content)
+		}
 	}
 
-	result, err := ParseComparisonResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing comparison response: %w", err)
-	}
-
-	return result, nil
-}
-
-// MergeBehaviors combines multiple behaviors using a subagent.
-func (c *SubagentClient) MergeBehaviors(ctx context.Context, behaviors []*models.Behavior) (*MergeResult, error) {
-	if !c.Available() {
-		return nil, fmt.Errorf("subagent client not available")
-	}
-
-	if len(behaviors) == 0 {
-		return nil, fmt.Errorf("no behaviors to merge")
-	}
-
-	prompt := MergePrompt(behaviors)
-	response, err := c.runSubagent(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("running merge subagent: %w", err)
-	}
-
-	result, err := ParseMergeResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing merge response: %w", err)
-	}
-
-	return result, nil
+	return c.runSubagent(ctx, strings.TrimSpace(prompt.String()))
 }
 
 // Available returns true if the subagent client can be used.
@@ -400,27 +377,6 @@ func (c *SubagentClient) runSubagent(ctx context.Context, prompt string) (string
 	c.logger.Log(ctx, logging.LevelTrace, "subagent response content", "response", response)
 
 	return response, nil
-}
-
-// ExtractCorrection analyzes user text to determine if it contains a correction.
-// Returns the extraction result with wrong/right if a correction is detected.
-func (c *SubagentClient) ExtractCorrection(ctx context.Context, userText string) (*CorrectionExtractionResult, error) {
-	if !c.Available() {
-		return nil, fmt.Errorf("subagent client not available")
-	}
-
-	prompt := CorrectionExtractionPrompt(userText)
-	response, err := c.runSubagent(ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("running extraction subagent: %w", err)
-	}
-
-	result, err := ParseCorrectionExtractionResponse(response)
-	if err != nil {
-		return nil, fmt.Errorf("parsing extraction response: %w", err)
-	}
-
-	return result, nil
 }
 
 // ensureLogger initializes the logger if it was not set (e.g., when

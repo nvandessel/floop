@@ -557,11 +557,7 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 	t.Run("falls back to LLM when embedding errors", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
 			WithCompareEmbeddingsError(errors.New("embedding error")).
-			WithComparisonResult(&llm.ComparisonResult{
-				SemanticSimilarity: 0.95,
-				IntentMatch:        true,
-				MergeCandidate:     true,
-			})
+			WithCompleteResponse(`{"semantic_similarity": 0.95, "intent_match": true, "merge_candidate": true}`)
 
 		dedup := &StoreDeduplicator{
 			config:    DeduplicatorConfig{UseLLM: true},
@@ -580,16 +576,14 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 			t.Errorf("expected method 'llm', got %q", sim.method)
 		}
 
-		if mockClient.CompareCallCount() != 1 {
-			t.Errorf("expected 1 LLM call, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 1 {
+			t.Errorf("expected 1 LLM call, got %d", mockClient.CompleteCallCount())
 		}
 	})
 
 	t.Run("falls back to Jaccard when LLM disabled", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
-			WithComparisonResult(&llm.ComparisonResult{
-				SemanticSimilarity: 0.95,
-			})
+			WithCompleteResponse(`{"semantic_similarity": 0.95, "intent_match": false, "merge_candidate": false}`)
 
 		dedup := &StoreDeduplicator{
 			config:    DeduplicatorConfig{UseLLM: false}, // Disabled
@@ -616,17 +610,15 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 		}
 
 		// LLM should not have been called
-		if mockClient.CompareCallCount() != 0 {
-			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 0 {
+			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompleteCallCount())
 		}
 	})
 
 	t.Run("falls back to Jaccard when LLM unavailable", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
 			WithAvailable(false).
-			WithComparisonResult(&llm.ComparisonResult{
-				SemanticSimilarity: 0.95,
-			})
+			WithCompleteResponse(`{"semantic_similarity": 0.95, "intent_match": false, "merge_candidate": false}`)
 
 		dedup := &StoreDeduplicator{
 			config:    DeduplicatorConfig{UseLLM: true},
@@ -653,8 +645,8 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 		}
 
 		// LLM should not have been called
-		if mockClient.CompareCallCount() != 0 {
-			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 0 {
+			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompleteCallCount())
 		}
 	})
 
@@ -688,8 +680,8 @@ func TestStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 		}
 
 		// LLM was called but failed
-		if mockClient.CompareCallCount() != 1 {
-			t.Errorf("expected 1 LLM call, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 1 {
+			t.Errorf("expected 1 LLM call, got %d", mockClient.CompleteCallCount())
 		}
 	})
 

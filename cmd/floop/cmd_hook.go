@@ -190,7 +190,12 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 				return nil
 			}
 
-			result, err := client.ExtractCorrection(ctx, input.Prompt)
+			prompt := learning.CorrectionExtractionPrompt(input.Prompt)
+			response, err := client.Complete(ctx, []llm.Message{{Role: "user", Content: prompt}})
+			if err != nil {
+				return nil
+			}
+			result, err := learning.ParseCorrectionExtractionResponse(response)
 			if err != nil || !result.IsCorrection || result.Wrong == "" || result.Right == "" {
 				return nil
 			}

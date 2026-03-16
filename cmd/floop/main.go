@@ -24,7 +24,7 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 		if client := llm.DetectAndCreate(); client != nil {
 			return client
 		}
-		return llm.NewFallbackClient()
+		return nil
 	}
 
 	if !cfg.LLM.Enabled || cfg.LLM.Provider == "" {
@@ -56,9 +56,9 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 		if client := llm.DetectAndCreate(); client != nil {
 			return client
 		}
-		return llm.NewFallbackClient()
+		return nil
 	default:
-		return llm.NewFallbackClient()
+		return nil
 	}
 }
 

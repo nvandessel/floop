@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/dedup"
 	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/similarity"
@@ -201,9 +202,16 @@ func (p *graphPlacer) computeSimilarity(ctx context.Context, a, b *models.Behavi
 	}
 
 	// Try LLM-based semantic comparison
-	result, err := p.config.LLMClient.CompareBehaviors(ctx, a, b)
+	prompt := dedup.ComparisonPrompt(a, b)
+	msgs := []llm.Message{{Role: "user", Content: prompt}}
+	response, err := p.config.LLMClient.Complete(ctx, msgs)
 	if err != nil {
 		// Fallback to rule-based on error
+		return ruleScore
+	}
+
+	result, parseErr := dedup.ParseComparisonResponse(response)
+	if parseErr != nil || result == nil {
 		return ruleScore
 	}
 
