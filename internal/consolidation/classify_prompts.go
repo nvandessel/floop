@@ -3,6 +3,7 @@ package consolidation
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/nvandessel/floop/internal/llm"
@@ -46,6 +47,7 @@ Return ONLY valid JSON matching this schema:
 {
   "classified": [
     {
+      "index": 0,
       "source_events": ["evt-42"],
       "kind": "directive",
       "memory_type": "semantic",
@@ -70,10 +72,11 @@ Return ONLY valid JSON matching this schema:
 3. tags: 2-5 semantic tags (understand meaning, don't just split keywords)
 4. For episodic kind: populate episode_data with {"session_id": "...", "timeframe": "...", "actors": [...], "outcome": "..."}
 5. For workflow kind: populate workflow_data with {"steps": [{"action": "...", "condition": "...", "on_failure": "..."}], "trigger": "...", "verified": false}
-6. Return one classified entry per input candidate, in the same order
+6. Return one classified entry per input candidate, in the same order, preserving the index field
 7. kind must be one of: directive, constraint, procedure, preference, episodic, workflow
 8. memory_type must be one of: semantic, episodic, procedural
-9. importance must be between 0.0 and 1.0`
+9. importance must be between 0.0 and 1.0
+10. kind and memory_type must be consistent: directive/constraint/preference→semantic, procedure/workflow→procedural, episodic→episodic`
 
 // classifyCandidateEntry is the JSON representation of a candidate sent to the LLM.
 type classifyCandidateEntry struct {
@@ -86,7 +89,7 @@ type classifyCandidateEntry struct {
 }
 
 // ClassifyCandidatesPrompt builds the messages for a batched classification LLM call.
-func ClassifyCandidatesPrompt(candidates []Candidate) []llm.Message {
+func ClassifyCandidatesPrompt(candidates []Candidate) ([]llm.Message, error) {
 	entries := make([]classifyCandidateEntry, len(candidates))
 	for i, c := range candidates {
 		entries[i] = classifyCandidateEntry{
@@ -99,14 +102,17 @@ func ClassifyCandidatesPrompt(candidates []Candidate) []llm.Message {
 		}
 	}
 
-	candidatesJSON, _ := json.MarshalIndent(entries, "", "  ")
+	candidatesJSON, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshalling classify candidates: %w", err)
+	}
 
 	userContent := fmt.Sprintf("Classify these %d candidate memories:\n\n%s", len(candidates), string(candidatesJSON))
 
 	return []llm.Message{
 		{Role: "system", Content: classifySystemPrompt},
 		{Role: "user", Content: userContent},
-	}
+	}, nil
 }
 
 // classifiedResponse is the top-level JSON response from the LLM.
@@ -116,6 +122,7 @@ type classifiedResponse struct {
 
 // classifiedEntry is a single classified memory from the LLM response.
 type classifiedEntry struct {
+	Index        int               `json:"index"`
 	SourceEvents []string          `json:"source_events"`
 	Kind         string            `json:"kind"`
 	MemoryType   string            `json:"memory_type"`
@@ -157,7 +164,8 @@ type workflowStepJSON struct {
 }
 
 // ParseClassifiedMemories parses the LLM response and maps it back to ClassifiedMemory structs.
-// It validates enums, importance range, canonical non-empty, and summary length.
+// It validates enums, importance range, canonical non-empty, summary length, scope format,
+// tag count, kind/memory_type consistency, and structured data presence.
 func ParseClassifiedMemories(response string, candidates []Candidate) ([]ClassifiedMemory, error) {
 	// Strip markdown code fences if present
 	response = stripCodeFences(response)
@@ -171,38 +179,91 @@ func ParseClassifiedMemories(response string, candidates []Candidate) ([]Classif
 		return nil, fmt.Errorf("expected %d classified entries, got %d", len(candidates), len(resp.Classified))
 	}
 
+	// Build candidate lookup by source_events for fallback mapping
+	candidateByEvents := make(map[string]int, len(candidates))
+	for i, c := range candidates {
+		key := sourceEventsKey(c.SourceEvents)
+		if prev, exists := candidateByEvents[key]; exists {
+			slog.Warn("classify: two candidates share identical source_events key — fallback lookup will favour the later one",
+				"key", key, "overwriting_idx", prev, "new_idx", i)
+		}
+		candidateByEvents[key] = i
+	}
+
 	memories := make([]ClassifiedMemory, 0, len(resp.Classified))
+	seen := make(map[int]bool, len(candidates))
+
 	for i, entry := range resp.Classified {
+		// Resolve candidate index: prefer positional match, fall back to source_events lookup
+		candidateIdx := i
+		if !sourceEventsMatch(entry.SourceEvents, candidates[i].SourceEvents) {
+			// Try source_events fallback
+			key := sourceEventsKey(entry.SourceEvents)
+			if idx, ok := candidateByEvents[key]; ok {
+				candidateIdx = idx
+			} else {
+				return nil, fmt.Errorf("candidate %d: source_events %v not found in input candidates", i, entry.SourceEvents)
+			}
+		}
+
+		// Guard against duplicate candidate resolution
+		if seen[candidateIdx] {
+			slog.Warn("classify: duplicate candidateIdx resolved — skipping",
+				"response_pos", i, "candidate_idx", candidateIdx)
+			continue
+		}
+		seen[candidateIdx] = true
+
 		kind, err := parseKind(entry.Kind)
 		if err != nil {
-			return nil, fmt.Errorf("candidate %d: %w", i, err)
+			return nil, fmt.Errorf("candidate %d: %w", candidateIdx, err)
 		}
 
 		memType, err := parseMemoryType(entry.MemoryType)
 		if err != nil {
-			return nil, fmt.Errorf("candidate %d: %w", i, err)
+			return nil, fmt.Errorf("candidate %d: %w", candidateIdx, err)
+		}
+
+		// Validate kind/memory_type consistency
+		if err := validateKindMemoryType(kind, memType, candidateIdx); err != nil {
+			return nil, err
 		}
 
 		if entry.Importance < 0 || entry.Importance > 1 {
-			return nil, fmt.Errorf("candidate %d: importance %f out of range [0, 1]", i, entry.Importance)
+			return nil, fmt.Errorf("candidate %d: importance %f out of range [0, 1]", candidateIdx, entry.Importance)
 		}
 
 		if strings.TrimSpace(entry.Content.Canonical) == "" {
-			return nil, fmt.Errorf("candidate %d: canonical is empty", i)
+			return nil, fmt.Errorf("candidate %d: canonical is empty", candidateIdx)
 		}
 
-		summary := entry.Content.Summary
-		if len([]rune(summary)) > 60 {
-			summary = string([]rune(summary)[:60])
+		// Validate tag count
+		if err := validateTagCount(entry.Content.Tags, candidateIdx); err != nil {
+			return nil, err
 		}
+
+		summary := truncateSummary(entry.Content.Summary, candidateIdx)
 
 		scope := entry.Scope
 		if scope == "" {
 			scope = "universal"
 		}
 
+		// Validate scope format
+		if err := validateScope(scope, candidateIdx); err != nil {
+			return nil, err
+		}
+
+		episodeData := toEpisodeData(entry.EpisodeData)
+		workflowData := toWorkflowData(entry.WorkflowData)
+
+		// Validate structured data presence for episodic/workflow kinds
+		if err := validateStructuredData(kind, episodeData, workflowData, candidateIdx); err != nil {
+			return nil, err
+		}
+
 		mem := ClassifiedMemory{
-			Candidate:  candidates[i],
+			Candidate:  candidates[candidateIdx],
 			Kind:       kind,
 			MemoryType: memType,
 			Scope:      scope,
@@ -212,17 +273,16 @@ func ParseClassifiedMemories(response string, candidates []Candidate) ([]Classif
 				Summary:   summary,
 				Tags:      entry.Content.Tags,
 			},
-		}
-
-		if entry.EpisodeData != nil {
-			mem.EpisodeData = toEpisodeData(entry.EpisodeData)
-		}
-
-		if entry.WorkflowData != nil {
-			mem.WorkflowData = toWorkflowData(entry.WorkflowData)
+			EpisodeData:  episodeData,
+			WorkflowData: workflowData,
 		}
 
 		memories = append(memories, mem)
+	}
+
+	// Verify we didn't silently drop candidates due to duplicates
+	if len(memories) != len(candidates) {
+		return nil, fmt.Errorf("classified %d entries but expected %d (some candidates were duplicated or unmatched)", len(memories), len(candidates))
 	}
 
 	return memories, nil

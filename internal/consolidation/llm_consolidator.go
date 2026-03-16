@@ -32,7 +32,7 @@ func DefaultLLMConsolidatorConfig() LLMConsolidatorConfig {
 	return LLMConsolidatorConfig{
 		Model:         "",
 		ChunkSize:     20,
-		MaxCandidates: 30,
+		MaxCandidates: defaultMaxCandidates,
 		TopK:          5,
 		RetryOnce:     true,
 	}

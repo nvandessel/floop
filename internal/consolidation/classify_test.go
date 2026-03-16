@@ -52,17 +52,23 @@ func makeCandidates(n int) []Candidate {
 
 // makeClassifyResponse builds a valid JSON response for n candidates.
 func makeClassifyResponse(candidates []Candidate) string {
+	return makeClassifyResponseWithOffset(candidates, 0)
+}
+
+// makeClassifyResponseWithOffset builds a valid JSON response with index offset.
+func makeClassifyResponseWithOffset(candidates []Candidate, offset int) string {
 	entries := make([]classifiedEntry, len(candidates))
 	for i, c := range candidates {
 		entries[i] = classifiedEntry{
+			Index:        offset + i,
 			SourceEvents: c.SourceEvents,
 			Kind:         "directive",
 			MemoryType:   "semantic",
 			Scope:        "universal",
 			Importance:   0.8,
 			Content: classifiedContent{
-				Canonical: fmt.Sprintf("Canonical form for candidate %d", i),
-				Summary:   fmt.Sprintf("Summary for candidate %d", i),
+				Canonical: fmt.Sprintf("Canonical form for candidate %d", offset+i),
+				Summary:   fmt.Sprintf("Summary for candidate %d", offset+i),
 				Tags:      []string{"testing", "go"},
 			},
 			Rationale: "Test rationale",
@@ -75,6 +81,10 @@ func makeClassifyResponse(candidates []Candidate) string {
 
 func newTestLLMConsolidator(client llm.Client) *LLMConsolidator {
 	return NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
+}
+
+func newTestLLMConsolidatorWithConfig(client llm.Client, config LLMConsolidatorConfig) *LLMConsolidator {
+	return NewLLMConsolidator(client, nil, config)
 }
 
 func TestLLMClassify_SingleBatch(t *testing.T) {
@@ -117,14 +127,15 @@ func TestLLMClassify_SingleBatch(t *testing.T) {
 }
 
 func TestLLMClassify_MultiBatch(t *testing.T) {
-	// >30 candidates triggers batching with default MaxCandidates=20
-	// 35 candidates = 2 batches (20 + 15)
+	// Use MaxCandidates=20 so threshold=30, and 35 candidates triggers 2 batches (20+15)
 	candidates := makeCandidates(35)
 	batch1 := makeClassifyResponse(candidates[:20])
-	batch2 := makeClassifyResponse(candidates[20:])
+	batch2 := makeClassifyResponseWithOffset(candidates[20:], 0)
 
 	client := &mockLLMClient{responses: []string{batch1, batch2}}
-	c := newTestLLMConsolidator(client)
+	cfg := DefaultLLMConsolidatorConfig()
+	cfg.MaxCandidates = 20
+	c := newTestLLMConsolidatorWithConfig(client, cfg)
 
 	memories, err := c.Classify(context.Background(), candidates)
 	if err != nil {
@@ -224,6 +235,7 @@ func TestLLMClassify_InvalidEnums(t *testing.T) {
 			candidates := makeCandidates(1)
 			resp := classifiedResponse{
 				Classified: []classifiedEntry{{
+					Index:        0,
 					SourceEvents: []string{"evt-0"},
 					Kind:         tt.kind,
 					MemoryType:   tt.memType,
@@ -232,7 +244,7 @@ func TestLLMClassify_InvalidEnums(t *testing.T) {
 					Content: classifiedContent{
 						Canonical: "test canonical",
 						Summary:   "test summary",
-						Tags:      []string{"test"},
+						Tags:      []string{"test", "enum"},
 					},
 				}},
 			}
@@ -246,6 +258,37 @@ func TestLLMClassify_InvalidEnums(t *testing.T) {
 				t.Errorf("expected error containing %q, got %q", tt.wantErr, err.Error())
 			}
 		})
+	}
+}
+
+func TestLLMClassify_CaseInsensitiveEnums(t *testing.T) {
+	candidates := makeCandidates(1)
+	resp := classifiedResponse{
+		Classified: []classifiedEntry{{
+			Index:        0,
+			SourceEvents: []string{"evt-0"},
+			Kind:         "Directive",
+			MemoryType:   "Semantic",
+			Scope:        "universal",
+			Importance:   0.5,
+			Content: classifiedContent{
+				Canonical: "test canonical",
+				Summary:   "test summary",
+				Tags:      []string{"test", "case"},
+			},
+		}},
+	}
+	data, _ := json.Marshal(resp)
+
+	memories, err := ParseClassifiedMemories(string(data), candidates)
+	if err != nil {
+		t.Fatalf("case-insensitive parsing should succeed: %v", err)
+	}
+	if memories[0].Kind != models.BehaviorKindDirective {
+		t.Errorf("expected directive, got %q", memories[0].Kind)
+	}
+	if memories[0].MemoryType != models.MemoryTypeSemantic {
+		t.Errorf("expected semantic, got %q", memories[0].MemoryType)
 	}
 }
 
@@ -267,6 +310,7 @@ func TestLLMClassify_ImportanceValidation(t *testing.T) {
 			candidates := makeCandidates(1)
 			resp := classifiedResponse{
 				Classified: []classifiedEntry{{
+					Index:        0,
 					SourceEvents: []string{"evt-0"},
 					Kind:         "directive",
 					MemoryType:   "semantic",
@@ -275,7 +319,7 @@ func TestLLMClassify_ImportanceValidation(t *testing.T) {
 					Content: classifiedContent{
 						Canonical: "test canonical",
 						Summary:   "test summary",
-						Tags:      []string{"test"},
+						Tags:      []string{"test", "importance"},
 					},
 				}},
 			}
@@ -287,6 +331,207 @@ func TestLLMClassify_ImportanceValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLLMClassify_KindMemoryTypeCrossValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    string
+		memType string
+		wantErr bool
+	}{
+		{"directive+semantic", "directive", "semantic", false},
+		{"constraint+semantic", "constraint", "semantic", false},
+		{"preference+semantic", "preference", "semantic", false},
+		{"procedure+procedural", "procedure", "procedural", false},
+		{"workflow+procedural", "workflow", "procedural", false},
+		{"episodic+episodic", "episodic", "episodic", false},
+		{"directive+episodic mismatch", "directive", "episodic", true},
+		{"workflow+semantic mismatch", "workflow", "semantic", true},
+		{"episodic+procedural mismatch", "episodic", "procedural", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidates := makeCandidates(1)
+			entry := classifiedEntry{
+				Index:        0,
+				SourceEvents: []string{"evt-0"},
+				Kind:         tt.kind,
+				MemoryType:   tt.memType,
+				Scope:        "universal",
+				Importance:   0.5,
+				Content: classifiedContent{
+					Canonical: "test canonical",
+					Summary:   "test summary",
+					Tags:      []string{"test", "cross"},
+				},
+			}
+			// Add required structured data for episodic/workflow
+			if tt.kind == "episodic" {
+				entry.EpisodeData = &episodeDataJSON{
+					SessionID: "sess-1", Timeframe: "2024-01-15",
+					Actors: []string{"user"}, Outcome: "success",
+				}
+			}
+			if tt.kind == "workflow" {
+				entry.WorkflowData = &workflowDataJSON{
+					Steps:   []workflowStepJSON{{Action: "step1"}},
+					Trigger: "manual", Verified: false,
+				}
+			}
+			resp := classifiedResponse{Classified: []classifiedEntry{entry}}
+			data, _ := json.Marshal(resp)
+
+			_, err := ParseClassifiedMemories(string(data), candidates)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("kind=%s memType=%s: error = %v, wantErr %v", tt.kind, tt.memType, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLLMClassify_ScopeValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		scope   string
+		wantErr bool
+	}{
+		{"universal", "universal", false},
+		{"project scope", "project:myorg/myrepo", false},
+		{"empty defaults to universal", "", false},
+		{"invalid scope", "org-wide", true},
+		{"bare project", "project", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidates := makeCandidates(1)
+			resp := classifiedResponse{
+				Classified: []classifiedEntry{{
+					Index:        0,
+					SourceEvents: []string{"evt-0"},
+					Kind:         "directive",
+					MemoryType:   "semantic",
+					Scope:        tt.scope,
+					Importance:   0.5,
+					Content: classifiedContent{
+						Canonical: "test canonical",
+						Summary:   "test summary",
+						Tags:      []string{"test", "scope"},
+					},
+				}},
+			}
+			data, _ := json.Marshal(resp)
+
+			_, err := ParseClassifiedMemories(string(data), candidates)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("scope %q: error = %v, wantErr %v", tt.scope, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLLMClassify_TagCountValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		tags    []string
+		wantErr bool
+	}{
+		{"2 tags (min)", []string{"a", "b"}, false},
+		{"5 tags (max)", []string{"a", "b", "c", "d", "e"}, false},
+		{"3 tags", []string{"a", "b", "c"}, false},
+		{"0 tags", []string{}, true},
+		{"1 tag", []string{"a"}, true},
+		{"6 tags", []string{"a", "b", "c", "d", "e", "f"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candidates := makeCandidates(1)
+			resp := classifiedResponse{
+				Classified: []classifiedEntry{{
+					Index:        0,
+					SourceEvents: []string{"evt-0"},
+					Kind:         "directive",
+					MemoryType:   "semantic",
+					Scope:        "universal",
+					Importance:   0.5,
+					Content: classifiedContent{
+						Canonical: "test canonical",
+						Summary:   "test summary",
+						Tags:      tt.tags,
+					},
+				}},
+			}
+			data, _ := json.Marshal(resp)
+
+			_, err := ParseClassifiedMemories(string(data), candidates)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("tags %v: error = %v, wantErr %v", tt.tags, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLLMClassify_StructuredDataEnforcement(t *testing.T) {
+	t.Run("episodic without episode_data", func(t *testing.T) {
+		candidates := makeCandidates(1)
+		resp := classifiedResponse{
+			Classified: []classifiedEntry{{
+				Index:        0,
+				SourceEvents: []string{"evt-0"},
+				Kind:         "episodic",
+				MemoryType:   "episodic",
+				Scope:        "universal",
+				Importance:   0.5,
+				Content: classifiedContent{
+					Canonical: "test canonical",
+					Summary:   "test summary",
+					Tags:      []string{"test", "episodic"},
+				},
+				EpisodeData: nil,
+			}},
+		}
+		data, _ := json.Marshal(resp)
+
+		_, err := ParseClassifiedMemories(string(data), candidates)
+		if err == nil {
+			t.Fatal("expected error for episodic without episode_data")
+		}
+		if !strings.Contains(err.Error(), "requires episode_data") {
+			t.Errorf("expected episode_data error, got %q", err.Error())
+		}
+	})
+
+	t.Run("workflow without workflow_data", func(t *testing.T) {
+		candidates := makeCandidates(1)
+		resp := classifiedResponse{
+			Classified: []classifiedEntry{{
+				Index:        0,
+				SourceEvents: []string{"evt-0"},
+				Kind:         "workflow",
+				MemoryType:   "procedural",
+				Scope:        "universal",
+				Importance:   0.5,
+				Content: classifiedContent{
+					Canonical: "test canonical",
+					Summary:   "test summary",
+					Tags:      []string{"test", "workflow"},
+				},
+				WorkflowData: nil,
+			}},
+		}
+		data, _ := json.Marshal(resp)
+
+		_, err := ParseClassifiedMemories(string(data), candidates)
+		if err == nil {
+			t.Fatal("expected error for workflow without workflow_data")
+		}
+		if !strings.Contains(err.Error(), "requires workflow_data") {
+			t.Errorf("expected workflow_data error, got %q", err.Error())
+		}
+	})
 }
 
 func TestLLMClassify_WorkflowDetection(t *testing.T) {
@@ -302,6 +547,7 @@ func TestLLMClassify_WorkflowDetection(t *testing.T) {
 
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{{
+			Index:        0,
 			SourceEvents: []string{"evt-wf"},
 			Kind:         "workflow",
 			MemoryType:   "procedural",
@@ -368,6 +614,7 @@ func TestLLMClassify_EpisodicDetection(t *testing.T) {
 
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{{
+			Index:        0,
 			SourceEvents: []string{"evt-ep"},
 			Kind:         "episodic",
 			MemoryType:   "episodic",
@@ -432,6 +679,7 @@ func TestLLMClassify_ScopeInference(t *testing.T) {
 
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{{
+			Index:        0,
 			SourceEvents: []string{"evt-scope"},
 			Kind:         "directive",
 			MemoryType:   "semantic",
@@ -481,6 +729,7 @@ func TestLLMClassify_SummaryTruncation(t *testing.T) {
 
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{{
+			Index:        0,
 			SourceEvents: []string{"evt-0"},
 			Kind:         "directive",
 			MemoryType:   "semantic",
@@ -489,7 +738,7 @@ func TestLLMClassify_SummaryTruncation(t *testing.T) {
 			Content: classifiedContent{
 				Canonical: "Some canonical form",
 				Summary:   longSummary,
-				Tags:      []string{"test"},
+				Tags:      []string{"test", "truncation"},
 			},
 		}},
 	}
@@ -509,6 +758,7 @@ func TestLLMClassify_EmptyCanonical(t *testing.T) {
 	candidates := makeCandidates(1)
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{{
+			Index:        0,
 			SourceEvents: []string{"evt-0"},
 			Kind:         "directive",
 			MemoryType:   "semantic",
@@ -517,7 +767,7 @@ func TestLLMClassify_EmptyCanonical(t *testing.T) {
 			Content: classifiedContent{
 				Canonical: "",
 				Summary:   "test",
-				Tags:      []string{"test"},
+				Tags:      []string{"test", "empty"},
 			},
 		}},
 	}
@@ -548,7 +798,10 @@ func TestLLMClassify_CodeFenceStripping(t *testing.T) {
 
 func TestClassifyCandidatesPrompt(t *testing.T) {
 	candidates := makeCandidates(3)
-	msgs := ClassifyCandidatesPrompt(candidates)
+	msgs, err := ClassifyCandidatesPrompt(candidates)
+	if err != nil {
+		t.Fatalf("ClassifyCandidatesPrompt returned error: %v", err)
+	}
 
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages (system + user), got %d", len(msgs))
@@ -623,20 +876,33 @@ func TestLLMClassify_AllKinds(t *testing.T) {
 	for _, tt := range kinds {
 		t.Run(tt.kind, func(t *testing.T) {
 			candidates := makeCandidates(1)
-			resp := classifiedResponse{
-				Classified: []classifiedEntry{{
-					SourceEvents: []string{"evt-0"},
-					Kind:         tt.kind,
-					MemoryType:   tt.memType,
-					Scope:        "universal",
-					Importance:   0.5,
-					Content: classifiedContent{
-						Canonical: "Test canonical for " + tt.kind,
-						Summary:   "Test summary",
-						Tags:      []string{"test"},
-					},
-				}},
+			entry := classifiedEntry{
+				Index:        0,
+				SourceEvents: []string{"evt-0"},
+				Kind:         tt.kind,
+				MemoryType:   tt.memType,
+				Scope:        "universal",
+				Importance:   0.5,
+				Content: classifiedContent{
+					Canonical: "Test canonical for " + tt.kind,
+					Summary:   "Test summary",
+					Tags:      []string{"test", tt.kind},
+				},
 			}
+			// Add required structured data
+			if tt.kind == "episodic" {
+				entry.EpisodeData = &episodeDataJSON{
+					SessionID: "sess-1", Timeframe: "2024-01-15",
+					Actors: []string{"user"}, Outcome: "success",
+				}
+			}
+			if tt.kind == "workflow" {
+				entry.WorkflowData = &workflowDataJSON{
+					Steps:   []workflowStepJSON{{Action: "step1"}},
+					Trigger: "manual", Verified: false,
+				}
+			}
+			resp := classifiedResponse{Classified: []classifiedEntry{entry}}
 			data, _ := json.Marshal(resp)
 
 			memories, err := ParseClassifiedMemories(string(data), candidates)
@@ -651,15 +917,18 @@ func TestLLMClassify_AllKinds(t *testing.T) {
 }
 
 func TestLLMClassify_MultiBatchPartialFailure(t *testing.T) {
-	// 35 candidates = 2 batches; first batch LLM fails, second succeeds
+	// Use MaxCandidates=20 so threshold=30, and 35 candidates triggers 2 batches
+	// First batch LLM fails (fallback to heuristic), second batch succeeds via LLM
 	candidates := makeCandidates(35)
-	batch2Response := makeClassifyResponse(candidates[20:])
+	batch2Response := makeClassifyResponseWithOffset(candidates[20:], 0)
 
 	client := &mockLLMClient{
 		responses: []string{"", batch2Response},
 		errors:    []error{fmt.Errorf("timeout"), nil},
 	}
-	c := newTestLLMConsolidator(client)
+	cfg := DefaultLLMConsolidatorConfig()
+	cfg.MaxCandidates = 20
+	c := newTestLLMConsolidatorWithConfig(client, cfg)
 
 	memories, err := c.Classify(context.Background(), candidates)
 	if err != nil {
@@ -675,5 +944,80 @@ func TestLLMClassify_MultiBatchPartialFailure(t *testing.T) {
 		if memories[i].Kind != models.BehaviorKindDirective {
 			t.Errorf("memory[%d]: expected fallback directive, got %q", i, memories[i].Kind)
 		}
+	}
+
+	// Should have had 2 LLM calls: batch1 (failed) + batch2 (succeeded)
+	if client.calls != 2 {
+		t.Errorf("expected 2 LLM calls, got %d", client.calls)
+	}
+}
+
+func TestLLMClassify_ContextCancellation(t *testing.T) {
+	candidates := makeCandidates(35)
+	cfg := DefaultLLMConsolidatorConfig()
+	cfg.MaxCandidates = 20
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	client := &mockLLMClient{}
+	c := newTestLLMConsolidatorWithConfig(client, cfg)
+
+	_, err := c.Classify(ctx, candidates)
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if !strings.Contains(err.Error(), "cancelled") {
+		t.Errorf("expected cancellation error, got %q", err.Error())
+	}
+	if client.calls != 0 {
+		t.Errorf("expected 0 LLM calls after cancellation, got %d", client.calls)
+	}
+}
+
+func TestLLMClassify_SourceEventsMismatch(t *testing.T) {
+	candidates := makeCandidates(1)
+	resp := classifiedResponse{
+		Classified: []classifiedEntry{{
+			Index:        0,
+			SourceEvents: []string{"evt-unknown"},
+			Kind:         "directive",
+			MemoryType:   "semantic",
+			Scope:        "universal",
+			Importance:   0.5,
+			Content: classifiedContent{
+				Canonical: "test canonical",
+				Summary:   "test summary",
+				Tags:      []string{"test", "mismatch"},
+			},
+		}},
+	}
+	data, _ := json.Marshal(resp)
+
+	_, err := ParseClassifiedMemories(string(data), candidates)
+	if err == nil {
+		t.Fatal("expected error for source_events mismatch")
+	}
+	if !strings.Contains(err.Error(), "not found in input candidates") {
+		t.Errorf("expected source_events mismatch error, got %q", err.Error())
+	}
+}
+
+func TestClassifyCandidatesPrompt_MarshalError(t *testing.T) {
+	// Create candidate with non-serializable context
+	candidates := []Candidate{{
+		SourceEvents:   []string{"evt-0"},
+		RawText:        "test",
+		CandidateType:  "correction",
+		Confidence:     0.7,
+		SessionContext: map[string]any{"bad": make(chan int)},
+	}}
+
+	_, err := ClassifyCandidatesPrompt(candidates)
+	if err == nil {
+		t.Fatal("expected marshal error for non-serializable context")
+	}
+	if !strings.Contains(err.Error(), "marshalling classify candidates") {
+		t.Errorf("expected marshalling error, got %q", err.Error())
 	}
 }

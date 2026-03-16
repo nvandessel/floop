@@ -3,9 +3,14 @@ package consolidation
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/nvandessel/floop/internal/models"
 )
+
+// defaultMaxCandidates is the default batch size for classification.
+const defaultMaxCandidates = 30
 
 // validKinds is the set of valid BehaviorKind values for classification.
 var validKinds = map[string]models.BehaviorKind{
@@ -24,17 +29,27 @@ var validMemoryTypes = map[string]models.MemoryType{
 	"procedural": models.MemoryTypeProcedural,
 }
 
-// parseKind validates and converts a kind string to a BehaviorKind.
+// validKindMemoryType maps each BehaviorKind to its required MemoryType.
+var validKindMemoryType = map[models.BehaviorKind]models.MemoryType{
+	models.BehaviorKindDirective:  models.MemoryTypeSemantic,
+	models.BehaviorKindConstraint: models.MemoryTypeSemantic,
+	models.BehaviorKindPreference: models.MemoryTypeSemantic,
+	models.BehaviorKindProcedure:  models.MemoryTypeProcedural,
+	models.BehaviorKindWorkflow:   models.MemoryTypeProcedural,
+	models.BehaviorKindEpisodic:   models.MemoryTypeEpisodic,
+}
+
+// parseKind validates and converts a kind string to a BehaviorKind (case-insensitive).
 func parseKind(s string) (models.BehaviorKind, error) {
-	if k, ok := validKinds[s]; ok {
+	if k, ok := validKinds[strings.ToLower(s)]; ok {
 		return k, nil
 	}
 	return "", fmt.Errorf("invalid kind %q", s)
 }
 
-// parseMemoryType validates and converts a memory type string to a MemoryType.
+// parseMemoryType validates and converts a memory type string to a MemoryType (case-insensitive).
 func parseMemoryType(s string) (models.MemoryType, error) {
-	if mt, ok := validMemoryTypes[s]; ok {
+	if mt, ok := validMemoryTypes[strings.ToLower(s)]; ok {
 		return mt, nil
 	}
 	return "", fmt.Errorf("invalid memory_type %q", s)
@@ -77,9 +92,9 @@ func toWorkflowData(wd *workflowDataJSON) *models.WorkflowData {
 // each batch has at most maxSize candidates. Otherwise, a single batch is returned.
 func batchCandidates(candidates []Candidate, maxSize int) [][]Candidate {
 	if maxSize <= 0 {
-		maxSize = 20
+		maxSize = defaultMaxCandidates
 	}
-	// Only batch if we exceed the threshold (maxSize + 10, i.e., >30 for default 20)
+	// Only batch if we exceed the threshold (maxSize + 10)
 	threshold := maxSize + 10
 	if len(candidates) <= threshold {
 		return [][]Candidate{candidates}
@@ -108,6 +123,11 @@ func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) 
 
 	var all []ClassifiedMemory
 	for batchIdx, batch := range batches {
+		// Check for context cancellation before processing each batch
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("classify cancelled before batch %d: %w", batchIdx, err)
+		}
+
 		classified, err := c.classifyBatch(ctx, batch, batchIdx)
 		if err != nil {
 			// Log the failure
@@ -135,7 +155,10 @@ func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) 
 // classifyBatch sends a single batch to the LLM and parses the response.
 // Returns an error if the LLM call or parsing fails (after optional retry).
 func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, batchIdx int) ([]ClassifiedMemory, error) {
-	msgs := ClassifyCandidatesPrompt(batch)
+	msgs, err := ClassifyCandidatesPrompt(batch)
+	if err != nil {
+		return nil, fmt.Errorf("building classify prompt: %w", err)
+	}
 
 	response, err := c.client.Complete(ctx, msgs)
 	if err != nil {
@@ -160,6 +183,14 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 			if err2 != nil {
 				return nil, fmt.Errorf("parse failed after retry: %w", err2)
 			}
+			c.decisions.Log(map[string]any{
+				"stage":      "classify",
+				"event":      "batch_classified",
+				"batch":      batchIdx,
+				"count":      len(classified2),
+				"llm_driven": true,
+				"retried":    true,
+			})
 			return classified2, nil
 		}
 		return nil, fmt.Errorf("parse failed: %w", err)
@@ -175,4 +206,67 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 	})
 
 	return classified, nil
+}
+
+// sourceEventsKey creates a lookup key from a sorted list of event IDs.
+func sourceEventsKey(events []string) string {
+	return strings.Join(events, ",")
+}
+
+// sourceEventsMatch checks if two source event slices contain the same events.
+func sourceEventsMatch(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// validateScope checks that scope is either "universal" or "project:<namespace/name>".
+func validateScope(scope string, candidateIdx int) error {
+	if scope != "universal" && !strings.HasPrefix(scope, "project:") {
+		return fmt.Errorf("candidate %d: invalid scope %q (must be \"universal\" or \"project:<namespace/name>\")", candidateIdx, scope)
+	}
+	return nil
+}
+
+// validateKindMemoryType checks that kind and memory_type are a valid combination.
+func validateKindMemoryType(kind models.BehaviorKind, memType models.MemoryType, candidateIdx int) error {
+	if expected, ok := validKindMemoryType[kind]; ok && memType != expected {
+		return fmt.Errorf("candidate %d: kind %q requires memory_type %q, got %q", candidateIdx, kind, expected, memType)
+	}
+	return nil
+}
+
+// validateTagCount checks that tag count is within the expected range [2, 5].
+func validateTagCount(tags []string, candidateIdx int) error {
+	if len(tags) < 2 || len(tags) > 5 {
+		return fmt.Errorf("candidate %d: tags count %d out of expected range [2, 5]", candidateIdx, len(tags))
+	}
+	return nil
+}
+
+// validateStructuredData checks that episodic/workflow kinds have their required data.
+func validateStructuredData(kind models.BehaviorKind, episodeData *models.EpisodeData, workflowData *models.WorkflowData, candidateIdx int) error {
+	if kind == models.BehaviorKindEpisodic && episodeData == nil {
+		return fmt.Errorf("candidate %d: kind \"episodic\" requires episode_data", candidateIdx)
+	}
+	if kind == models.BehaviorKindWorkflow && workflowData == nil {
+		return fmt.Errorf("candidate %d: kind \"workflow\" requires workflow_data", candidateIdx)
+	}
+	return nil
+}
+
+// truncateSummary truncates summary to 60 runes, logging if truncation occurs.
+func truncateSummary(summary string, candidateIdx int) string {
+	if len([]rune(summary)) > 60 {
+		slog.Debug("classify: summary truncated to 60 chars",
+			"candidate_idx", candidateIdx, "original_len", len([]rune(summary)))
+		return string([]rune(summary)[:60])
+	}
+	return summary
 }
