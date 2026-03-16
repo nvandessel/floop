@@ -14,7 +14,6 @@ import (
 func TestDecisionLogging_AllStages(t *testing.T) {
 	dir := t.TempDir()
 	dl := logging.NewDecisionLogger(dir, "debug")
-	defer dl.Close()
 
 	cl := NewConsolidationLogger(dl, "run-test-123", "test-model")
 
@@ -59,7 +58,7 @@ func TestDecisionLogging_AllStages(t *testing.T) {
 		"reason": "already_captured",
 	})
 
-	// Close and read the file
+	// Flush before reading
 	dl.Close()
 
 	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
@@ -108,7 +107,6 @@ func TestDecisionLogging_AllStages(t *testing.T) {
 func TestDecisionLogging_Fallback(t *testing.T) {
 	dir := t.TempDir()
 	dl := logging.NewDecisionLogger(dir, "debug")
-	defer dl.Close()
 
 	cl := NewConsolidationLogger(dl, "run-fallback", "test-model")
 

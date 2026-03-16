@@ -121,21 +121,23 @@ func (cl *ConsolidationLogger) LogRelate(durationMs int64, tokensUsed int, data 
 }
 
 // LogPromote logs a promote stage decision (promote, merge, or skip).
+// It shallow-copies the data map to avoid mutating the caller's map.
 func (cl *ConsolidationLogger) LogPromote(action string, durationMs int64, data map[string]any) {
 	if cl == nil {
 		return
 	}
-	if data == nil {
-		data = make(map[string]any)
+	merged := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		merged[k] = v
 	}
-	data["action"] = action
+	merged["action"] = action
 	cl.logEntry(ConsolidationLogEntry{
 		RunID:      cl.runID,
 		Stage:      "promote",
 		Model:      cl.model,
 		DurationMs: durationMs,
 		Timestamp:  time.Now().UTC(),
-		Data:       data,
+		Data:       merged,
 	})
 }
 

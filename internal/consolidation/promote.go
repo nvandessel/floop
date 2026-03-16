@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/nvandessel/floop/internal/models"
@@ -37,7 +38,7 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 
 	for _, merge := range merges {
 		mergeStart := time.Now()
-		err := c.executeMerge(ctx, merge, s)
+		err := c.executeMerge(ctx, merge, s, runID)
 		elapsed := time.Since(mergeStart).Milliseconds()
 
 		if err != nil {
@@ -93,11 +94,11 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 
 	duration := time.Since(start)
 
-	// Persist run record to consolidation_runs table if store supports SQL
+	// Persist run record to consolidation_runs table if store supports SQL.
+	// Stage counts are set to 0 for stages not tracked at this level;
+	// Promote only knows how many classified memories it received.
 	c.persistRun(ctx, s, ConsolidationRunRecord{
-		Executor:        "llm",
-		EventsProcessed: len(memories),
-		CandidatesFound: len(memories),
+		CandidatesFound: 0,
 		Classified:      len(memories),
 		Promoted:        promoted,
 		DurationMS:      duration.Milliseconds(),
@@ -107,14 +108,14 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 }
 
 // executeMerge applies a single merge proposal to the graph store.
-func (c *LLMConsolidator) executeMerge(ctx context.Context, merge MergeProposal, s store.GraphStore) error {
+func (c *LLMConsolidator) executeMerge(ctx context.Context, merge MergeProposal, s store.GraphStore, runID string) error {
 	switch merge.Strategy {
 	case "absorb":
 		return c.executeAbsorb(ctx, merge, s)
 	case "supersede":
-		return c.executeSupersede(ctx, merge, s)
+		return c.executeSupersede(ctx, merge, s, runID)
 	case "supplement":
-		return c.executeSupplement(ctx, merge, s)
+		return c.executeSupplement(ctx, merge, s, runID)
 	default:
 		return fmt.Errorf("unknown merge strategy: %q", merge.Strategy)
 	}
@@ -139,9 +140,14 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 	if contentMap == nil {
 		contentMap = make(map[string]interface{})
 	}
-	contentMap["canonical"] = merge.Memory.Content.Canonical
+	existingCanonical, _ := contentMap["canonical"].(string)
+	if len(merge.Memory.Content.Canonical) > len(existingCanonical) {
+		contentMap["canonical"] = merge.Memory.Content.Canonical
+	}
 	if merge.Memory.Content.Summary != "" {
 		contentMap["summary"] = merge.Memory.Content.Summary
+		// Also update top-level name for UI/query consistency
+		existing.Content["name"] = merge.Memory.Content.Summary
 	}
 	if len(merge.Memory.Content.Tags) > 0 {
 		contentMap["tags"] = toInterfaceSlice(merge.Memory.Content.Tags)
@@ -154,7 +160,9 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 	}
 	oldConf, _ := existing.Metadata["confidence"].(float64)
 	newConf := merge.Memory.Confidence
+	maxConf := oldConf
 	if newConf > oldConf {
+		maxConf = newConf
 		existing.Metadata["confidence"] = newConf
 	}
 
@@ -167,12 +175,21 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 	prov["source_type"] = string(models.SourceTypeConsolidated)
 	now := time.Now().UTC()
 	prov["consolidated_at"] = now.Format(time.RFC3339)
-	prov["confidence"] = merge.Memory.Confidence
+	prov["confidence"] = maxConf
 
-	// Merge source events
+	// Merge source events with deduplication
 	existingEvents, _ := prov["source_events"].([]interface{})
+	seen := make(map[string]bool, len(existingEvents))
+	for _, e := range existingEvents {
+		if str, ok := e.(string); ok {
+			seen[str] = true
+		}
+	}
 	for _, evtID := range merge.Memory.SourceEvents {
-		existingEvents = append(existingEvents, evtID)
+		if !seen[evtID] {
+			existingEvents = append(existingEvents, evtID)
+			seen[evtID] = true
+		}
 	}
 	prov["source_events"] = existingEvents
 	existing.Metadata["provenance"] = prov
@@ -182,7 +199,9 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 
 // executeSupersede marks the old behavior as merged (soft-delete), creates a
 // new node with combined lineage, and adds a supersedes edge.
-func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergeProposal, s store.GraphStore) error {
+// The new node is created first; the old node is only soft-deleted once the
+// new node and edge are safely written (atomic w.r.t. partial failure).
+func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergeProposal, s store.GraphStore, runID string) error {
 	existing, err := s.GetNode(ctx, merge.TargetID)
 	if err != nil {
 		return fmt.Errorf("fetching target node %s: %w", merge.TargetID, err)
@@ -191,33 +210,22 @@ func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergePropo
 		return fmt.Errorf("target node not found: %s", merge.TargetID)
 	}
 
-	// Soft-delete old: mark as merged
-	existing.Kind = store.NodeKindMerged
-	if existing.Metadata == nil {
-		existing.Metadata = make(map[string]interface{})
-	}
-	existing.Metadata["merged_at"] = time.Now().UTC().Format(time.RFC3339)
-	existing.Metadata["merged_reason"] = "superseded"
-	if err := s.UpdateNode(ctx, *existing); err != nil {
-		return fmt.Errorf("marking old node as merged: %w", err)
-	}
-
 	// Combine lineage: gather source events from old + new
 	var combinedEvents []string
 	if oldProv, ok := existing.Metadata["provenance"].(map[string]interface{}); ok {
 		if oldEvents, ok := oldProv["source_events"].([]interface{}); ok {
 			for _, e := range oldEvents {
-				if s, ok := e.(string); ok {
-					combinedEvents = append(combinedEvents, s)
+				if str, ok := e.(string); ok {
+					combinedEvents = append(combinedEvents, str)
 				}
 			}
 		}
 	}
 	combinedEvents = append(combinedEvents, merge.Memory.SourceEvents...)
 
-	// Create new node
+	// Create new node first (before any mutations to the old node)
 	newID := fmt.Sprintf("supersede-%s-%d", merge.TargetID, time.Now().UnixNano())
-	node := c.buildPromoteNode(merge.Memory, newID, time.Now().UnixNano(), 0)
+	node := c.buildPromoteNode(merge.Memory, runID, time.Now().UnixNano(), 0)
 	// Override provenance with combined lineage
 	if node.Metadata == nil {
 		node.Metadata = make(map[string]interface{})
@@ -247,12 +255,23 @@ func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergePropo
 		return fmt.Errorf("adding supersedes edge: %w", err)
 	}
 
+	// Only soft-delete old node after new node + edge are safely written
+	existing.Kind = store.NodeKindMerged
+	if existing.Metadata == nil {
+		existing.Metadata = make(map[string]interface{})
+	}
+	existing.Metadata["merged_at"] = time.Now().UTC().Format(time.RFC3339)
+	existing.Metadata["merged_reason"] = "superseded"
+	if err := s.UpdateNode(ctx, *existing); err != nil {
+		return fmt.Errorf("marking old node as merged: %w", err)
+	}
+
 	return nil
 }
 
 // executeSupplement keeps the existing behavior unchanged and creates a new node
 // with a supplements edge pointing to the existing behavior.
-func (c *LLMConsolidator) executeSupplement(ctx context.Context, merge MergeProposal, s store.GraphStore) error {
+func (c *LLMConsolidator) executeSupplement(ctx context.Context, merge MergeProposal, s store.GraphStore, runID string) error {
 	// Verify target exists
 	existing, err := s.GetNode(ctx, merge.TargetID)
 	if err != nil {
@@ -264,8 +283,19 @@ func (c *LLMConsolidator) executeSupplement(ctx context.Context, merge MergeProp
 
 	// Create supplementary node
 	newID := fmt.Sprintf("supplement-%s-%d", merge.TargetID, time.Now().UnixNano())
-	node := c.buildPromoteNode(merge.Memory, newID, time.Now().UnixNano(), 0)
+	node := c.buildPromoteNode(merge.Memory, runID, time.Now().UnixNano(), 0)
 	node.ID = newID
+
+	// Add supplements provenance for self-describing nodes
+	if node.Metadata == nil {
+		node.Metadata = make(map[string]interface{})
+	}
+	prov, _ := node.Metadata["provenance"].(map[string]interface{})
+	if prov == nil {
+		prov = make(map[string]interface{})
+	}
+	prov["supplements"] = merge.TargetID
+	node.Metadata["provenance"] = prov
 
 	if _, err := s.AddNode(ctx, node); err != nil {
 		return fmt.Errorf("creating supplement node: %w", err)
@@ -341,6 +371,7 @@ func (c *LLMConsolidator) buildPromoteNode(mem ClassifiedMemory, runID string, b
 
 // persistRun writes a consolidation run record to the consolidation_runs table.
 // It silently no-ops if the store does not support SQL (e.g., InMemoryGraphStore).
+// Errors are logged but not fatal — run persistence is best-effort.
 func (c *LLMConsolidator) persistRun(ctx context.Context, s store.GraphStore, rec ConsolidationRunRecord, runID string, mergeCount int) {
 	// Type-assert to get the underlying *sql.DB.
 	type sqlDBProvider interface {
@@ -355,9 +386,11 @@ func (c *LLMConsolidator) persistRun(ctx context.Context, s store.GraphStore, re
 		return
 	}
 
-	_, _ = db.ExecContext(ctx, `
+	if _, err := db.ExecContext(ctx, `
 		INSERT INTO consolidation_runs (id, model, candidates_found, memories_promoted, merges_executed, duration_ms, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
 		runID, c.config.Model, rec.CandidatesFound, rec.Promoted, mergeCount, rec.DurationMS,
-	)
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to persist consolidation run %s: %v\n", runID, err)
+	}
 }

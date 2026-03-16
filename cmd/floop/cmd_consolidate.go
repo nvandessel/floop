@@ -110,7 +110,10 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve executor from flag or config (single config.Load to avoid redundant disk I/O)
-	floopCfg, _ := config.Load()
+	floopCfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load config: %v\n", cfgErr)
+	}
 	if executor == "" {
 		if floopCfg != nil && floopCfg.Consolidation.Executor != "" {
 			executor = floopCfg.Consolidation.Executor
