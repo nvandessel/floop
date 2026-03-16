@@ -3,7 +3,6 @@ package consolidation
 import (
 	"context"
 
-	"github.com/nvandessel/floop/internal/events"
 	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/logging"
 	"github.com/nvandessel/floop/internal/store"
@@ -99,11 +98,6 @@ func NewLLMConsolidator(client llm.Client, decisions *logging.DecisionLogger, co
 		decisions: decisions,
 		config:    config,
 	}
-}
-
-// Extract delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]Candidate, error) {
-	return c.heuristic.Extract(ctx, evts)
 }
 
 // Classify delegates to the heuristic consolidator (stub).

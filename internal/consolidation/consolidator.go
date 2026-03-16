@@ -17,6 +17,13 @@ type Candidate struct {
 	CandidateType  string         // correction, discovery, decision, failure, workflow
 	Confidence     float64        // 0.0-1.0
 	SessionContext map[string]any // project, file, task, branch, model
+
+	// LLM-enriched fields (v1 Extract stage)
+	Sentiment          string `json:"sentiment,omitempty"`           // neutral, curious, frustrated, satisfied, breakthrough
+	SessionPhase       string `json:"session_phase,omitempty"`       // opening, exploring, building, stuck, resolving, wrapping-up
+	InteractionPattern string `json:"interaction_pattern,omitempty"` // teaching, collaborating, debugging, reviewing, planning
+	Rationale          string `json:"rationale,omitempty"`           // LLM's reasoning for why this is a candidate
+	AlreadyCaptured    bool   `json:"already_captured,omitempty"`    // true if existing behavior already covers this
 }
 
 // ClassifiedMemory is a typed, classified memory ready for graph insertion.
