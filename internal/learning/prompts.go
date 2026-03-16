@@ -3,6 +3,7 @@ package learning
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/nvandessel/floop/internal/llm"
 )
@@ -26,11 +27,15 @@ type CorrectionExtractionResult struct {
 }
 
 // CorrectionExtractionPrompt generates a prompt for extracting correction details from user text.
+//
+// User-provided text is concatenated via strings.Builder rather than interpolated
+// through fmt.Sprintf alongside JSON template text, to prevent prompt-structure
+// corruption if the text contains markdown headers or format directives (CWE-94).
 func CorrectionExtractionPrompt(userText string) string {
-	return fmt.Sprintf(`You are analyzing a user message to determine if it contains a correction to an AI agent's behavior.
-
-## User Message
-%s
+	var p strings.Builder
+	p.WriteString("You are analyzing a user message to determine if it contains a correction to an AI agent's behavior.\n\n## User Message\n")
+	p.WriteString(userText)
+	p.WriteString(`
 
 ## Task
 Analyze whether this message is correcting something the AI agent did wrong, and if so, extract:
@@ -55,7 +60,8 @@ Respond with ONLY a JSON object (no markdown code blocks, no additional text):
   "right": "<what should be done instead, if this is a correction>",
   "confidence": <float between 0.0 and 1.0>,
   "reasoning": "<brief explanation>"
-}`, userText)
+}`)
+	return p.String()
 }
 
 // ParseCorrectionExtractionResponse parses an LLM response into a CorrectionExtractionResult.

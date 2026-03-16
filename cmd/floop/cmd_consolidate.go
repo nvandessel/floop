@@ -109,10 +109,10 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 		defer graphStore.Close()
 	}
 
-	// Resolve executor from flag or config
+	// Resolve executor from flag or config (single config.Load to avoid redundant disk I/O)
+	floopCfg, _ := config.Load()
 	if executor == "" {
-		floopCfg, cfgErr := config.Load()
-		if cfgErr == nil && floopCfg != nil && floopCfg.Consolidation.Executor != "" {
+		if floopCfg != nil && floopCfg.Consolidation.Executor != "" {
 			executor = floopCfg.Consolidation.Executor
 		}
 	}
@@ -120,7 +120,6 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	// Create LLM client if needed for llm executor
 	var llmClient llm.Client
 	if executor == "llm" {
-		floopCfg, _ := config.Load()
 		llmClient = createLLMClient(floopCfg)
 	}
 

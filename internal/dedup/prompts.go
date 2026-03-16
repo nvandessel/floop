@@ -41,20 +41,18 @@ type MergeResult struct {
 
 // ComparisonPrompt generates a structured prompt for comparing two behaviors semantically.
 // The prompt instructs the LLM to analyze similarity, intent match, and merge candidacy.
+//
+// User-provided behavior data is concatenated via strings.Builder rather than
+// interpolated through fmt.Sprintf alongside JSON template text, to prevent
+// quote-breaking if behavior content contains double quotes or markdown headers (CWE-94).
 func ComparisonPrompt(a, b *models.Behavior) string {
-	return fmt.Sprintf(`You are analyzing two AI agent behaviors to determine their semantic similarity.
-
-## Behavior A
-ID: %s
-Name: %s
-Kind: %s
-Content: %s
-
-## Behavior B
-ID: %s
-Name: %s
-Kind: %s
-Content: %s
+	var p strings.Builder
+	p.WriteString("You are analyzing two AI agent behaviors to determine their semantic similarity.\n\n")
+	fmt.Fprintf(&p, "## Behavior A\nID: %s\nName: %s\nKind: %s\nContent: ", a.ID, a.Name, a.Kind)
+	p.WriteString(a.Content.Canonical)
+	fmt.Fprintf(&p, "\n\n## Behavior B\nID: %s\nName: %s\nKind: %s\nContent: ", b.ID, b.Name, b.Kind)
+	p.WriteString(b.Content.Canonical)
+	p.WriteString(`
 
 ## Task
 Compare these two behaviors and determine:
@@ -69,9 +67,8 @@ Respond with ONLY a JSON object (no markdown code blocks, no additional text):
   "intent_match": <boolean>,
   "merge_candidate": <boolean>,
   "reasoning": "<brief explanation of your assessment>"
-}`,
-		a.ID, a.Name, a.Kind, a.Content.Canonical,
-		b.ID, b.Name, b.Kind, b.Content.Canonical)
+}`)
+	return p.String()
 }
 
 // MergePrompt generates a prompt for merging multiple similar behaviors into one.
