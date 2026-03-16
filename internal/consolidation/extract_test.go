@@ -147,9 +147,7 @@ func TestLLMExtract_SingleChunk(t *testing.T) {
 	if cand.Rationale == "" {
 		t.Error("expected non-empty rationale")
 	}
-	if cand.AlreadyCaptured {
-		t.Error("expected already_captured=false")
-	}
+	// AlreadyCaptured is only used as a filter signal and not propagated to output
 
 	// Verify 3 LLM calls were made (summarize + arc + extract)
 	if mock.callIndex != 3 {
@@ -199,11 +197,11 @@ func TestLLMExtract_Pass1Failure(t *testing.T) {
 
 	mock := &mockLLMClient{
 		responses: []string{
-			"", // Pass 1: will error (index 0)
+			"", // Pass 1: will error (index 0) — chunk skipped
 			makeExtractResponse([]string{"evt-1"}, false), // Pass 3: extract without arc (index 1)
 		},
 		errs: []error{
-			errors.New("API unavailable"), // Pass 1 fails
+			errors.New("API unavailable"), // Pass 1 fails for chunk
 			nil,                           // Pass 3 succeeds
 		},
 	}
@@ -217,12 +215,12 @@ func TestLLMExtract_Pass1Failure(t *testing.T) {
 		t.Fatalf("Extract returned error despite graceful degradation: %v", err)
 	}
 
-	// Pass 3 should still produce candidates even without arc context
+	// Pass 1 chunk skipped → no summaries → no arc → Pass 3 still runs
 	if len(candidates) != 1 {
 		t.Fatalf("expected 1 candidate from Pass 3, got %d", len(candidates))
 	}
 
-	// Only 2 calls: failed summarize + extract (no arc because no summaries)
+	// 2 calls: failed summarize (skipped) + extract (no arc because no summaries)
 	if mock.callIndex != 2 {
 		t.Errorf("expected 2 LLM calls (failed summarize + extract), got %d", mock.callIndex)
 	}
@@ -314,7 +312,7 @@ func TestLLMExtract_BadJSON(t *testing.T) {
 
 	mock := &mockLLMClient{
 		responses: []string{
-			"not valid json at all", // Pass 1: bad JSON
+			"not valid json at all", // Pass 1: bad JSON → skipped, no summaries
 		},
 	}
 
@@ -327,16 +325,17 @@ func TestLLMExtract_BadJSON(t *testing.T) {
 		t.Fatalf("Extract returned error despite graceful degradation: %v", err)
 	}
 
-	// Bad JSON in Pass 1 → no summaries → no arc → Pass 3 still runs
-	// Pass 3 should get the second call, which returns "{}" (default mock)
-	// That parses to zero candidates, so heuristic fallback never triggers.
-	// But wait - the second call IS Pass 3, and "{}" parses as empty candidates.
-	// Actually the mock returns "{}" for callIndex >= len(responses).
-	// extractResponse with empty Candidates field is valid, so no fallback.
-	// The heuristic fallback only triggers on Pass 3 *error*, not empty results.
-	// So we may get 0 candidates from LLM pass, or heuristic fallback candidates.
-	// The key assertion is that we don't get an error.
-	_ = candidates
+	// Bad JSON in Pass 1 → chunk skipped → no summaries → no arc → Pass 3 still runs.
+	// Pass 3 receives "{}" from mock default, which parses as zero candidates.
+	// No error from Pass 3, so heuristic fallback does not trigger.
+	if len(candidates) != 0 {
+		t.Errorf("expected 0 candidates from bad-JSON degradation path, got %d", len(candidates))
+	}
+
+	// 2 LLM calls: failed summarize (bad JSON) + Pass 3 extract
+	if mock.callIndex != 2 {
+		t.Errorf("expected 2 LLM calls, got %d", mock.callIndex)
+	}
 }
 
 func TestLLMExtract_AlreadyCaptured(t *testing.T) {
@@ -458,7 +457,7 @@ func TestArcSynthesisPrompt(t *testing.T) {
 		{Summary: "Worked on auth", Tone: "neutral", Phase: "building"},
 	}
 
-	messages := arcSynthesisPrompt(summaries, nil)
+	messages := arcSynthesisPrompt(summaries)
 
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(messages))
@@ -468,13 +467,6 @@ func TestArcSynthesisPrompt(t *testing.T) {
 	}
 	if !strings.Contains(messages[1].Content, "Worked on auth") {
 		t.Error("user content should contain summary data")
-	}
-
-	// Test with previous arc
-	prevArc := &extractArcSummary{Arc: "Previous session context"}
-	messages = arcSynthesisPrompt(summaries, prevArc)
-	if !strings.Contains(messages[1].Content, "Previous session context") {
-		t.Error("user content should include previous arc when provided")
 	}
 }
 
@@ -547,5 +539,106 @@ func TestEventIDs(t *testing.T) {
 		if id != expected {
 			t.Errorf("expected %q, got %q", expected, id)
 		}
+	}
+}
+
+func TestLLMExtract_MaxCandidatesCap(t *testing.T) {
+	evts := makeEvents(40) // 2 chunks of 20
+
+	// Each chunk produces 1 candidate, but we cap at 1
+	mock := &mockLLMClient{
+		responses: []string{
+			makeSummaryResponse(0),
+			makeSummaryResponse(1),
+			makeArcResponse(),
+			makeExtractResponse([]string{"evt-1"}, false),
+			makeExtractResponse([]string{"evt-21"}, false),
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	config.MaxCandidates = 1
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	if len(candidates) != 1 {
+		t.Errorf("expected 1 candidate (capped by MaxCandidates), got %d", len(candidates))
+	}
+}
+
+func TestLLMExtract_ConfidenceClamping(t *testing.T) {
+	evts := makeEvents(10)
+
+	// Return a candidate with out-of-bounds confidence
+	outOfBoundsResp := `{"candidates": [{"source_events": ["evt-1"], "raw_text": "test", "candidate_type": "correction", "confidence": 1.5, "sentiment": "neutral", "session_phase": "building", "interaction_pattern": "collaborating", "rationale": "test", "already_captured": false}]}`
+
+	mock := &mockLLMClient{
+		responses: []string{
+			makeSummaryResponse(0),
+			makeArcResponse(),
+			outOfBoundsResp,
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate, got %d", len(candidates))
+	}
+	if candidates[0].Confidence != 1.0 {
+		t.Errorf("expected confidence clamped to 1.0, got %f", candidates[0].Confidence)
+	}
+}
+
+func TestLLMExtract_Pass1PartialFailure(t *testing.T) {
+	evts := makeEvents(40) // 2 chunks of 20
+
+	// Chunk 0 summarization fails, chunk 1 succeeds → arc from partial summaries
+	mock := &mockLLMClient{
+		responses: []string{
+			"",                     // Pass 1 chunk 0: will error
+			makeSummaryResponse(1), // Pass 1 chunk 1: succeeds
+			makeArcResponse(),      // Pass 2: arc from chunk 1 only
+			makeExtractResponse([]string{"evt-1"}, false),  // Pass 3 chunk 0
+			makeExtractResponse([]string{"evt-21"}, false), // Pass 3 chunk 1
+		},
+		errs: []error{
+			errors.New("chunk 0 API error"), // Pass 1 chunk 0 fails
+			nil,                             // Pass 1 chunk 1 succeeds
+			nil,                             // Pass 2 succeeds
+			nil,                             // Pass 3 chunk 0 succeeds
+			nil,                             // Pass 3 chunk 1 succeeds
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	// Both chunks should produce candidates via Pass 3
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+
+	// 5 calls: 2 summarize (1 failed) + 1 arc + 2 extract
+	if mock.callIndex != 5 {
+		t.Errorf("expected 5 LLM calls, got %d", mock.callIndex)
 	}
 }

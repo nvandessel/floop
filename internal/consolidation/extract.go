@@ -80,16 +80,8 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 		"chunk_size": chunkSize,
 	})
 
-	// Pass 1: Summarize each chunk
-	summaries, pass1Err := c.summarizeChunks(ctx, chunks)
-	if pass1Err != nil {
-		slog.Warn("extract pass 1 (summarize) failed, continuing without summaries", "error", pass1Err)
-		c.decisions.Log(map[string]any{
-			"stage": "extract",
-			"pass":  "summarize",
-			"error": pass1Err.Error(),
-		})
-	}
+	// Pass 1: Summarize each chunk (continues past per-chunk failures)
+	summaries := c.summarizeChunks(ctx, chunks)
 
 	// Pass 2: Arc synthesis
 	var arc *extractArcSummary
@@ -106,7 +98,9 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 		}
 	}
 
-	// Fetch existing behaviors for deduplication context
+	// Fetch existing behaviors for deduplication context.
+	// NOTE: fetchExistingBehaviors is a stub returning nil until store access is wired.
+	// Deduplication via already_captured is not yet active.
 	existingBehaviors := c.fetchExistingBehaviors(ctx)
 
 	// Pass 3: Extract candidates from each chunk
@@ -123,11 +117,19 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 				"error":    err.Error(),
 				"fallback": "heuristic",
 			})
-			fallback, _ := c.heuristic.Extract(ctx, chunk)
+			fallback, fallbackErr := c.heuristic.Extract(ctx, chunk)
+			if fallbackErr != nil {
+				slog.Warn("heuristic fallback also failed", "chunk", i, "error", fallbackErr)
+			}
 			candidates = append(candidates, fallback...)
 			continue
 		}
 		candidates = append(candidates, extracted...)
+	}
+
+	// Enforce MaxCandidates cap
+	if c.config.MaxCandidates > 0 && len(candidates) > c.config.MaxCandidates {
+		candidates = candidates[:c.config.MaxCandidates]
 	}
 
 	c.decisions.Log(map[string]any{
@@ -140,19 +142,34 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 }
 
 // summarizeChunks runs Pass 1: per-chunk LLM summarization.
-func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events.Event) ([]extractChunkSummary, error) {
+// Continues past per-chunk failures so the arc reflects all successfully-summarized chunks.
+func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events.Event) []extractChunkSummary {
 	var summaries []extractChunkSummary
 
 	for i, chunk := range chunks {
 		messages := summarizeChunkPrompt(chunk)
 		response, err := c.client.Complete(ctx, messages)
 		if err != nil {
-			return summaries, fmt.Errorf("summarize chunk %d: %w", i, err)
+			slog.Warn("extract pass 1: summarize chunk failed, skipping", "chunk", i, "error", err)
+			c.decisions.Log(map[string]any{
+				"stage": "extract",
+				"pass":  "summarize",
+				"chunk": i,
+				"error": err.Error(),
+			})
+			continue
 		}
 
 		var summary extractChunkSummary
 		if err := json.Unmarshal([]byte(response), &summary); err != nil {
-			return summaries, fmt.Errorf("parse chunk %d summary: %w", i, err)
+			slog.Warn("extract pass 1: parse chunk summary failed, skipping", "chunk", i, "error", err)
+			c.decisions.Log(map[string]any{
+				"stage": "extract",
+				"pass":  "summarize",
+				"chunk": i,
+				"error": err.Error(),
+			})
+			continue
 		}
 
 		// Enrich with chunk metadata
@@ -166,14 +183,15 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 		"stage":         "extract",
 		"pass":          "summarize",
 		"num_summaries": len(summaries),
+		"num_chunks":    len(chunks),
 	})
 
-	return summaries, nil
+	return summaries
 }
 
 // synthesizeArc runs Pass 2: single LLM call for session arc.
 func (c *LLMConsolidator) synthesizeArc(ctx context.Context, summaries []extractChunkSummary) (*extractArcSummary, error) {
-	messages := arcSynthesisPrompt(summaries, nil)
+	messages := arcSynthesisPrompt(summaries)
 	response, err := c.client.Complete(ctx, messages)
 	if err != nil {
 		return nil, fmt.Errorf("arc synthesis: %w", err)
@@ -214,16 +232,23 @@ func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.E
 			continue
 		}
 
+		// Clamp confidence to [0.0, 1.0]
+		confidence := ec.Confidence
+		if confidence < 0 {
+			confidence = 0
+		} else if confidence > 1 {
+			confidence = 1
+		}
+
 		candidates = append(candidates, Candidate{
 			SourceEvents:       ec.SourceEvents,
 			RawText:            ec.RawText,
 			CandidateType:      ec.CandidateType,
-			Confidence:         ec.Confidence,
+			Confidence:         confidence,
 			Sentiment:          ec.Sentiment,
 			SessionPhase:       ec.SessionPhase,
 			InteractionPattern: ec.InteractionPattern,
 			Rationale:          ec.Rationale,
-			AlreadyCaptured:    ec.AlreadyCaptured,
 			SessionContext:     buildSessionContext(chunk),
 		})
 	}
@@ -232,8 +257,11 @@ func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.E
 }
 
 // fetchExistingBehaviors returns existing behaviors for deduplication context.
-// Currently returns nil as store access is not yet wired in Extract.
+// TODO: Wire store access to populate deduplication context for Pass 3.
+// Until then, the "already_captured" filtering in extractFromChunk can only
+// fire if the LLM spontaneously sets it without context.
 func (c *LLMConsolidator) fetchExistingBehaviors(_ context.Context) []models.Behavior {
+	slog.Debug("fetchExistingBehaviors: stub — deduplication not yet active")
 	return nil
 }
 

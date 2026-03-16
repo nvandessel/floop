@@ -3,6 +3,7 @@ package consolidation
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/nvandessel/floop/internal/events"
@@ -41,13 +42,11 @@ Respond with ONLY valid JSON matching this schema:
 }
 
 // arcSynthesisPrompt builds the messages for Pass 2: arc synthesis across chunks.
-func arcSynthesisPrompt(summaries []extractChunkSummary, previousArc *extractArcSummary) []llm.Message {
-	summaryData, _ := json.Marshal(summaries)
-
-	var previousContext string
-	if previousArc != nil {
-		prevData, _ := json.Marshal(previousArc)
-		previousContext = fmt.Sprintf("\n\nPrevious session arc:\n%s", string(prevData))
+func arcSynthesisPrompt(summaries []extractChunkSummary) []llm.Message {
+	summaryData, err := json.Marshal(summaries)
+	if err != nil {
+		slog.Warn("arcSynthesisPrompt: failed to marshal summaries", "error", err)
+		summaryData = []byte("[]")
 	}
 
 	return []llm.Message{
@@ -67,7 +66,7 @@ Respond with ONLY valid JSON matching this schema:
 		},
 		{
 			Role:    "user",
-			Content: fmt.Sprintf("Chunk summaries:\n%s%s", string(summaryData), previousContext),
+			Content: fmt.Sprintf("Chunk summaries:\n%s", string(summaryData)),
 		},
 	}
 }
@@ -81,7 +80,11 @@ func extractCandidatesPrompt(evts []events.Event, arc *extractArcSummary, existi
 
 	var arcContext string
 	if arc != nil {
-		arcData, _ := json.Marshal(arc)
+		arcData, err := json.Marshal(arc)
+		if err != nil {
+			slog.Warn("extractCandidatesPrompt: failed to marshal arc", "error", err)
+			arcData = []byte("{}")
+		}
 		arcContext = fmt.Sprintf("\n\nSession arc context:\n%s", string(arcData))
 	}
 
