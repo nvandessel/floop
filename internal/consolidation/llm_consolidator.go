@@ -116,7 +116,4 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 	return c.heuristic.Relate(ctx, memories, s)
 }
 
-// Promote delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error {
-	return c.heuristic.Promote(ctx, memories, edges, merges, s)
-}
+// Promote is implemented in promote.go with merge-aware logic.
