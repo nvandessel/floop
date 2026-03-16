@@ -24,6 +24,11 @@ func NodeToBehavior(node store.Node) Behavior {
 		b.Name = name
 	}
 
+	// Extract memory type
+	if mt, ok := node.Content["memory_type"].(string); ok {
+		b.MemoryType = MemoryType(mt)
+	}
+
 	// Extract when conditions
 	if when, ok := node.Content["when"].(map[string]interface{}); ok {
 		b.When = when
@@ -125,10 +130,11 @@ func BehaviorToNode(b *Behavior) store.Node {
 		ID:   b.ID,
 		Kind: store.NodeKindBehavior,
 		Content: map[string]interface{}{
-			"name":    b.Name,
-			"kind":    string(b.Kind),
-			"when":    b.When,
-			"content": b.Content,
+			"name":        b.Name,
+			"kind":        string(b.Kind),
+			"memory_type": string(b.MemoryType),
+			"when":        b.When,
+			"content":     b.Content,
 		},
 		Metadata: map[string]interface{}{
 			"confidence": b.Confidence,
