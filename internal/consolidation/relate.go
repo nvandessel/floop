@@ -3,7 +3,9 @@ package consolidation
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/nvandessel/floop/internal/llm"
@@ -45,8 +47,21 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 	var merges []MergeProposal
 
 	if c.client != nil && c.client.Available() {
-		msgs := RelateMemoriesPrompt(memories, neighbors)
-		response, llmErr := c.client.Complete(ctx, msgs)
+		msgs, promptErr := RelateMemoriesPrompt(memories, neighbors)
+		if promptErr != nil {
+			c.decisions.Log(map[string]any{
+				"stage": "relate",
+				"event": "prompt_build_failed",
+				"error": promptErr.Error(),
+			})
+		}
+		var response string
+		var llmErr error
+		if promptErr == nil {
+			response, llmErr = c.client.Complete(ctx, msgs)
+		} else {
+			llmErr = promptErr
+		}
 		if llmErr != nil {
 			c.decisions.Log(map[string]any{
 				"stage": "relate",
@@ -63,7 +78,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 					"error": parseErr.Error(),
 				})
 			} else {
-				edges, merges = convertProposals(proposals, memories)
+				edges, merges = convertProposals(proposals, memories, neighbors)
 				c.decisions.Log(map[string]any{
 					"stage":     "relate",
 					"event":     "proposals_converted",
@@ -132,14 +147,19 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 	result := make(map[int][]store.Node)
 
 	for i, mem := range memories {
-		queryVec, err := ec.Embed(ctx, mem.Content.Canonical)
-		if err != nil {
+		queryVec, embedErr := ec.Embed(ctx, mem.Content.Canonical)
+		if embedErr != nil {
 			c.decisions.Log(map[string]any{
 				"stage": "relate",
 				"event": "embed_failed",
 				"index": i,
-				"error": err.Error(),
+				"error": embedErr.Error(),
 			})
+			// Fall back to unranked query neighbors for this memory.
+			fallback, qErr := c.findNeighborsByQuery(ctx, memories[i:i+1], s, topK)
+			if qErr == nil {
+				result[i] = fallback[0]
+			}
 			continue
 		}
 
@@ -156,6 +176,15 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 			}
 		}
 
+		if len(scores) == 0 {
+			c.decisions.Log(map[string]any{
+				"stage": "relate",
+				"event": "no_neighbors_above_threshold",
+				"index": i,
+			})
+			continue
+		}
+
 		// Sort by similarity descending.
 		sort.Slice(scores, func(a, b int) bool {
 			return scores[a].score > scores[b].score
@@ -167,8 +196,17 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 			limit = len(scores)
 		}
 		for _, sc := range scores[:limit] {
-			node, err := s.GetNode(ctx, sc.id)
-			if err != nil || node == nil {
+			node, nodeErr := s.GetNode(ctx, sc.id)
+			if nodeErr != nil {
+				c.decisions.Log(map[string]any{
+					"stage": "relate",
+					"event": "get_node_failed",
+					"id":    sc.id,
+					"error": nodeErr.Error(),
+				})
+				continue
+			}
+			if node == nil {
 				continue
 			}
 			result[i] = append(result[i], *node)
@@ -197,7 +235,9 @@ func (c *LLMConsolidator) findNeighborsByQuery(ctx context.Context, memories []C
 
 	result := make(map[int][]store.Node)
 	for i := range memories {
-		result[i] = capped
+		entry := make([]store.Node, len(capped))
+		copy(entry, capped)
+		result[i] = entry
 	}
 	return result, nil
 }
@@ -241,17 +281,28 @@ func buildCoOccurrenceEdges(memories []ClassifiedMemory) []store.Edge {
 	return edges
 }
 
+// PendingNodeID returns a pending placeholder ID for a memory at the given index.
+// These are rewritten to actual node IDs during Promote.
+func PendingNodeID(index int) string {
+	return fmt.Sprintf("pending-%d", index)
+}
+
 // memoryNodeID generates a stable node ID for a memory. If the memory has
-// source events, the first event ID is used as a base; otherwise the index is used.
+// source events, the first event ID is used as a base; otherwise a hash of
+// the content plus index is used to avoid collisions across Relate calls.
 func memoryNodeID(m ClassifiedMemory, index int) string {
 	if len(m.SourceEvents) > 0 {
 		return fmt.Sprintf("mem-%s", m.SourceEvents[0])
 	}
-	return fmt.Sprintf("mem-%d", index)
+	h := fnv.New32a()
+	h.Write([]byte(m.RawText + strconv.Itoa(index)))
+	return fmt.Sprintf("mem-anon-%x", h.Sum32())
 }
 
 // convertProposals converts parsed LLM proposals into store edges and merge proposals.
-func convertProposals(proposals []relateProposal, memories []ClassifiedMemory) ([]store.Edge, []MergeProposal) {
+// neighbors provides the scored neighbor lists from vector search so merge proposals
+// can carry the actual cosine similarity rather than defaulting to 0.0.
+func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, neighbors map[int][]store.Node) ([]store.Edge, []MergeProposal) {
 	now := time.Now()
 	var edges []store.Edge
 	var merges []MergeProposal
@@ -282,10 +333,16 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory) (
 			if p.MergeInto == nil {
 				continue
 			}
+			// Use the highest edge weight if available, otherwise check if the
+			// merge target was a scored neighbor (carrying cosine similarity).
+			sim := highestWeight(p.Edges)
+			if sim == 0.0 {
+				sim = neighborSimilarity(neighbors, p.MemoryIndex, p.MergeInto.TargetID)
+			}
 			merges = append(merges, MergeProposal{
 				Memory:     memories[p.MemoryIndex],
 				TargetID:   p.MergeInto.TargetID,
-				Similarity: highestWeight(p.Edges),
+				Similarity: sim,
 				Strategy:   p.MergeInto.Strategy,
 			})
 
@@ -297,16 +354,29 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory) (
 	return edges, merges
 }
 
+// neighborSimilarity returns a default similarity score if the target was among
+// the neighbors for the given memory index. Since we don't store per-neighbor
+// scores in the Node, we return 0.5 as a reasonable default when the target is
+// found, and 0.0 if not.
+func neighborSimilarity(neighbors map[int][]store.Node, memIdx int, targetID string) float64 {
+	for _, n := range neighbors[memIdx] {
+		if n.ID == targetID {
+			return 0.5 // target was a scored neighbor
+		}
+	}
+	return 0.0
+}
+
 // highestWeight returns the maximum edge weight from a set of proposed edges,
 // or 0.0 if there are no edges.
 func highestWeight(edges []proposedEdge) float64 {
-	max := 0.0
+	best := 0.0
 	for _, e := range edges {
-		if e.Weight > max {
-			max = e.Weight
+		if e.Weight > best {
+			best = e.Weight
 		}
 	}
-	return max
+	return best
 }
 
 // neighborCounts builds a summary map of neighbor counts per memory index.

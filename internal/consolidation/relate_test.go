@@ -572,6 +572,61 @@ func TestParseRelationships_AllMergeStrategies(t *testing.T) {
 	}
 }
 
+func TestParseRelationships_EmptyMergeTargetID(t *testing.T) {
+	input := makeLLMResponse([]relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "merge",
+			MergeInto:   &mergeInfo{TargetID: "", Strategy: "absorb"},
+		},
+	})
+	_, err := ParseRelationships(input)
+	if err == nil {
+		t.Error("expected error for empty merge target_id")
+	}
+}
+
+func TestParseRelationships_EmptyEdgeTarget(t *testing.T) {
+	input := makeLLMResponse([]relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges:       []proposedEdge{{Target: "", Kind: "similar-to", Weight: 0.8}},
+		},
+	})
+	_, err := ParseRelationships(input)
+	if err == nil {
+		t.Error("expected error for empty edge target")
+	}
+}
+
+func TestParseRelationships_DuplicateMemoryIndex(t *testing.T) {
+	input := makeLLMResponse([]relateProposal{
+		{MemoryIndex: 0, Action: "skip", Rationale: "first"},
+		{MemoryIndex: 0, Action: "skip", Rationale: "duplicate"},
+	})
+	_, err := ParseRelationships(input)
+	if err == nil {
+		t.Error("expected error for duplicate memory_index")
+	}
+}
+
+func TestParseRelationships_FenceMissingClose(t *testing.T) {
+	// LLM returns opening fence + JSON, no closing fence.
+	inner := makeLLMResponse([]relateProposal{
+		{MemoryIndex: 0, Action: "skip", Rationale: "test"},
+	})
+	fenced := "```json\n" + inner
+
+	proposals, err := ParseRelationships(fenced)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(proposals) != 1 {
+		t.Fatalf("expected 1 proposal, got %d", len(proposals))
+	}
+}
+
 func TestRelateMemoriesPrompt(t *testing.T) {
 	memories := testMemories("sess-1")
 	neighbors := map[int][]store.Node{
@@ -589,7 +644,10 @@ func TestRelateMemoriesPrompt(t *testing.T) {
 		},
 	}
 
-	msgs := RelateMemoriesPrompt(memories, neighbors)
+	msgs, err := RelateMemoriesPrompt(memories, neighbors)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))

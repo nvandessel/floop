@@ -19,7 +19,7 @@ type neighborSummary struct {
 // RelateMemoriesPrompt builds the message sequence for the LLM relationship-proposal call.
 // It provides the classified memories and their nearest neighbors, asking the LLM to
 // propose create, merge, or skip actions with edge types and merge strategies.
-func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]store.Node) []llm.Message {
+func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]store.Node) ([]llm.Message, error) {
 	// Build memory summaries.
 	type memorySummary struct {
 		Index     int    `json:"index"`
@@ -54,8 +54,14 @@ func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]store
 		}
 	}
 
-	memJSON, _ := json.Marshal(memSummaries)
-	neighborsJSON, _ := json.Marshal(neighborMap)
+	memJSON, err := json.Marshal(memSummaries)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling memories: %w", err)
+	}
+	neighborsJSON, err := json.Marshal(neighborMap)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling neighbors: %w", err)
+	}
 
 	system := `You are a memory consolidation system. Given new memories and their existing neighbors from the behavior graph, propose relationships.
 
@@ -92,7 +98,7 @@ Respond with ONLY valid JSON in this exact format:
 	return []llm.Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: user},
-	}
+	}, nil
 }
 
 // relateResponse is the expected JSON structure from the LLM.
@@ -142,14 +148,13 @@ func ParseRelationships(response string) ([]relateProposal, error) {
 	cleaned := strings.TrimSpace(response)
 	if strings.HasPrefix(cleaned, "```") {
 		lines := strings.Split(cleaned, "\n")
-		// Remove first and last lines (fences).
-		if len(lines) >= 2 {
-			lines = lines[1 : len(lines)-1]
-			// Remove trailing fence if present.
-			if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-				lines = lines[:len(lines)-1]
-			}
-			cleaned = strings.Join(lines, "\n")
+		start := 1 // skip opening fence
+		end := len(lines)
+		if end > start && strings.HasPrefix(strings.TrimSpace(lines[end-1]), "```") {
+			end-- // remove closing fence only if present
+		}
+		if start < end {
+			cleaned = strings.Join(lines[start:end], "\n")
 		}
 	}
 
@@ -159,7 +164,13 @@ func ParseRelationships(response string) ([]relateProposal, error) {
 	}
 
 	// Validate each proposal.
+	seen := make(map[int]bool, len(resp.Relationships))
 	for i, p := range resp.Relationships {
+		if seen[p.MemoryIndex] {
+			return nil, fmt.Errorf("proposal %d: duplicate memory_index %d", i, p.MemoryIndex)
+		}
+		seen[p.MemoryIndex] = true
+
 		switch p.Action {
 		case "create", "merge", "skip":
 			// valid
@@ -170,11 +181,17 @@ func ParseRelationships(response string) ([]relateProposal, error) {
 		if p.Action == "merge" && p.MergeInto == nil {
 			return nil, fmt.Errorf("proposal %d: merge action requires merge_into", i)
 		}
+		if p.MergeInto != nil && p.MergeInto.TargetID == "" {
+			return nil, fmt.Errorf("proposal %d: merge_into.target_id must not be empty", i)
+		}
 		if p.MergeInto != nil && !validMergeStrategies[p.MergeInto.Strategy] {
 			return nil, fmt.Errorf("proposal %d: invalid merge strategy %q", i, p.MergeInto.Strategy)
 		}
 
 		for j, e := range p.Edges {
+			if e.Target == "" {
+				return nil, fmt.Errorf("proposal %d edge %d: target must not be empty", i, j)
+			}
 			if _, ok := validEdgeKind[e.Kind]; !ok {
 				return nil, fmt.Errorf("proposal %d edge %d: invalid edge kind %q", i, j, e.Kind)
 			}

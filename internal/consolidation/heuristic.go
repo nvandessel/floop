@@ -206,21 +206,35 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		return nil
 	}
 
-	// Build set of memories that have merge proposals (skip them in v0)
+	// Build set of memories that have merge proposals.
 	merged := make(map[int]bool)
+	mergeTargetForIndex := make(map[int]string)
 	for _, m := range merges {
 		for i, mem := range memories {
 			if mem.RawText == m.Memory.RawText {
 				merged[i] = true
+				mergeTargetForIndex[i] = m.TargetID
 			}
 		}
 	}
 
+	// pendingToActual maps pending-N placeholder IDs to the real node IDs
+	// assigned below, so edges can be rewritten before persisting.
+	pendingToActual := make(map[string]string)
+
 	baseTS := time.Now().UnixNano()
 	for i, mem := range memories {
 		if merged[i] {
+			// Map the pending ID to the merge target so edges referencing
+			// this memory still resolve to a real node.
+			if targetID, ok := mergeTargetForIndex[i]; ok {
+				pendingToActual[PendingNodeID(i)] = targetID
+			}
 			continue
 		}
+
+		nodeID := fmt.Sprintf("consolidated-%d-%d", baseTS, i)
+		pendingToActual[PendingNodeID(i)] = nodeID
 
 		// Build content map matching BehaviorToNode schema so NodeToBehavior
 		// can reconstruct the Behavior on read.
@@ -238,7 +252,7 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		}
 
 		node := store.Node{
-			ID:   fmt.Sprintf("consolidated-%d-%d", baseTS, i),
+			ID:   nodeID,
 			Kind: store.NodeKindBehavior,
 			Content: map[string]interface{}{
 				"name":        mem.Content.Summary,
@@ -262,7 +276,22 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		}
 	}
 
+	// Rewrite pending IDs in edges and drop any that still have unresolved references.
 	for _, edge := range edges {
+		src := edge.Source
+		tgt := edge.Target
+		if actual, ok := pendingToActual[src]; ok {
+			src = actual
+		}
+		if actual, ok := pendingToActual[tgt]; ok {
+			tgt = actual
+		}
+		// Drop edges that still reference unresolved pending IDs.
+		if strings.HasPrefix(src, "pending-") || strings.HasPrefix(tgt, "pending-") {
+			continue
+		}
+		edge.Source = src
+		edge.Target = tgt
 		if err := s.AddEdge(ctx, edge); err != nil {
 			return fmt.Errorf("adding edge: %w", err)
 		}
