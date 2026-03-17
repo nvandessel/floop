@@ -261,8 +261,12 @@ func TestIntegration_SimilarCorrections_HighSimilarity(t *testing.T) {
 	ctx := context.Background()
 	s := store.NewInMemoryGraphStore()
 
-	// Create LLM mock configured for high similarity comparison
-	mockLLM := llm.NewMockClient().WithCompleteResponse(`{"semantic_similarity": 0.95, "intent_match": true, "merge_candidate": true, "reasoning": "Both behaviors express the same intent about using a specific tool"}`)
+	// Create LLM mock with sequenced responses: first for similarity comparison,
+	// second for merge (ensures the LLM merge path is actually exercised).
+	mockLLM := llm.NewMockClient().WithCompleteSequence([]string{
+		`{"semantic_similarity": 0.95, "intent_match": true, "merge_candidate": true, "reasoning": "Both behaviors express the same intent about using a specific tool"}`,
+		`{"merged": {"name": "Unified uv preference", "kind": "directive", "content": {"canonical": "use uv for all Python package operations"}, "priority": 5, "confidence": 0.9}, "source_ids": ["existing-pip-behavior", "similar-correction-1"], "reasoning": "Combined similar behaviors about Python package management"}`,
+	})
 
 	// Create existing behavior in the store
 	existingBehavior := &models.Behavior{
