@@ -18,6 +18,7 @@ type LLMConsolidatorConfig struct {
 	ChunkSize int
 
 	// MaxCandidates is the maximum number of candidates to extract per run.
+	// Also controls the batch size for LLM classification (batching triggers at MaxCandidates * 4/3).
 	MaxCandidates int
 
 	// TopK is the number of similar behaviors to retrieve during Relate.

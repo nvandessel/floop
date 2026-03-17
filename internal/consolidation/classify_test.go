@@ -1072,25 +1072,16 @@ func TestLLMClassify_OrderInsensitiveSourceEvents(t *testing.T) {
 }
 
 func TestLLMClassify_IndexBasedResolution(t *testing.T) {
-	// Two candidates; LLM returns entries with swapped positional order but correct index fields
+	// Two candidates; LLM returns entries in swapped positional order but with correct index fields.
+	// Entry at position 0 has Index=1 (belongs to candidate 1), and entry at position 1 has Index=0
+	// (belongs to candidate 0). Positional matching (strategy 2) would assign them incorrectly;
+	// only index-based resolution (strategy 1) maps them correctly.
 	candidates := makeCandidates(2)
 
 	resp := classifiedResponse{
 		Classified: []classifiedEntry{
 			{
-				Index:        0,
-				SourceEvents: candidates[0].SourceEvents,
-				Kind:         "directive",
-				MemoryType:   "semantic",
-				Scope:        "universal",
-				Importance:   0.9,
-				Content: classifiedContent{
-					Canonical: "First candidate canonical",
-					Summary:   "First summary",
-					Tags:      []string{"test", "index"},
-				},
-			},
-			{
+				// Position 0, but Index=1 → should resolve to candidates[1]
 				Index:        1,
 				SourceEvents: candidates[1].SourceEvents,
 				Kind:         "constraint",
@@ -1100,6 +1091,20 @@ func TestLLMClassify_IndexBasedResolution(t *testing.T) {
 				Content: classifiedContent{
 					Canonical: "Second candidate canonical",
 					Summary:   "Second summary",
+					Tags:      []string{"test", "index"},
+				},
+			},
+			{
+				// Position 1, but Index=0 → should resolve to candidates[0]
+				Index:        0,
+				SourceEvents: candidates[0].SourceEvents,
+				Kind:         "directive",
+				MemoryType:   "semantic",
+				Scope:        "universal",
+				Importance:   0.9,
+				Content: classifiedContent{
+					Canonical: "First candidate canonical",
+					Summary:   "First summary",
 					Tags:      []string{"test", "index"},
 				},
 			},
@@ -1114,12 +1119,21 @@ func TestLLMClassify_IndexBasedResolution(t *testing.T) {
 	if len(memories) != 2 {
 		t.Fatalf("expected 2 memories, got %d", len(memories))
 	}
-	// Verify correct mapping via index
-	if memories[0].Kind != models.BehaviorKindDirective {
-		t.Errorf("memory[0]: expected directive, got %q", memories[0].Kind)
+	// Verify correct mapping: memories appear in response order, but each is matched
+	// to the correct candidate via index-based resolution (strategy 1).
+	// Response position 0 (Index=1) → resolved to candidates[1] → constraint
+	// Response position 1 (Index=0) → resolved to candidates[0] → directive
+	if memories[0].Kind != models.BehaviorKindConstraint {
+		t.Errorf("memory[0]: expected constraint (from candidate 1), got %q", memories[0].Kind)
 	}
-	if memories[1].Kind != models.BehaviorKindConstraint {
-		t.Errorf("memory[1]: expected constraint, got %q", memories[1].Kind)
+	if memories[0].Candidate.SourceEvents[0] != candidates[1].SourceEvents[0] {
+		t.Errorf("memory[0]: should be matched to candidate 1")
+	}
+	if memories[1].Kind != models.BehaviorKindDirective {
+		t.Errorf("memory[1]: expected directive (from candidate 0), got %q", memories[1].Kind)
+	}
+	if memories[1].Candidate.SourceEvents[0] != candidates[0].SourceEvents[0] {
+		t.Errorf("memory[1]: should be matched to candidate 0")
 	}
 }
 
