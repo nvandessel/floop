@@ -91,11 +91,18 @@ func (c *AnthropicClient) Complete(ctx context.Context, messages []Message) (str
 		return "", fmt.Errorf("anthropic client not available: missing API key")
 	}
 
-	// Separate system messages from user/assistant messages
+	// Separate system messages from user/assistant messages.
+	// The Anthropic API accepts a single top-level system prompt; passing
+	// multiple system messages is an error rather than silent data loss.
 	var system string
+	var systemCount int
 	var apiMsgs []anthropicMessage
 	for _, m := range messages {
 		if m.Role == "system" {
+			systemCount++
+			if systemCount > 1 {
+				return "", fmt.Errorf("anthropic API supports a single system message, got %d", systemCount)
+			}
 			system = m.Content
 		} else {
 			apiMsgs = append(apiMsgs, anthropicMessage{

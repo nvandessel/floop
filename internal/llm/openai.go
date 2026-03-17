@@ -95,6 +95,10 @@ type openAIChatResponse struct {
 
 // Complete sends messages to the OpenAI API and returns the response text.
 func (c *OpenAIClient) Complete(ctx context.Context, messages []Message) (string, error) {
+	if !c.Available() {
+		return "", fmt.Errorf("openai client not available: missing API key")
+	}
+
 	var apiMsgs []openAIChatMessage
 	for _, m := range messages {
 		apiMsgs = append(apiMsgs, openAIChatMessage{
