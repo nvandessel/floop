@@ -1021,3 +1021,111 @@ func TestClassifyCandidatesPrompt_MarshalError(t *testing.T) {
 		t.Errorf("expected marshalling error, got %q", err.Error())
 	}
 }
+
+func TestLLMClassify_OrderInsensitiveSourceEvents(t *testing.T) {
+	// Candidate has events in one order, LLM returns them in another
+	candidates := []Candidate{{
+		SourceEvents:   []string{"evt-b", "evt-a"},
+		RawText:        "Multi-event candidate",
+		CandidateType:  "correction",
+		Confidence:     0.7,
+		SessionContext: map[string]any{"session_id": "sess-1"},
+	}}
+
+	resp := classifiedResponse{
+		Classified: []classifiedEntry{{
+			Index:        0,
+			SourceEvents: []string{"evt-a", "evt-b"}, // reversed order
+			Kind:         "directive",
+			MemoryType:   "semantic",
+			Scope:        "universal",
+			Importance:   0.8,
+			Content: classifiedContent{
+				Canonical: "Canonical for multi-event",
+				Summary:   "Multi-event summary",
+				Tags:      []string{"test", "ordering"},
+			},
+		}},
+	}
+	data, _ := json.Marshal(resp)
+
+	memories, err := ParseClassifiedMemories(string(data), candidates)
+	if err != nil {
+		t.Fatalf("order-insensitive source_events should match: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(memories))
+	}
+}
+
+func TestLLMClassify_IndexBasedResolution(t *testing.T) {
+	// Two candidates; LLM returns entries with swapped positional order but correct index fields
+	candidates := makeCandidates(2)
+
+	resp := classifiedResponse{
+		Classified: []classifiedEntry{
+			{
+				Index:        0,
+				SourceEvents: candidates[0].SourceEvents,
+				Kind:         "directive",
+				MemoryType:   "semantic",
+				Scope:        "universal",
+				Importance:   0.9,
+				Content: classifiedContent{
+					Canonical: "First candidate canonical",
+					Summary:   "First summary",
+					Tags:      []string{"test", "index"},
+				},
+			},
+			{
+				Index:        1,
+				SourceEvents: candidates[1].SourceEvents,
+				Kind:         "constraint",
+				MemoryType:   "semantic",
+				Scope:        "universal",
+				Importance:   0.7,
+				Content: classifiedContent{
+					Canonical: "Second candidate canonical",
+					Summary:   "Second summary",
+					Tags:      []string{"test", "index"},
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(resp)
+
+	memories, err := ParseClassifiedMemories(string(data), candidates)
+	if err != nil {
+		t.Fatalf("index-based resolution should work: %v", err)
+	}
+	if len(memories) != 2 {
+		t.Fatalf("expected 2 memories, got %d", len(memories))
+	}
+	// Verify correct mapping via index
+	if memories[0].Kind != models.BehaviorKindDirective {
+		t.Errorf("memory[0]: expected directive, got %q", memories[0].Kind)
+	}
+	if memories[1].Kind != models.BehaviorKindConstraint {
+		t.Errorf("memory[1]: expected constraint, got %q", memories[1].Kind)
+	}
+}
+
+func TestSourceEventsKey_OrderInsensitive(t *testing.T) {
+	key1 := sourceEventsKey([]string{"b", "a", "c"})
+	key2 := sourceEventsKey([]string{"c", "a", "b"})
+	if key1 != key2 {
+		t.Errorf("sourceEventsKey should be order-insensitive: %q != %q", key1, key2)
+	}
+}
+
+func TestSourceEventsMatch_OrderInsensitive(t *testing.T) {
+	if !sourceEventsMatch([]string{"b", "a"}, []string{"a", "b"}) {
+		t.Error("sourceEventsMatch should be order-insensitive")
+	}
+	if sourceEventsMatch([]string{"a", "b"}, []string{"a", "c"}) {
+		t.Error("sourceEventsMatch should reject different events")
+	}
+	if sourceEventsMatch([]string{"a"}, []string{"a", "b"}) {
+		t.Error("sourceEventsMatch should reject different lengths")
+	}
+}

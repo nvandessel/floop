@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/nvandessel/floop/internal/models"
@@ -208,18 +209,28 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 	return classified, nil
 }
 
-// sourceEventsKey creates a lookup key from a sorted list of event IDs.
+// sourceEventsKey creates a lookup key from a sorted copy of event IDs.
+// Order-insensitive: ["b","a"] and ["a","b"] produce the same key.
 func sourceEventsKey(events []string) string {
-	return strings.Join(events, ",")
+	sorted := make([]string, len(events))
+	copy(sorted, events)
+	slices.Sort(sorted)
+	return strings.Join(sorted, ",")
 }
 
-// sourceEventsMatch checks if two source event slices contain the same events.
+// sourceEventsMatch checks if two source event slices contain the same events (order-insensitive).
 func sourceEventsMatch(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	sortedA := make([]string, len(a))
+	copy(sortedA, a)
+	slices.Sort(sortedA)
+	sortedB := make([]string, len(b))
+	copy(sortedB, b)
+	slices.Sort(sortedB)
+	for i := range sortedA {
+		if sortedA[i] != sortedB[i] {
 			return false
 		}
 	}

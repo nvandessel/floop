@@ -194,10 +194,26 @@ func ParseClassifiedMemories(response string, candidates []Candidate) ([]Classif
 	seen := make(map[int]bool, len(candidates))
 
 	for i, entry := range resp.Classified {
-		// Resolve candidate index: prefer positional match, fall back to source_events lookup
-		candidateIdx := i
-		if !sourceEventsMatch(entry.SourceEvents, candidates[i].SourceEvents) {
-			// Try source_events fallback
+		// Resolve candidate index using three strategies in priority order:
+		// 1. entry.Index if valid and source_events match
+		// 2. Positional (i) if source_events match
+		// 3. source_events key lookup as fallback
+		candidateIdx := -1
+
+		// Strategy 1: Use the LLM-echoed index if it's in range and source_events confirm it
+		if entry.Index >= 0 && entry.Index < len(candidates) &&
+			sourceEventsMatch(entry.SourceEvents, candidates[entry.Index].SourceEvents) {
+			candidateIdx = entry.Index
+		}
+
+		// Strategy 2: Positional match
+		if candidateIdx < 0 && i < len(candidates) &&
+			sourceEventsMatch(entry.SourceEvents, candidates[i].SourceEvents) {
+			candidateIdx = i
+		}
+
+		// Strategy 3: source_events key fallback
+		if candidateIdx < 0 {
 			key := sourceEventsKey(entry.SourceEvents)
 			if idx, ok := candidateByEvents[key]; ok {
 				candidateIdx = idx
