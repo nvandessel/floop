@@ -15,7 +15,7 @@ type Candidate struct {
 	SourceEvents   []string       `json:"source_events,omitempty"`   // event IDs
 	RawText        string         `json:"raw_text,omitempty"`        // relevant excerpt
 	CandidateType  string         `json:"candidate_type,omitempty"`  // correction, discovery, decision, failure, workflow
-	Confidence     float64        `json:"confidence,omitempty"`      // 0.0-1.0
+	Confidence     float64        `json:"confidence"`                // 0.0-1.0
 	SessionContext map[string]any `json:"session_context,omitempty"` // project, file, task, branch, model
 
 	// LLM-enriched fields (v1 Extract stage)

@@ -293,14 +293,29 @@ func eventIDs(evts []events.Event) []string {
 
 // buildSessionContext extracts common session context from a chunk of events.
 func buildSessionContext(evts []events.Event) map[string]any {
+	if len(evts) == 0 {
+		return nil
+	}
 	ctx := map[string]any{}
-	if len(evts) > 0 {
-		if evts[0].SessionID != "" {
-			ctx["session_id"] = evts[0].SessionID
+	if evts[0].SessionID != "" {
+		ctx["session_id"] = evts[0].SessionID
+	}
+	if evts[0].ProjectID != "" {
+		ctx["project_id"] = evts[0].ProjectID
+	}
+	if p := evts[0].Provenance; p != nil {
+		if p.Model != "" {
+			ctx["model"] = p.Model
 		}
-		if evts[0].ProjectID != "" {
-			ctx["project_id"] = evts[0].ProjectID
+		if p.Branch != "" {
+			ctx["branch"] = p.Branch
 		}
+		if p.TaskContext != "" {
+			ctx["task"] = p.TaskContext
+		}
+	}
+	if len(ctx) == 0 {
+		return nil
 	}
 	return ctx
 }

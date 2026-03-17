@@ -521,10 +521,38 @@ func TestBuildSessionContext(t *testing.T) {
 		t.Errorf("expected project_id 'proj-1', got %v", ctx["project_id"])
 	}
 
-	// Empty events
+	// With Provenance
+	evts = []events.Event{
+		{
+			SessionID: "sess-2",
+			Provenance: &events.EventProvenance{
+				Model:       "gpt-4",
+				Branch:      "feat/test",
+				TaskContext: "implement auth",
+			},
+		},
+	}
+	ctx = buildSessionContext(evts)
+	if ctx["model"] != "gpt-4" {
+		t.Errorf("expected model 'gpt-4', got %v", ctx["model"])
+	}
+	if ctx["branch"] != "feat/test" {
+		t.Errorf("expected branch 'feat/test', got %v", ctx["branch"])
+	}
+	if ctx["task"] != "implement auth" {
+		t.Errorf("expected task 'implement auth', got %v", ctx["task"])
+	}
+
+	// Empty events → nil
 	ctx = buildSessionContext(nil)
-	if len(ctx) != 0 {
-		t.Errorf("expected empty context for nil events, got %v", ctx)
+	if ctx != nil {
+		t.Errorf("expected nil context for nil events, got %v", ctx)
+	}
+
+	// Events with no metadata → nil
+	ctx = buildSessionContext([]events.Event{{}})
+	if ctx != nil {
+		t.Errorf("expected nil context for empty event, got %v", ctx)
 	}
 }
 
