@@ -121,6 +121,9 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	var llmClient llm.Client
 	if executor == "llm" {
 		llmClient = createLLMClient(floopCfg)
+		if llmClient == nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --executor llm requested but no LLM provider configured; falling back to heuristic")
+		}
 	}
 
 	// Run consolidation pipeline

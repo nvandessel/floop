@@ -94,6 +94,11 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 		executor = s.floopConfig.Consolidation.Executor
 	}
 
+	// Warn if LLM executor is requested but no client is available
+	if executor == "llm" && s.llmClient == nil {
+		s.logger.Warn("executor=llm requested but no LLM provider configured; falling back to heuristic")
+	}
+
 	// Run consolidation pipeline
 	c := consolidation.NewConsolidator(executor, s.llmClient, nil)
 	result, err := consolidation.NewRunner(c).

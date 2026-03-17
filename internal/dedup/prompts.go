@@ -89,8 +89,9 @@ func MergePrompt(behaviors []*models.Behavior) string {
 
 	for i, b := range behaviors {
 		sourceIDs = append(sourceIDs, b.ID)
-		fmt.Fprintf(&prompt, "\n## Behavior %d\nID: %s\nName: %s\nKind: %s\nContent: %s\nPriority: %d\nConfidence: %.2f\n",
-			i+1, b.ID, b.Name, b.Kind, b.Content.Canonical, b.Priority, b.Confidence)
+		fmt.Fprintf(&prompt, "\n## Behavior %d\nID: %s\nName: %s\nKind: %s\nContent: ", i+1, b.ID, b.Name, b.Kind)
+		prompt.WriteString(b.Content.Canonical)
+		fmt.Fprintf(&prompt, "\nPriority: %d\nConfidence: %.2f\n", b.Priority, b.Confidence)
 	}
 
 	prompt.WriteString(`
