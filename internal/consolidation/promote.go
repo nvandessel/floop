@@ -319,6 +319,8 @@ func (c *LLMConsolidator) executeSupplement(ctx context.Context, merge MergeProp
 		CreatedAt: time.Now(),
 	}
 	if err := s.AddEdge(ctx, edge); err != nil {
+		// Clean up the orphaned new node before returning
+		_ = s.DeleteNode(ctx, newID)
 		return fmt.Errorf("adding supplements edge: %w", err)
 	}
 
