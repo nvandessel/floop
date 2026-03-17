@@ -9,11 +9,18 @@ import (
 // MockClient implements Client and EmbeddingComparer for testing purposes.
 // It allows configuring responses for Complete, Embed, and CompareEmbeddings,
 // simulating errors, and tracking calls for verification.
+//
+// For tests that call Complete multiple times with different expected responses
+// (e.g. comparison then merge), use WithCompleteSequence to configure an ordered
+// list of responses. Sequence responses are consumed in order; once exhausted,
+// the fixed completeResponse is returned.
 type MockClient struct {
 	mu sync.Mutex
 
 	// Configured responses
 	completeResponse string
+	completeSequence []string
+	sequenceIndex    int
 	err              error
 	available        bool
 
@@ -43,11 +50,24 @@ func NewMockClient() *MockClient {
 	}
 }
 
-// WithCompleteResponse configures the response returned by Complete.
+// WithCompleteResponse configures a fixed response returned by Complete.
+// If a sequence is also configured via WithCompleteSequence, the sequence
+// is consumed first; this response is used once the sequence is exhausted.
 func (m *MockClient) WithCompleteResponse(response string) *MockClient {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.completeResponse = response
+	return m
+}
+
+// WithCompleteSequence configures an ordered list of responses for Complete.
+// Each call to Complete consumes the next response in the sequence. Once
+// exhausted, subsequent calls fall back to the fixed completeResponse.
+func (m *MockClient) WithCompleteSequence(responses []string) *MockClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.completeSequence = responses
+	m.sequenceIndex = 0
 	return m
 }
 
@@ -147,6 +167,12 @@ func (m *MockClient) Complete(_ context.Context, messages []Message) (string, er
 		return "", m.err
 	}
 
+	if m.sequenceIndex < len(m.completeSequence) {
+		resp := m.completeSequence[m.sequenceIndex]
+		m.sequenceIndex++
+		return resp, nil
+	}
+
 	return m.completeResponse, nil
 }
 
@@ -163,6 +189,8 @@ func (m *MockClient) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.completeResponse = ""
+	m.completeSequence = nil
+	m.sequenceIndex = 0
 	m.err = nil
 	m.available = true
 	m.embedResult = nil
