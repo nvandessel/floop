@@ -195,6 +195,22 @@ func toInterfaceSlice(ss []string) []interface{} {
 	return result
 }
 
+// nullIfEmpty returns nil (SQL NULL) for empty strings, or the string itself.
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// nullIfZero returns nil (SQL NULL) for zero values, or the int itself.
+func nullIfZero(n int) interface{} {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
 // Relate is a v0 passthrough that returns empty edges and merge proposals.
 func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
 	return nil, nil, nil

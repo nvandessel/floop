@@ -94,6 +94,25 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 
 	duration := time.Since(start)
 
+	// Extract project/session IDs from memory session context (all memories
+	// in a run share the same session, so take the first non-empty values).
+	var projectID, sessionID string
+	for _, mem := range memories {
+		if projectID == "" {
+			if pid, ok := mem.SessionContext["project_id"].(string); ok {
+				projectID = pid
+			}
+		}
+		if sessionID == "" {
+			if sid, ok := mem.SessionContext["session_id"].(string); ok {
+				sessionID = sid
+			}
+		}
+		if projectID != "" && sessionID != "" {
+			break
+		}
+	}
+
 	// Persist run record to consolidation_runs table if store supports SQL.
 	// Stage counts are set to 0 for stages not tracked at this level;
 	// Promote only knows how many classified memories it received.
@@ -102,6 +121,8 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 		Classified:      len(memories),
 		Promoted:        promoted,
 		DurationMS:      duration.Milliseconds(),
+		ProjectID:       projectID,
+		SessionID:       sessionID,
 	}, runID, mergeCount)
 
 	return nil
@@ -272,6 +293,9 @@ func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergePropo
 	existing.Metadata["merged_at"] = time.Now().UTC().Format(time.RFC3339)
 	existing.Metadata["merged_reason"] = "superseded"
 	if err := s.UpdateNode(ctx, *existing); err != nil {
+		// Rollback: remove the edge and orphaned new node
+		_ = s.RemoveEdge(ctx, newID, merge.TargetID, EdgeKindSupersedes)
+		_ = s.DeleteNode(ctx, newID)
 		return fmt.Errorf("marking old node as merged: %w", err)
 	}
 
@@ -398,9 +422,10 @@ func (c *LLMConsolidator) persistRun(ctx context.Context, s store.GraphStore, re
 	}
 
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO consolidation_runs (id, model, candidates_found, memories_promoted, merges_executed, duration_ms, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+		INSERT INTO consolidation_runs (id, model, candidates_found, memories_promoted, merges_executed, duration_ms, project_id, session_id, tokens_used, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
 		runID, c.config.Model, rec.CandidatesFound, rec.Promoted, mergeCount, rec.DurationMS,
+		nullIfEmpty(rec.ProjectID), nullIfEmpty(rec.SessionID), nullIfZero(rec.TokensUsed),
 	); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to persist consolidation run %s: %v\n", runID, err)
 	}

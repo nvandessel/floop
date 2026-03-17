@@ -72,11 +72,14 @@ type MergeDetail struct {
 
 // ConsolidationRunRecord records metadata about a consolidation run.
 type ConsolidationRunRecord struct {
-	EventsProcessed int   `json:"events_processed"`
-	CandidatesFound int   `json:"candidates_found"`
-	Classified      int   `json:"classified"`
-	Promoted        int   `json:"promoted"`
-	DurationMS      int64 `json:"duration_ms"`
+	EventsProcessed int    `json:"events_processed"`
+	CandidatesFound int    `json:"candidates_found"`
+	Classified      int    `json:"classified"`
+	Promoted        int    `json:"promoted"`
+	DurationMS      int64  `json:"duration_ms"`
+	ProjectID       string `json:"project_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	TokensUsed      int    `json:"tokens_used,omitempty"`
 }
 
 // LLMConsolidator implements the Consolidator interface using an LLM client
