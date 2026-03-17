@@ -19,7 +19,7 @@ type neighborSummary struct {
 // RelateMemoriesPrompt builds the message sequence for the LLM relationship-proposal call.
 // It provides the classified memories and their nearest neighbors, asking the LLM to
 // propose create, merge, or skip actions with edge types and merge strategies.
-func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]store.Node) ([]llm.Message, error) {
+func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]scoredNode) ([]llm.Message, error) {
 	// Build memory summaries.
 	type memorySummary struct {
 		Index     int    `json:"index"`
@@ -39,15 +39,15 @@ func RelateMemoriesPrompt(memories []ClassifiedMemory, neighbors map[int][]store
 
 	// Build neighbor summaries per memory index.
 	neighborMap := make(map[int][]neighborSummary)
-	for idx, nodes := range neighbors {
-		for _, n := range nodes {
-			kind, _ := n.Content["kind"].(string)
+	for idx, scoredNodes := range neighbors {
+		for _, sn := range scoredNodes {
+			kind, _ := sn.Node.Content["kind"].(string)
 			canonical := ""
-			if cm, ok := n.Content["content"].(map[string]interface{}); ok {
+			if cm, ok := sn.Node.Content["content"].(map[string]interface{}); ok {
 				canonical, _ = cm["canonical"].(string)
 			}
 			neighborMap[idx] = append(neighborMap[idx], neighborSummary{
-				ID:        n.ID,
+				ID:        sn.Node.ID,
 				Canonical: canonical,
 				Kind:      kind,
 			})

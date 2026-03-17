@@ -11,6 +11,13 @@ import (
 	"github.com/nvandessel/floop/internal/vecmath"
 )
 
+// scoredNode pairs a store.Node with its cosine similarity score from vector search.
+// Nodes retrieved via the unranked fallback path carry a Score of 0.0.
+type scoredNode struct {
+	Node  store.Node
+	Score float64
+}
+
 // Relate finds relationships between new memories and existing behaviors.
 // It uses a three-level fallback chain:
 //  1. Vector search for neighbors + LLM proposals + co-occurrence edges
@@ -30,7 +37,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 			"error": err.Error(),
 		})
 		// Continue with empty neighbors.
-		neighbors = make(map[int][]store.Node)
+		neighbors = make(map[int][]scoredNode)
 	}
 
 	c.decisions.Log(map[string]any{
@@ -106,9 +113,9 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 // findNeighbors retrieves semantically similar behaviors for each memory.
 // If the LLM client supports embeddings, it embeds the canonical text and
 // compares against stored embeddings. Otherwise, it falls back to QueryNodes.
-func (c *LLMConsolidator) findNeighbors(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) (map[int][]store.Node, error) {
+func (c *LLMConsolidator) findNeighbors(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) (map[int][]scoredNode, error) {
 	if s == nil {
-		return make(map[int][]store.Node), nil
+		return make(map[int][]scoredNode), nil
 	}
 
 	topK := c.config.TopK
@@ -127,7 +134,7 @@ func (c *LLMConsolidator) findNeighbors(ctx context.Context, memories []Classifi
 
 // findNeighborsByEmbedding uses the EmbeddingComparer to embed each memory's
 // canonical text and find nearest neighbors among stored embeddings.
-func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.EmbeddingComparer, memories []ClassifiedMemory, s store.GraphStore, topK int) (map[int][]store.Node, error) {
+func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.EmbeddingComparer, memories []ClassifiedMemory, s store.GraphStore, topK int) (map[int][]scoredNode, error) {
 	// Get all existing embeddings from the store.
 	es, ok := s.(store.EmbeddingStore)
 	if !ok {
@@ -142,7 +149,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 		return c.findNeighborsByQuery(ctx, memories, s, topK)
 	}
 
-	result := make(map[int][]store.Node)
+	result := make(map[int][]scoredNode)
 
 	for i, mem := range memories {
 		queryVec, embedErr := ec.Embed(ctx, mem.Content.Canonical)
@@ -162,15 +169,15 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 		}
 
 		// Score all existing behaviors by cosine similarity.
-		type scored struct {
+		type embScore struct {
 			id    string
 			score float64
 		}
-		var scores []scored
+		var scores []embScore
 		for _, be := range allEmbeddings {
 			sim := vecmath.CosineSimilarity(queryVec, be.Embedding)
 			if sim > 0.3 { // minimum threshold
-				scores = append(scores, scored{id: be.BehaviorID, score: sim})
+				scores = append(scores, embScore{id: be.BehaviorID, score: sim})
 			}
 		}
 
@@ -207,7 +214,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 			if node == nil {
 				continue
 			}
-			result[i] = append(result[i], *node)
+			result[i] = append(result[i], scoredNode{Node: *node, Score: sc.score})
 		}
 	}
 
@@ -216,7 +223,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 
 // findNeighborsByQuery falls back to fetching all behavior nodes and returning
 // them unranked as neighbors for each memory.
-func (c *LLMConsolidator) findNeighborsByQuery(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore, topK int) (map[int][]store.Node, error) {
+func (c *LLMConsolidator) findNeighborsByQuery(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore, topK int) (map[int][]scoredNode, error) {
 	allNodes, err := s.QueryNodes(ctx, map[string]interface{}{
 		"kind": string(store.NodeKindBehavior),
 	})
@@ -231,10 +238,12 @@ func (c *LLMConsolidator) findNeighborsByQuery(ctx context.Context, memories []C
 	}
 	capped := allNodes[:limit]
 
-	result := make(map[int][]store.Node)
+	result := make(map[int][]scoredNode)
 	for i := range memories {
-		entry := make([]store.Node, len(capped))
-		copy(entry, capped)
+		entry := make([]scoredNode, len(capped))
+		for j, n := range capped {
+			entry[j] = scoredNode{Node: n, Score: 0.0} // unranked fallback
+		}
 		result[i] = entry
 	}
 	return result, nil
@@ -288,7 +297,7 @@ func PendingNodeID(index int) string {
 // convertProposals converts parsed LLM proposals into store edges and merge proposals.
 // neighbors provides the scored neighbor lists from vector search so merge proposals
 // can carry the actual cosine similarity rather than defaulting to 0.0.
-func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, neighbors map[int][]store.Node) ([]store.Edge, []MergeProposal) {
+func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, neighbors map[int][]scoredNode) ([]store.Edge, []MergeProposal) {
 	now := time.Now()
 	var edges []store.Edge
 	var merges []MergeProposal
@@ -340,14 +349,12 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, n
 	return edges, merges
 }
 
-// neighborSimilarity returns a default similarity score if the target was among
-// the neighbors for the given memory index. Since we don't store per-neighbor
-// scores in the Node, we return 0.5 as a reasonable default when the target is
-// found, and 0.0 if not.
-func neighborSimilarity(neighbors map[int][]store.Node, memIdx int, targetID string) float64 {
-	for _, n := range neighbors[memIdx] {
-		if n.ID == targetID {
-			return 0.5 // target was a scored neighbor
+// neighborSimilarity returns the cosine similarity score for the given target
+// from the scored neighbor list, or 0.0 if the target was not among the neighbors.
+func neighborSimilarity(neighbors map[int][]scoredNode, memIdx int, targetID string) float64 {
+	for _, sn := range neighbors[memIdx] {
+		if sn.Node.ID == targetID {
+			return sn.Score
 		}
 	}
 	return 0.0
@@ -366,7 +373,7 @@ func highestWeight(edges []proposedEdge) float64 {
 }
 
 // neighborCounts builds a summary map of neighbor counts per memory index.
-func neighborCounts(neighbors map[int][]store.Node) map[int]int {
+func neighborCounts(neighbors map[int][]scoredNode) map[int]int {
 	counts := make(map[int]int, len(neighbors))
 	for idx, nodes := range neighbors {
 		counts[idx] = len(nodes)

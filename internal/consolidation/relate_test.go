@@ -308,6 +308,53 @@ func TestLLMRelate_MergeProposal(t *testing.T) {
 	}
 }
 
+func TestLLMRelate_MergeProposalCarriesCosineSimilarity(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+	seedStore(ctx, t, s, "bhv-400", "Wrap errors with fmt.Errorf")
+
+	// Store embedding so vector search finds the neighbor.
+	if err := s.StoreEmbedding(ctx, "bhv-400", []float32{0.9, 0.1, 0.0}, "test-model"); err != nil {
+		t.Fatalf("storing embedding: %v", err)
+	}
+
+	response := makeLLMResponse([]relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "merge",
+			MergeInto:   &mergeInfo{TargetID: "bhv-400", Strategy: "absorb"},
+			Rationale:   "Near-duplicate",
+		},
+	})
+
+	client := &mockEmbeddingClient{
+		mockLLMClient: mockLLMClient{response: response, available: true},
+		embeddings: map[string][]float32{
+			"Use fmt.Errorf to wrap errors": {0.8, 0.2, 0.0},
+		},
+	}
+
+	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
+	memories := testMemories("sess-sim")
+
+	_, merges, err := c.Relate(ctx, memories, s)
+	if err != nil {
+		t.Fatalf("Relate returned error: %v", err)
+	}
+
+	if len(merges) != 1 {
+		t.Fatalf("expected 1 merge, got %d", len(merges))
+	}
+
+	// Similarity should be the actual cosine score, not 0.0 or a hardcoded value.
+	if merges[0].Similarity <= 0.0 {
+		t.Errorf("expected positive similarity from cosine score, got %f", merges[0].Similarity)
+	}
+	if merges[0].Similarity == 0.5 {
+		t.Errorf("similarity should be actual cosine score, not hardcoded 0.5; got %f", merges[0].Similarity)
+	}
+}
+
 func TestLLMRelate_CoOccurrence(t *testing.T) {
 	memories := testMemoriesMultiSession() // 3 memories, same session
 	edges := buildCoOccurrenceEdges(memories)
@@ -629,17 +676,20 @@ func TestParseRelationships_FenceMissingClose(t *testing.T) {
 
 func TestRelateMemoriesPrompt(t *testing.T) {
 	memories := testMemories("sess-1")
-	neighbors := map[int][]store.Node{
+	neighbors := map[int][]scoredNode{
 		0: {
 			{
-				ID:   "bhv-50",
-				Kind: store.NodeKindBehavior,
-				Content: map[string]interface{}{
-					"kind": "directive",
-					"content": map[string]interface{}{
-						"canonical": "Always wrap errors",
+				Node: store.Node{
+					ID:   "bhv-50",
+					Kind: store.NodeKindBehavior,
+					Content: map[string]interface{}{
+						"kind": "directive",
+						"content": map[string]interface{}{
+							"canonical": "Always wrap errors",
+						},
 					},
 				},
+				Score: 0.85,
 			},
 		},
 	}
