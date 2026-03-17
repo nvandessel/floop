@@ -3,9 +3,7 @@ package consolidation
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/nvandessel/floop/internal/llm"
@@ -265,8 +263,8 @@ func buildCoOccurrenceEdges(memories []ClassifiedMemory) []store.Edge {
 		// Create edges between all pairs.
 		for a := 0; a < len(indices); a++ {
 			for b := a + 1; b < len(indices); b++ {
-				srcID := memoryNodeID(memories[indices[a]], indices[a])
-				tgtID := memoryNodeID(memories[indices[b]], indices[b])
+				srcID := PendingNodeID(indices[a])
+				tgtID := PendingNodeID(indices[b])
 				edges = append(edges, store.Edge{
 					Source:    srcID,
 					Target:    tgtID,
@@ -287,18 +285,6 @@ func PendingNodeID(index int) string {
 	return fmt.Sprintf("pending-%d", index)
 }
 
-// memoryNodeID generates a stable node ID for a memory. If the memory has
-// source events, the first event ID is used as a base; otherwise a hash of
-// the content plus index is used to avoid collisions across Relate calls.
-func memoryNodeID(m ClassifiedMemory, index int) string {
-	if len(m.SourceEvents) > 0 {
-		return fmt.Sprintf("mem-%s", m.SourceEvents[0])
-	}
-	h := fnv.New32a()
-	h.Write([]byte(m.RawText + strconv.Itoa(index)))
-	return fmt.Sprintf("mem-anon-%x", h.Sum32())
-}
-
 // convertProposals converts parsed LLM proposals into store edges and merge proposals.
 // neighbors provides the scored neighbor lists from vector search so merge proposals
 // can carry the actual cosine similarity rather than defaulting to 0.0.
@@ -314,7 +300,7 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, n
 
 		switch p.Action {
 		case "create":
-			srcID := memoryNodeID(memories[p.MemoryIndex], p.MemoryIndex)
+			srcID := PendingNodeID(p.MemoryIndex)
 			for _, e := range p.Edges {
 				edgeKind, ok := validEdgeKind[e.Kind]
 				if !ok {
