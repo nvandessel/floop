@@ -466,6 +466,9 @@ func TestLLMRelate_EmptyMemories(t *testing.T) {
 func TestLLMRelate_NilStore(t *testing.T) {
 	ctx := context.Background()
 
+	// With nil store, there are no neighbors, so edge targets cannot be validated.
+	// The LLM proposes an edge to "bhv-1" which is not in the (empty) neighbor set.
+	// convertProposals correctly drops it as a hallucinated target.
 	response := makeLLMResponse([]relateProposal{
 		{
 			MemoryIndex: 0,
@@ -478,14 +481,11 @@ func TestLLMRelate_NilStore(t *testing.T) {
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
 	memories := testMemories("sess-5")
 
-	edges, _, _, err := c.Relate(ctx, memories, nil)
+	_, _, _, err := c.Relate(ctx, memories, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should still work — just no neighbor search.
-	if len(edges) == 0 {
-		t.Error("expected at least LLM-proposed edges")
-	}
+	// With no neighbors and no co-occurrence (single memory), no edges are expected.
 }
 
 func TestParseRelationships_ValidJSON(t *testing.T) {
@@ -567,6 +567,8 @@ func TestParseRelationships_MergeWithoutTarget(t *testing.T) {
 }
 
 func TestParseRelationships_InvalidEdgeKind(t *testing.T) {
+	// Invalid edge kind no longer fails ParseRelationships — it is filtered
+	// per-edge in convertProposals so one bad edge doesn't discard all proposals.
 	input := makeLLMResponse([]relateProposal{
 		{
 			MemoryIndex: 0,
@@ -574,13 +576,24 @@ func TestParseRelationships_InvalidEdgeKind(t *testing.T) {
 			Edges:       []proposedEdge{{Target: "bhv-1", Kind: "invented-kind", Weight: 0.5}},
 		},
 	})
-	_, err := ParseRelationships(input)
-	if err == nil {
-		t.Error("expected error for invalid edge kind")
+	proposals, err := ParseRelationships(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(proposals) != 1 {
+		t.Fatalf("expected 1 proposal, got %d", len(proposals))
+	}
+	// The bad edge should be dropped by convertProposals, not ParseRelationships.
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	edges, _, _ := convertProposals(proposals, memories, neighbors)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges after filtering invalid kind, got %d", len(edges))
 	}
 }
 
 func TestParseRelationships_InvalidWeight(t *testing.T) {
+	// Zero weight no longer fails ParseRelationships — it is filtered per-edge.
 	input := makeLLMResponse([]relateProposal{
 		{
 			MemoryIndex: 0,
@@ -588,9 +601,15 @@ func TestParseRelationships_InvalidWeight(t *testing.T) {
 			Edges:       []proposedEdge{{Target: "bhv-1", Kind: "similar-to", Weight: 0.0}},
 		},
 	})
-	_, err := ParseRelationships(input)
-	if err == nil {
-		t.Error("expected error for zero weight")
+	proposals, err := ParseRelationships(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	edges, _, _ := convertProposals(proposals, memories, neighbors)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges after filtering zero weight, got %d", len(edges))
 	}
 }
 
@@ -645,6 +664,7 @@ func TestParseRelationships_EmptyMergeTargetID(t *testing.T) {
 }
 
 func TestParseRelationships_EmptyEdgeTarget(t *testing.T) {
+	// Empty edge target no longer fails ParseRelationships — it is filtered per-edge.
 	input := makeLLMResponse([]relateProposal{
 		{
 			MemoryIndex: 0,
@@ -652,9 +672,14 @@ func TestParseRelationships_EmptyEdgeTarget(t *testing.T) {
 			Edges:       []proposedEdge{{Target: "", Kind: "similar-to", Weight: 0.8}},
 		},
 	})
-	_, err := ParseRelationships(input)
-	if err == nil {
-		t.Error("expected error for empty edge target")
+	proposals, err := ParseRelationships(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	memories := testMemories("test")
+	edges, _, _ := convertProposals(proposals, memories, nil)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges after filtering empty target, got %d", len(edges))
 	}
 }
 
@@ -682,6 +707,117 @@ func TestParseRelationships_FenceMissingClose(t *testing.T) {
 	}
 	if len(proposals) != 1 {
 		t.Fatalf("expected 1 proposal, got %d", len(proposals))
+	}
+}
+
+func TestConvertProposals_PartialEdgeValidity(t *testing.T) {
+	// One valid edge + one bad edge (invalid kind) → only the valid edge survives.
+	proposals := []relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges: []proposedEdge{
+				{Target: "bhv-1", Kind: "similar-to", Weight: 0.8},
+				{Target: "bhv-1", Kind: "invented-kind", Weight: 0.5},
+			},
+		},
+	}
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	edges, _, _ := convertProposals(proposals, memories, neighbors)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 valid edge, got %d", len(edges))
+	}
+	if edges[0].Kind != store.EdgeKindSimilarTo {
+		t.Errorf("expected similar-to edge, got %q", edges[0].Kind)
+	}
+}
+
+func TestConvertProposals_HallucinatedEdgeTarget(t *testing.T) {
+	// LLM invents a target ID that wasn't in the neighbor set → edge dropped.
+	proposals := []relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges: []proposedEdge{
+				{Target: "bhv-999-hallucinated", Kind: "similar-to", Weight: 0.8},
+			},
+		},
+	}
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	edges, _, _ := convertProposals(proposals, memories, neighbors)
+	if len(edges) != 0 {
+		t.Errorf("expected 0 edges for hallucinated target, got %d", len(edges))
+	}
+}
+
+func TestConvertProposals_HallucinatedMergeTarget(t *testing.T) {
+	// LLM proposes merging into a node that wasn't a neighbor → merge dropped.
+	proposals := []relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "merge",
+			MergeInto:   &mergeInfo{TargetID: "bhv-999-hallucinated", Strategy: "absorb"},
+		},
+	}
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	_, merges, _ := convertProposals(proposals, memories, neighbors)
+	if len(merges) != 0 {
+		t.Errorf("expected 0 merges for hallucinated target, got %d", len(merges))
+	}
+}
+
+func TestConvertProposals_PendingIDEdgeTarget(t *testing.T) {
+	// LLM references another pending memory as edge target → allowed.
+	proposals := []relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges: []proposedEdge{
+				{Target: "pending-1", Kind: "similar-to", Weight: 0.7},
+			},
+		},
+	}
+	memories := testMemoriesMultiSession()[:2]
+	edges, _, _ := convertProposals(proposals, memories, nil)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge for pending-N target, got %d", len(edges))
+	}
+	if edges[0].Target != "pending-1" {
+		t.Errorf("expected target pending-1, got %q", edges[0].Target)
+	}
+}
+
+func TestParseRelationships_NegativeMemoryIndex(t *testing.T) {
+	input := `{"relationships":[{"memory_index":-1,"action":"skip","rationale":"test"}]}`
+	_, err := ParseRelationships(input)
+	if err == nil {
+		t.Error("expected error for negative memory_index")
+	}
+}
+
+func TestConvertProposals_MissingWeight(t *testing.T) {
+	// LLM omits weight field → unmarshals to 0.0 → edge skipped (not all proposals lost).
+	proposals := []relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges: []proposedEdge{
+				{Target: "bhv-1", Kind: "similar-to", Weight: 0.0}, // omitted weight
+				{Target: "bhv-1", Kind: "overrides", Weight: 0.9},  // valid
+			},
+		},
+	}
+	memories := testMemories("test")
+	neighbors := map[int][]scoredNode{0: {{Node: store.Node{ID: "bhv-1"}}}}
+	edges, _, _ := convertProposals(proposals, memories, neighbors)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge (bad weight filtered), got %d", len(edges))
+	}
+	if edges[0].Kind != store.EdgeKindOverrides {
+		t.Errorf("expected overrides edge to survive, got %q", edges[0].Kind)
 	}
 }
 

@@ -170,9 +170,14 @@ func ParseRelationships(response string) ([]relateProposal, error) {
 		return nil, fmt.Errorf("parsing relate response: %w", err)
 	}
 
-	// Validate each proposal.
+	// Validate each proposal at the structural level. Per-edge validation
+	// (kind, weight, target) is deferred to convertProposals so that one bad
+	// edge does not discard all proposals.
 	seen := make(map[int]bool, len(resp.Relationships))
 	for i, p := range resp.Relationships {
+		if p.MemoryIndex < 0 {
+			return nil, fmt.Errorf("proposal %d: memory_index must not be negative, got %d", i, p.MemoryIndex)
+		}
 		if seen[p.MemoryIndex] {
 			return nil, fmt.Errorf("proposal %d: duplicate memory_index %d", i, p.MemoryIndex)
 		}
@@ -193,18 +198,6 @@ func ParseRelationships(response string) ([]relateProposal, error) {
 		}
 		if p.MergeInto != nil && !validMergeStrategies[p.MergeInto.Strategy] {
 			return nil, fmt.Errorf("proposal %d: invalid merge strategy %q", i, p.MergeInto.Strategy)
-		}
-
-		for j, e := range p.Edges {
-			if e.Target == "" {
-				return nil, fmt.Errorf("proposal %d edge %d: target must not be empty", i, j)
-			}
-			if _, ok := validEdgeKind[e.Kind]; !ok {
-				return nil, fmt.Errorf("proposal %d edge %d: invalid edge kind %q", i, j, e.Kind)
-			}
-			if e.Weight <= 0 || e.Weight > 1.0 {
-				return nil, fmt.Errorf("proposal %d edge %d: weight must be in (0.0, 1.0], got %f", i, j, e.Weight)
-			}
 		}
 	}
 

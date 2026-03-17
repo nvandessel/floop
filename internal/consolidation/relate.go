@@ -300,11 +300,24 @@ func PendingNodeID(index int) string {
 // convertProposals converts parsed LLM proposals into store edges and merge proposals.
 // neighbors provides the scored neighbor lists from vector search so merge proposals
 // can carry the actual cosine similarity rather than defaulting to 0.0.
+//
+// Per-edge validation happens here rather than in ParseRelationships so that one
+// invalid edge (missing weight, bad kind, hallucinated target) does not discard
+// all proposals in the response.
 func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, neighbors map[int][]scoredNode) ([]store.Edge, []MergeProposal, []int) {
 	now := time.Now()
 	var edges []store.Edge
 	var merges []MergeProposal
 	var skips []int
+
+	// Build the set of valid neighbor IDs — the only IDs the LLM has seen.
+	// Edge targets and merge targets that fall outside this set are hallucinated.
+	knownIDs := make(map[string]bool)
+	for _, scoredNodes := range neighbors {
+		for _, sn := range scoredNodes {
+			knownIDs[sn.Node.ID] = true
+		}
+	}
 
 	for _, p := range proposals {
 		if p.MemoryIndex < 0 || p.MemoryIndex >= len(memories) {
@@ -315,14 +328,25 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, n
 		case "create":
 			srcID := PendingNodeID(p.MemoryIndex)
 			for _, e := range p.Edges {
-				edgeKind, ok := validEdgeKind[e.Kind]
-				if !ok {
+				// Per-edge validation: skip individual bad edges.
+				if e.Target == "" {
+					continue
+				}
+				if _, ok := validEdgeKind[e.Kind]; !ok {
+					continue
+				}
+				if e.Weight <= 0 || e.Weight > 1.0 {
+					continue
+				}
+				// Target must be a neighbor the LLM was shown, or another
+				// pending memory (pending-N). Hallucinated IDs create dangling edges.
+				if !knownIDs[e.Target] && !isPendingID(e.Target) {
 					continue
 				}
 				edges = append(edges, store.Edge{
 					Source:    srcID,
 					Target:    e.Target,
-					Kind:      edgeKind,
+					Kind:      validEdgeKind[e.Kind],
 					Weight:    e.Weight,
 					CreatedAt: now,
 				})
@@ -330,6 +354,10 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, n
 
 		case "merge":
 			if p.MergeInto == nil {
+				continue
+			}
+			// Merge target must be a neighbor the LLM was shown.
+			if !knownIDs[p.MergeInto.TargetID] {
 				continue
 			}
 			// Use the highest edge weight if available, otherwise check if the
@@ -351,6 +379,12 @@ func convertProposals(proposals []relateProposal, memories []ClassifiedMemory, n
 	}
 
 	return edges, merges, skips
+}
+
+// isPendingID returns true if the ID matches the pending-N format used for
+// cross-referencing new memories within the same batch.
+func isPendingID(id string) bool {
+	return len(id) > 8 && id[:8] == "pending-"
 }
 
 // neighborSimilarity returns the cosine similarity score for the given target
