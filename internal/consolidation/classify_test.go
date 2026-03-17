@@ -402,6 +402,7 @@ func TestLLMClassify_ScopeValidation(t *testing.T) {
 		{"empty defaults to universal", "", false},
 		{"invalid scope", "org-wide", true},
 		{"bare project", "project", true},
+		{"project colon empty namespace", "project:", true},
 	}
 
 	for _, tt := range tests {

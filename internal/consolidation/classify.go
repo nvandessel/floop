@@ -237,10 +237,17 @@ func sourceEventsMatch(a, b []string) bool {
 	return true
 }
 
-// validateScope checks that scope is either "universal" or "project:<namespace/name>".
+// validateScope checks that scope is either "universal" or "project:<namespace/name>"
+// where the namespace after the colon is non-empty.
 func validateScope(scope string, candidateIdx int) error {
-	if scope != "universal" && !strings.HasPrefix(scope, "project:") {
+	if scope == "universal" {
+		return nil
+	}
+	if !strings.HasPrefix(scope, "project:") {
 		return fmt.Errorf("candidate %d: invalid scope %q (must be \"universal\" or \"project:<namespace/name>\")", candidateIdx, scope)
+	}
+	if len(scope) <= len("project:") {
+		return fmt.Errorf("candidate %d: invalid scope %q: project scope must include a namespace/name after the colon", candidateIdx, scope)
 	}
 	return nil
 }
