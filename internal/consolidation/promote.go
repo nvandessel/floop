@@ -31,9 +31,18 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 	cl := NewConsolidationLogger(c.decisions, runID, c.config.Model)
 	start := time.Now()
 
-	// Index merge proposals by memory raw text so we can skip merged memories
-	// in the create-new pass.
-	mergedTexts := make(map[string]bool)
+	// Index merge proposals by memory position so we can skip merged memories
+	// in the create-new pass. Using index-based matching avoids silent drops
+	// when two distinct memories share the same RawText.
+	mergedIndices := make(map[int]bool)
+	for _, merge := range merges {
+		for i, mem := range memories {
+			if mem.RawText == merge.Memory.RawText && mem.Kind == merge.Memory.Kind {
+				mergedIndices[i] = true
+				break
+			}
+		}
+	}
 	mergeCount := 0
 
 	for _, merge := range merges {
@@ -42,7 +51,13 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 		elapsed := time.Since(mergeStart).Milliseconds()
 
 		if err != nil {
-			// Merge failed — log the error, fall through to create-as-new
+			// Merge failed — unmark the memory so it falls through to create-as-new
+			for i, mem := range memories {
+				if mem.RawText == merge.Memory.RawText && mem.Kind == merge.Memory.Kind {
+					delete(mergedIndices, i)
+					break
+				}
+			}
 			cl.LogPromote("merge_failed", elapsed, map[string]any{
 				"target_id": merge.TargetID,
 				"strategy":  merge.Strategy,
@@ -52,7 +67,6 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 		}
 
 		mergeCount++
-		mergedTexts[merge.Memory.RawText] = true
 		cl.LogPromote("merge", elapsed, map[string]any{
 			"target_id":  merge.TargetID,
 			"strategy":   merge.Strategy,
@@ -64,7 +78,7 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 	promoted := 0
 	baseTS := time.Now().UnixNano()
 	for i, mem := range memories {
-		if mergedTexts[mem.RawText] {
+		if mergedIndices[i] {
 			cl.LogPromote("skip", 0, map[string]any{
 				"reason":      "merged",
 				"memory_kind": string(mem.Kind),

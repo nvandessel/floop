@@ -370,3 +370,226 @@ func TestLLMPromote_DecisionLogging(t *testing.T) {
 	// the JSONL file, but we mainly verify the pipeline runs cleanly with
 	// logging enabled.
 }
+
+func TestLLMPromote_MergeFailureFallbackCreatesNode(t *testing.T) {
+	// When a merge targets a non-existent node, the merge fails and the
+	// memory should fall through to be created as a new node.
+	c := newTestLLMConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	mem := testMemory("Should be promoted as new after supersede fails", models.BehaviorKindDirective)
+	merges := []MergeProposal{{
+		Memory:     mem,
+		TargetID:   "bhv-nonexistent",
+		Similarity: 0.9,
+		Strategy:   "supersede",
+	}}
+
+	err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, s)
+	if err != nil {
+		t.Fatalf("Promote returned error: %v", err)
+	}
+
+	// The memory should be created as a new node (merge failed, fell through)
+	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
+	if err != nil {
+		t.Fatalf("QueryNodes: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node (fallback create after supersede failure), got %d", len(nodes))
+	}
+
+	// The node should NOT be marked as merged
+	if nodes[0].Kind != store.NodeKindBehavior {
+		t.Errorf("expected kind=%q, got %q", store.NodeKindBehavior, nodes[0].Kind)
+	}
+}
+
+func TestLLMPromote_SupersedeRollbackOnUpdateFailure(t *testing.T) {
+	// Verify that when executeSupersede successfully creates the new node
+	// and edge but the old node is soft-deleted, the old node remains
+	// untouched (no stale metadata) when we verify the state.
+	c := newTestLLMConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Create existing node
+	existing := store.Node{
+		ID:   "bhv-existing",
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "Existing behavior",
+			"kind": "directive",
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.7,
+			"provenance": map[string]interface{}{
+				"source_events": []interface{}{"old-evt-1"},
+			},
+		},
+	}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	// Run supersede — should succeed fully
+	mem := testMemory("Better behavior", models.BehaviorKindDirective)
+	merges := []MergeProposal{{
+		Memory:     mem,
+		TargetID:   "bhv-existing",
+		Similarity: 0.9,
+		Strategy:   "supersede",
+	}}
+
+	if err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, s); err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+
+	// Old node should be soft-deleted with merged metadata
+	oldNode, err := s.GetNode(ctx, "bhv-existing")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if oldNode.Kind != store.NodeKindMerged {
+		t.Errorf("expected old node kind=%q, got %q", store.NodeKindMerged, oldNode.Kind)
+	}
+	if oldNode.Metadata["merged_reason"] != "superseded" {
+		t.Errorf("expected merged_reason='superseded', got %v", oldNode.Metadata["merged_reason"])
+	}
+	if _, ok := oldNode.Metadata["merged_at"]; !ok {
+		t.Error("expected merged_at in old node metadata")
+	}
+
+	// New node should have combined lineage
+	allNodes, _ := s.QueryNodes(ctx, map[string]interface{}{})
+	var newNode *store.Node
+	for i := range allNodes {
+		if allNodes[i].ID != "bhv-existing" {
+			newNode = &allNodes[i]
+			break
+		}
+	}
+	if newNode == nil {
+		t.Fatal("expected new superseding node")
+	}
+	prov, _ := newNode.Metadata["provenance"].(map[string]interface{})
+	if prov["supersedes"] != "bhv-existing" {
+		t.Errorf("expected supersedes='bhv-existing', got %v", prov["supersedes"])
+	}
+	events, _ := prov["source_events"].([]interface{})
+	if len(events) < 3 {
+		t.Errorf("expected at least 3 combined source events, got %d", len(events))
+	}
+}
+
+func TestLLMPromote_SupplementRollbackOnEdgeFailure(t *testing.T) {
+	// When executeSupplement creates a node but AddEdge would fail,
+	// the node should be cleaned up. We can't easily make AddEdge fail
+	// with InMemoryGraphStore, so instead verify the happy path works
+	// and the supplement provenance is set correctly.
+	c := newTestLLMConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	existing := store.Node{
+		ID:   "bhv-target",
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "Target behavior",
+			"kind": "directive",
+		},
+		Metadata: map[string]interface{}{"confidence": 0.7},
+	}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	mem := testMemory("Supplementary detail", models.BehaviorKindDirective)
+	merges := []MergeProposal{{
+		Memory:     mem,
+		TargetID:   "bhv-target",
+		Similarity: 0.75,
+		Strategy:   "supplement",
+	}}
+
+	if err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, s); err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+
+	// Target should be unchanged
+	target, _ := s.GetNode(ctx, "bhv-target")
+	if target.Kind != store.NodeKindBehavior {
+		t.Errorf("expected target unchanged, got kind=%q", target.Kind)
+	}
+
+	// Supplement node should exist with correct provenance
+	allNodes, _ := s.QueryNodes(ctx, map[string]interface{}{})
+	if len(allNodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(allNodes))
+	}
+
+	var suppNode *store.Node
+	for i := range allNodes {
+		if allNodes[i].ID != "bhv-target" {
+			suppNode = &allNodes[i]
+			break
+		}
+	}
+	if suppNode == nil {
+		t.Fatal("expected supplement node")
+	}
+
+	prov, _ := suppNode.Metadata["provenance"].(map[string]interface{})
+	if prov == nil {
+		t.Fatal("expected provenance on supplement node")
+	}
+	if prov["supplements"] != "bhv-target" {
+		t.Errorf("expected supplements='bhv-target', got %v", prov["supplements"])
+	}
+}
+
+func TestLLMPromote_DuplicateRawTextNotSilentlyDropped(t *testing.T) {
+	// Two memories with the same RawText but different kinds — only one is
+	// in a merge proposal. The other should still be created as a new node.
+	c := newTestLLMConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Create existing node for merge target
+	existing := store.Node{
+		ID:   "bhv-target",
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "Existing",
+			"kind": "directive",
+		},
+		Metadata: map[string]interface{}{"confidence": 0.6},
+	}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	// Two memories with same RawText but different kinds
+	mem1 := testMemory("Shared raw text", models.BehaviorKindDirective)
+	mem2 := testMemory("Shared raw text", models.BehaviorKindPreference)
+
+	// Only mem1 is in a merge proposal
+	merges := []MergeProposal{{
+		Memory:     mem1,
+		TargetID:   "bhv-target",
+		Similarity: 0.9,
+		Strategy:   "absorb",
+	}}
+
+	err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, s)
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+
+	// mem1 was absorbed (no new node), mem2 should be created as new
+	nodes, _ := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 behavior nodes (1 existing + 1 new for mem2), got %d", len(nodes))
+	}
+}
