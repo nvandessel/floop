@@ -78,7 +78,7 @@ func TestLLMConsolidator_DelegatesToHeuristic(t *testing.T) {
 	}
 
 	// Relate should work (returns nil for heuristic)
-	edges, merges, err := c.Relate(ctx, classified, nil)
+	edges, merges, skips, err := c.Relate(ctx, classified, nil)
 	if err != nil {
 		t.Fatalf("Relate failed: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestLLMConsolidator_DelegatesToHeuristic(t *testing.T) {
 	}
 
 	// Promote with nil store should be a no-op
-	err = c.Promote(ctx, classified, edges, merges, nil)
+	err = c.Promote(ctx, classified, edges, merges, skips, nil)
 	if err != nil {
 		t.Fatalf("Promote failed: %v", err)
 	}

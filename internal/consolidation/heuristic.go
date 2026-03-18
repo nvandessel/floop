@@ -195,13 +195,14 @@ func toInterfaceSlice(ss []string) []interface{} {
 	return result
 }
 
-// Relate is a v0 passthrough that returns empty edges and merge proposals.
-func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
-	return nil, nil, nil
+// Relate is a v0 passthrough that returns empty edges, merge proposals, and skips.
+func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, []int, error) {
+	return nil, nil, nil, nil
 }
 
 // Promote writes classified memories into the graph store as behavior nodes.
-func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error {
+// Memories whose indices appear in skips are not created as nodes.
+func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) error {
 	if s == nil {
 		return nil
 	}
@@ -216,9 +217,15 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		}
 	}
 
+	// Build set of memories to skip (already captured)
+	skipped := make(map[int]bool, len(skips))
+	for _, idx := range skips {
+		skipped[idx] = true
+	}
+
 	baseTS := time.Now().UnixNano()
 	for i, mem := range memories {
-		if merged[i] {
+		if merged[i] || skipped[i] {
 			continue
 		}
 

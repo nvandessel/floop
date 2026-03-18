@@ -22,7 +22,7 @@ const EdgeKindSupplements store.EdgeKind = "supplements"
 // Promote writes classified memories into the graph store, executing merge
 // proposals (absorb/supersede/supplement) and logging every decision.
 // It replaces the heuristic Promote with merge-aware logic.
-func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error {
+func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) error {
 	if s == nil {
 		return nil
 	}
@@ -42,6 +42,11 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 				break
 			}
 		}
+	}
+	// Build set of memories to skip (already captured by existing behaviors).
+	skipped := make(map[int]bool, len(skips))
+	for _, idx := range skips {
+		skipped[idx] = true
 	}
 	mergeCount := 0
 
@@ -78,6 +83,13 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 	promoted := 0
 	baseTS := time.Now().UnixNano()
 	for i, mem := range memories {
+		if skipped[i] {
+			cl.LogPromote("skip", 0, map[string]any{
+				"reason":      "already_captured",
+				"memory_kind": string(mem.Kind),
+			})
+			continue
+		}
 		if mergedIndices[i] {
 			cl.LogPromote("skip", 0, map[string]any{
 				"reason":      "merged",

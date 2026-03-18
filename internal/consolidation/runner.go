@@ -20,6 +20,7 @@ type RunResult struct {
 	Classified     []ClassifiedMemory
 	Edges          []store.Edge
 	Merges         []MergeProposal
+	Skips          []int // memory indices the LLM marked as already captured
 	Promoted       int
 	SourceEventIDs []string // event IDs that were processed (callers should mark consolidated)
 	Duration       time.Duration
@@ -78,25 +79,24 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 	}
 
 	// Stage 3: Relate
-	edges, merges, err := r.consolidator.Relate(ctx, classified, s)
+	edges, merges, skips, err := r.consolidator.Relate(ctx, classified, s)
 	if err != nil {
 		return nil, fmt.Errorf("relate stage: %w", err)
 	}
 	result.Edges = edges
 	result.Merges = merges
+	result.Skips = skips
 
 	if ctx.Err() != nil {
 		return result, ctx.Err()
 	}
 
 	// Stage 4: Promote
-	err = r.consolidator.Promote(ctx, classified, edges, merges, s)
+	err = r.consolidator.Promote(ctx, classified, edges, merges, skips, s)
 	if err != nil {
 		return nil, fmt.Errorf("promote stage: %w", err)
 	}
-	// NOTE: This count assumes 1:1 merge proposal to memory. When Relate
-	// returns real merge proposals, Promote should return the actual count.
-	result.Promoted = len(classified) - len(merges)
+	result.Promoted = len(classified) - len(merges) - len(skips)
 
 	// All input events were scanned — mark them consolidated.
 	result.SourceEventIDs = collectEventIDs(evts)
