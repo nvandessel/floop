@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/nvandessel/floop/internal/config"
 	"github.com/nvandessel/floop/internal/consolidation"
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/store"
 	"github.com/nvandessel/floop/internal/utils"
 	"github.com/spf13/cobra"
@@ -27,6 +29,7 @@ func newConsolidateCmd() *cobra.Command {
 	cmd.Flags().String("session", "", "Consolidate specific session only")
 	cmd.Flags().String("since", "", "Consolidate events since duration (e.g., 24h)")
 	cmd.Flags().Bool("dry-run", false, "Show what would be extracted without promoting")
+	cmd.Flags().String("executor", "", "Consolidation executor: heuristic (default), llm, local")
 	return cmd
 }
 
@@ -35,6 +38,7 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	since, _ := cmd.Flags().GetString("since")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	jsonOut, _ := cmd.Flags().GetBool("json")
+	executor, _ := cmd.Flags().GetString("executor")
 	out := cmd.OutOrStdout()
 
 	// Open global DB
@@ -105,8 +109,25 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 		defer graphStore.Close()
 	}
 
+	// Resolve executor from flag or config (single config.Load to avoid redundant disk I/O)
+	floopCfg, _ := config.Load()
+	if executor == "" {
+		if floopCfg != nil && floopCfg.Consolidation.Executor != "" {
+			executor = floopCfg.Consolidation.Executor
+		}
+	}
+
+	// Create LLM client if needed for llm executor
+	var llmClient llm.Client
+	if executor == "llm" {
+		llmClient = createLLMClient(floopCfg)
+		if llmClient == nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --executor llm requested but no LLM provider configured; falling back to heuristic")
+		}
+	}
+
 	// Run consolidation pipeline
-	consolidator := consolidation.NewHeuristicConsolidator()
+	consolidator := consolidation.NewConsolidator(executor, llmClient, nil)
 	runner := consolidation.NewRunner(consolidator)
 
 	result, err := runner.Run(ctx, evts, graphStore, consolidation.RunOptions{

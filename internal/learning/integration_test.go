@@ -261,24 +261,11 @@ func TestIntegration_SimilarCorrections_HighSimilarity(t *testing.T) {
 	ctx := context.Background()
 	s := store.NewInMemoryGraphStore()
 
-	// Create LLM mock configured for high similarity comparison
-	mockLLM := llm.NewMockClient().WithComparisonResult(&llm.ComparisonResult{
-		SemanticSimilarity: 0.95,
-		IntentMatch:        true,
-		MergeCandidate:     true,
-		Reasoning:          "Both behaviors express the same intent about using a specific tool",
-	}).WithMergeResult(&llm.MergeResult{
-		Merged: &models.Behavior{
-			ID:   "merged-behavior",
-			Name: "Unified package management behavior",
-			Kind: models.BehaviorKindDirective,
-			Content: models.BehaviorContent{
-				Canonical: "use uv for all Python package management tasks",
-			},
-			Confidence: 0.9,
-		},
-		SourceIDs: []string{"behavior-1", "behavior-2"},
-		Reasoning: "Combined similar behaviors about Python package management",
+	// Create LLM mock with sequenced responses: first for similarity comparison,
+	// second for merge (ensures the LLM merge path is actually exercised).
+	mockLLM := llm.NewMockClient().WithCompleteSequence([]string{
+		`{"semantic_similarity": 0.95, "intent_match": true, "merge_candidate": true, "reasoning": "Both behaviors express the same intent about using a specific tool"}`,
+		`{"merged": {"name": "Unified uv preference", "kind": "directive", "content": {"canonical": "use uv for all Python package operations"}, "priority": 5, "confidence": 0.9}, "source_ids": ["existing-pip-behavior", "similar-correction-1"], "reasoning": "Combined similar behaviors about Python package management"}`,
 	})
 
 	// Create existing behavior in the store
@@ -369,12 +356,7 @@ func TestIntegration_DissimilarCorrections_SeparateBehaviors(t *testing.T) {
 	s := store.NewInMemoryGraphStore()
 
 	// Create LLM mock configured for low similarity
-	mockLLM := llm.NewMockClient().WithComparisonResult(&llm.ComparisonResult{
-		SemanticSimilarity: 0.3,
-		IntentMatch:        false,
-		MergeCandidate:     false,
-		Reasoning:          "Behaviors express different intents about different tools",
-	})
+	mockLLM := llm.NewMockClient().WithCompleteResponse(`{"semantic_similarity": 0.3, "intent_match": false, "merge_candidate": false, "reasoning": "Behaviors express different intents about different tools"}`)
 
 	// Create mock deduplicator that returns low-similarity matches
 	mockDedup := newMockDeduplicator().withDuplicates([]dedup.DuplicateMatch{
@@ -599,40 +581,23 @@ func (d *dynamicMockDeduplicator) DeduplicateStore(ctx context.Context, s store.
 	return &dedup.DeduplicationReport{}, nil
 }
 
-// TestIntegration_MockClient_ComparisonResults tests that MockClient properly
-// controls similarity scores for integration testing.
-func TestIntegration_MockClient_ComparisonResults(t *testing.T) {
+// TestIntegration_MockClient_CompleteResults tests that MockClient properly
+// controls responses for integration testing.
+func TestIntegration_MockClient_CompleteResults(t *testing.T) {
 	tests := []struct {
-		name               string
-		similarityScore    float64
-		intentMatch        bool
-		mergeCandidate     bool
-		wantIntentMatch    bool
-		wantMergeCandidate bool
+		name     string
+		response string
+		wantErr  bool
 	}{
 		{
-			name:               "high similarity with intent match",
-			similarityScore:    0.95,
-			intentMatch:        true,
-			mergeCandidate:     true,
-			wantIntentMatch:    true,
-			wantMergeCandidate: true,
+			name:     "valid response",
+			response: `{"semantic_similarity": 0.95, "intent_match": true, "merge_candidate": true}`,
+			wantErr:  false,
 		},
 		{
-			name:               "medium similarity no intent match",
-			similarityScore:    0.6,
-			intentMatch:        false,
-			mergeCandidate:     false,
-			wantIntentMatch:    false,
-			wantMergeCandidate: false,
-		},
-		{
-			name:               "low similarity",
-			similarityScore:    0.2,
-			intentMatch:        false,
-			mergeCandidate:     false,
-			wantIntentMatch:    false,
-			wantMergeCandidate: false,
+			name:     "empty response",
+			response: "",
+			wantErr:  false, // Complete returns empty string, not error
 		},
 	}
 
@@ -640,41 +605,20 @@ func TestIntegration_MockClient_ComparisonResults(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			mockClient := llm.NewMockClient().WithComparisonResult(&llm.ComparisonResult{
-				SemanticSimilarity: tt.similarityScore,
-				IntentMatch:        tt.intentMatch,
-				MergeCandidate:     tt.mergeCandidate,
-			})
+			mockClient := llm.NewMockClient().WithCompleteResponse(tt.response)
 
-			behaviorA := &models.Behavior{
-				ID:   "behavior-a",
-				Name: "Test Behavior A",
-				Kind: models.BehaviorKindDirective,
-			}
-			behaviorB := &models.Behavior{
-				ID:   "behavior-b",
-				Name: "Test Behavior B",
-				Kind: models.BehaviorKindDirective,
+			result, err := mockClient.Complete(ctx, []llm.Message{{Role: "user", Content: "test"}})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Complete error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			result, err := mockClient.CompareBehaviors(ctx, behaviorA, behaviorB)
-			if err != nil {
-				t.Fatalf("CompareBehaviors failed: %v", err)
-			}
-
-			if result.SemanticSimilarity != tt.similarityScore {
-				t.Errorf("SemanticSimilarity = %v, want %v", result.SemanticSimilarity, tt.similarityScore)
-			}
-			if result.IntentMatch != tt.wantIntentMatch {
-				t.Errorf("IntentMatch = %v, want %v", result.IntentMatch, tt.wantIntentMatch)
-			}
-			if result.MergeCandidate != tt.wantMergeCandidate {
-				t.Errorf("MergeCandidate = %v, want %v", result.MergeCandidate, tt.wantMergeCandidate)
+			if !tt.wantErr && result != tt.response {
+				t.Errorf("Complete response = %q, want %q", result, tt.response)
 			}
 
 			// Verify call was tracked
-			if mockClient.CompareCallCount() != 1 {
-				t.Errorf("expected 1 compare call, got %d", mockClient.CompareCallCount())
+			if mockClient.CompleteCallCount() != 1 {
+				t.Errorf("expected 1 complete call, got %d", mockClient.CompleteCallCount())
 			}
 		})
 	}

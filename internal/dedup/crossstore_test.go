@@ -239,10 +239,7 @@ func TestCrossStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 	t.Run("falls back to LLM when embedding errors", func(t *testing.T) {
 		mockClient := llm.NewMockClient().
 			WithCompareEmbeddingsError(errors.New("embedding error")).
-			WithComparisonResult(&llm.ComparisonResult{
-				SemanticSimilarity: 0.92,
-				IntentMatch:        true,
-			})
+			WithCompleteResponse(`{"semantic_similarity": 0.92, "intent_match": true, "merge_candidate": true}`)
 
 		dedup := &CrossStoreDeduplicator{
 			config:    DeduplicatorConfig{UseLLM: true},
@@ -258,8 +255,8 @@ func TestCrossStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 			t.Errorf("expected LLM similarity 0.92, got %f", sim)
 		}
 
-		if mockClient.CompareCallCount() != 1 {
-			t.Errorf("expected 1 LLM call, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 1 {
+			t.Errorf("expected 1 LLM call, got %d", mockClient.CompleteCallCount())
 		}
 	})
 
@@ -286,8 +283,8 @@ func TestCrossStoreDeduplicator_ComputeSimilarity_WithLLM(t *testing.T) {
 			t.Errorf("expected Jaccard similarity 1.0, got %f", sim)
 		}
 
-		if mockClient.CompareCallCount() != 0 {
-			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompareCallCount())
+		if mockClient.CompleteCallCount() != 0 {
+			t.Errorf("expected 0 LLM calls, got %d", mockClient.CompleteCallCount())
 		}
 	})
 

@@ -3,6 +3,7 @@ package dedup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -456,31 +457,37 @@ func TestMaxPriority(t *testing.T) {
 
 // mockLLMClient is a test double that returns configurable merge results.
 type mockLLMClient struct {
-	mergeResult *llm.MergeResult
+	mergeResult *MergeResult
 	mergeErr    error
 	available   bool
 }
 
-func (m *mockLLMClient) CompareBehaviors(_ context.Context, _, _ *models.Behavior) (*llm.ComparisonResult, error) {
-	return nil, nil
-}
-
-func (m *mockLLMClient) MergeBehaviors(_ context.Context, _ []*models.Behavior) (*llm.MergeResult, error) {
+func (m *mockLLMClient) Complete(_ context.Context, _ []llm.Message) (string, error) {
 	if m.mergeErr != nil {
-		return nil, m.mergeErr
+		return "", m.mergeErr
 	}
-	return m.mergeResult, nil
+	if m.mergeResult == nil {
+		return `{"merged": null, "source_ids": [], "reasoning": "nil result"}`, nil
+	}
+	// Build a JSON response that ParseMergeResponse can handle
+	b := m.mergeResult.Merged
+	if b == nil {
+		return `{"merged": null, "source_ids": [], "reasoning": "nil merged"}`, nil
+	}
+	return fmt.Sprintf(`{"merged": {"name": %q, "kind": %q, "content": {"canonical": %q}, "priority": %d, "confidence": %f}, "source_ids": ["src"], "reasoning": "mock merge"}`,
+		b.Name, string(b.Kind), b.Content.Canonical, b.Priority, b.Confidence), nil
 }
 
 func (m *mockLLMClient) Available() bool {
 	return m.available
 }
 
-func TestLLMMerge_NilMergedResult(t *testing.T) {
-	// Test that llmMerge returns error when LLM returns nil Merged field
+func TestLLMMerge_InvalidResponseFallback(t *testing.T) {
+	// When LLM returns an invalid response (nil Merged → empty source_ids in JSON),
+	// ParseMergeResponse returns an error and the merger falls back to rule-based merge.
 	mock := &mockLLMClient{
 		available:   true,
-		mergeResult: &llm.MergeResult{Merged: nil},
+		mergeResult: &MergeResult{Merged: nil},
 	}
 
 	merger := NewBehaviorMerger(MergerConfig{
@@ -493,8 +500,8 @@ func TestLLMMerge_NilMergedResult(t *testing.T) {
 		{ID: "b2", Name: "Second", Kind: models.BehaviorKindDirective},
 	}
 
-	// The LLM merge returns nil Merged. The merger should fall back to
-	// rule-based merge (since llmMerge returns an error) and NOT panic.
+	// ParseMergeResponse rejects the response (missing required fields),
+	// so the merger falls back to rule-based merge and does NOT panic.
 	result, err := merger.Merge(context.Background(), behaviors)
 	if err != nil {
 		t.Fatalf("expected fallback to rule-based merge, got error: %v", err)
@@ -508,7 +515,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result with XML tags stripped from canonical", func(t *testing.T) {
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "test-behavior",
 					Kind: models.BehaviorKindDirective,
@@ -545,7 +552,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result with markdown headings converted", func(t *testing.T) {
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "test-behavior",
 					Kind: models.BehaviorKindDirective,
@@ -621,7 +628,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "test-behavior",
 					Kind: models.BehaviorKindDirective,
@@ -659,7 +666,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result name is sanitized", func(t *testing.T) {
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "injected <script>alert('xss')</script> name",
 					Kind: models.BehaviorKindDirective,
@@ -696,7 +703,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result Summary is sanitized", func(t *testing.T) {
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "test-behavior",
 					Kind: models.BehaviorKindDirective,
@@ -768,7 +775,7 @@ func TestMerge_SanitizesOutput(t *testing.T) {
 	t.Run("LLM merge result Tags are sanitized", func(t *testing.T) {
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name: "test-behavior",
 					Kind: models.BehaviorKindDirective,
@@ -1133,7 +1140,7 @@ func TestBehaviorMerger_Merge_LogsDecision(t *testing.T) {
 
 		mock := &mockLLMClient{
 			available: true,
-			mergeResult: &llm.MergeResult{
+			mergeResult: &MergeResult{
 				Merged: &models.Behavior{
 					Name:    "merged-behavior",
 					Kind:    models.BehaviorKindDirective,

@@ -82,12 +82,16 @@ Examples:
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 
-				result, err := client.ExtractCorrection(ctx, prompt)
-				if err == nil && result.IsCorrection && result.Wrong != "" && result.Right != "" {
-					wrong = result.Wrong
-					right = result.Right
-					confidence = result.Confidence
-					extracted = true
+				extractPrompt := learning.CorrectionExtractionPrompt(prompt)
+				response, completeErr := client.Complete(ctx, []llm.Message{{Role: "user", Content: extractPrompt}})
+				if completeErr == nil {
+					result, parseErr := learning.ParseCorrectionExtractionResponse(response)
+					if parseErr == nil && result.IsCorrection && result.Wrong != "" && result.Right != "" {
+						wrong = result.Wrong
+						right = result.Right
+						confidence = result.Confidence
+						extracted = true
+					}
 				}
 			}
 

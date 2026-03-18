@@ -1,22 +1,26 @@
-// Package llm provides interfaces and types for LLM-based behavior comparison and merging.
+// Package llm provides interfaces and types for LLM-based text completion.
 package llm
 
 import (
 	"context"
 	"sync"
-
-	"github.com/nvandessel/floop/internal/models"
 )
 
 // MockClient implements Client and EmbeddingComparer for testing purposes.
-// It allows configuring responses for CompareBehaviors, MergeBehaviors, Embed,
-// and CompareEmbeddings, simulating errors, and tracking calls for verification.
+// It allows configuring responses for Complete, Embed, and CompareEmbeddings,
+// simulating errors, and tracking calls for verification.
+//
+// For tests that call Complete multiple times with different expected responses
+// (e.g. comparison then merge), use WithCompleteSequence to configure an ordered
+// list of responses. Sequence responses are consumed in order; once exhausted,
+// the fixed completeResponse is returned.
 type MockClient struct {
 	mu sync.Mutex
 
 	// Configured responses
-	comparisonResult *ComparisonResult
-	mergeResult      *MergeResult
+	completeResponse string
+	completeSequence []string
+	sequenceIndex    int
 	err              error
 	available        bool
 
@@ -27,46 +31,43 @@ type MockClient struct {
 	compareEmbErr    error
 
 	// Call tracking
-	CompareCalls []CompareCall
-	MergeCalls   []MergeCall
-	EmbedCalls   []string
+	CompleteCalls []CompleteCall
+	EmbedCalls    []string
 }
 
-// CompareCall records a call to CompareBehaviors.
-type CompareCall struct {
-	A *models.Behavior
-	B *models.Behavior
-}
-
-// MergeCall records a call to MergeBehaviors.
-type MergeCall struct {
-	Behaviors []*models.Behavior
+// CompleteCall records a call to Complete.
+type CompleteCall struct {
+	Messages []Message
 }
 
 // NewMockClient creates a new MockClient with default settings.
-// By default, it is available and returns zero-value results.
+// By default, it is available and returns empty string responses.
 func NewMockClient() *MockClient {
 	return &MockClient{
-		available:    true,
-		CompareCalls: make([]CompareCall, 0),
-		MergeCalls:   make([]MergeCall, 0),
-		EmbedCalls:   make([]string, 0),
+		available:     true,
+		CompleteCalls: make([]CompleteCall, 0),
+		EmbedCalls:    make([]string, 0),
 	}
 }
 
-// WithComparisonResult configures the result returned by CompareBehaviors.
-func (m *MockClient) WithComparisonResult(result *ComparisonResult) *MockClient {
+// WithCompleteResponse configures a fixed response returned by Complete.
+// If a sequence is also configured via WithCompleteSequence, the sequence
+// is consumed first; this response is used once the sequence is exhausted.
+func (m *MockClient) WithCompleteResponse(response string) *MockClient {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.comparisonResult = result
+	m.completeResponse = response
 	return m
 }
 
-// WithMergeResult configures the result returned by MergeBehaviors.
-func (m *MockClient) WithMergeResult(result *MergeResult) *MockClient {
+// WithCompleteSequence configures an ordered list of responses for Complete.
+// Each call to Complete consumes the next response in the sequence. Once
+// exhausted, subsequent calls fall back to the fixed completeResponse.
+func (m *MockClient) WithCompleteSequence(responses []string) *MockClient {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.mergeResult = result
+	m.completeSequence = responses
+	m.sequenceIndex = 0
 	return m
 }
 
@@ -120,7 +121,7 @@ func (m *MockClient) WithCompareEmbeddingsError(err error) *MockClient {
 
 // Embed implements EmbeddingComparer.Embed.
 // It records the call and returns the configured result or error.
-func (m *MockClient) Embed(ctx context.Context, text string) ([]float32, error) {
+func (m *MockClient) Embed(_ context.Context, text string) ([]float32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -140,7 +141,7 @@ func (m *MockClient) Embed(ctx context.Context, text string) ([]float32, error) 
 
 // CompareEmbeddings implements EmbeddingComparer.CompareEmbeddings.
 // It returns the configured similarity or error.
-func (m *MockClient) CompareEmbeddings(ctx context.Context, a, b string) (float64, error) {
+func (m *MockClient) CompareEmbeddings(_ context.Context, a, b string) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -154,51 +155,25 @@ func (m *MockClient) CompareEmbeddings(ctx context.Context, a, b string) (float6
 	return m.compareEmbResult, nil
 }
 
-// CompareBehaviors implements Client.CompareBehaviors.
-// It records the call and returns the configured result or error.
-func (m *MockClient) CompareBehaviors(ctx context.Context, a, b *models.Behavior) (*ComparisonResult, error) {
+// Complete implements Client.Complete.
+// It records the call and returns the configured response or error.
+func (m *MockClient) Complete(_ context.Context, messages []Message) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.CompareCalls = append(m.CompareCalls, CompareCall{A: a, B: b})
+	m.CompleteCalls = append(m.CompleteCalls, CompleteCall{Messages: messages})
 
 	if m.err != nil {
-		return nil, m.err
+		return "", m.err
 	}
 
-	if m.comparisonResult != nil {
-		return m.comparisonResult, nil
+	if m.sequenceIndex < len(m.completeSequence) {
+		resp := m.completeSequence[m.sequenceIndex]
+		m.sequenceIndex++
+		return resp, nil
 	}
 
-	// Default response
-	return &ComparisonResult{
-		SemanticSimilarity: 0.0,
-		IntentMatch:        false,
-		MergeCandidate:     false,
-	}, nil
-}
-
-// MergeBehaviors implements Client.MergeBehaviors.
-// It records the call and returns the configured result or error.
-func (m *MockClient) MergeBehaviors(ctx context.Context, behaviors []*models.Behavior) (*MergeResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.MergeCalls = append(m.MergeCalls, MergeCall{Behaviors: behaviors})
-
-	if m.err != nil {
-		return nil, m.err
-	}
-
-	if m.mergeResult != nil {
-		return m.mergeResult, nil
-	}
-
-	// Default response with empty merge
-	return &MergeResult{
-		Merged:    nil,
-		SourceIDs: nil,
-	}, nil
+	return m.completeResponse, nil
 }
 
 // Available implements Client.Available.
@@ -213,31 +188,24 @@ func (m *MockClient) Available() bool {
 func (m *MockClient) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.comparisonResult = nil
-	m.mergeResult = nil
+	m.completeResponse = ""
+	m.completeSequence = nil
+	m.sequenceIndex = 0
 	m.err = nil
 	m.available = true
 	m.embedResult = nil
 	m.embedErr = nil
 	m.compareEmbResult = 0
 	m.compareEmbErr = nil
-	m.CompareCalls = make([]CompareCall, 0)
-	m.MergeCalls = make([]MergeCall, 0)
+	m.CompleteCalls = make([]CompleteCall, 0)
 	m.EmbedCalls = make([]string, 0)
 }
 
-// CompareCallCount returns the number of times CompareBehaviors was called.
-func (m *MockClient) CompareCallCount() int {
+// CompleteCallCount returns the number of times Complete was called.
+func (m *MockClient) CompleteCallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.CompareCalls)
-}
-
-// MergeCallCount returns the number of times MergeBehaviors was called.
-func (m *MockClient) MergeCallCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.MergeCalls)
+	return len(m.CompleteCalls)
 }
 
 // EmbedCallCount returns the number of texts passed to Embed or CompareEmbeddings.

@@ -88,8 +88,20 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 		}, nil
 	}
 
+	// Resolve executor from config
+	executor := ""
+	if s.floopConfig != nil && s.floopConfig.Consolidation.Executor != "" {
+		executor = s.floopConfig.Consolidation.Executor
+	}
+
+	// Warn if LLM executor is requested but no client is available
+	if executor == "llm" && s.llmClient == nil {
+		s.logger.Warn("executor=llm requested but no LLM provider configured; falling back to heuristic")
+	}
+
 	// Run consolidation pipeline
-	result, err := consolidation.NewRunner(consolidation.NewHeuristicConsolidator()).
+	c := consolidation.NewConsolidator(executor, s.llmClient, nil)
+	result, err := consolidation.NewRunner(c).
 		Run(ctx, evts, s.store, consolidation.RunOptions{DryRun: args.DryRun})
 	if err != nil {
 		return nil, FloopConsolidateOutput{}, fmt.Errorf("consolidation pipeline failed: %w", err)
