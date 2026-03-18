@@ -165,7 +165,14 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 			})
 			// Fall back to unranked query neighbors for this memory.
 			fallback, qErr := c.findNeighborsByQuery(ctx, memories[i:i+1], s, topK)
-			if qErr == nil {
+			if qErr != nil {
+				c.decisions.Log(map[string]any{
+					"stage": "relate",
+					"event": "embed_fallback_also_failed",
+					"index": i,
+					"error": qErr.Error(),
+				})
+			} else {
 				result[i] = fallback[0]
 			}
 			continue
@@ -215,6 +222,11 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 				continue
 			}
 			if node == nil {
+				continue
+			}
+			// Only include behavior nodes — non-behavior nodes with embeddings
+			// (e.g. context nodes) should not appear as relationship candidates.
+			if node.Kind != store.NodeKindBehavior {
 				continue
 			}
 			result[i] = append(result[i], scoredNode{Node: *node, Score: sc.score})

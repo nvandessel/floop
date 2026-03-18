@@ -821,6 +821,74 @@ func TestConvertProposals_MissingWeight(t *testing.T) {
 	}
 }
 
+func TestLLMRelate_EmbeddingFiltersBehaviorKind(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Seed a behavior node and a non-behavior (context-snapshot) node.
+	seedStore(ctx, t, s, "bhv-500", "Use context.Context everywhere")
+	_, err := s.AddNode(ctx, store.Node{
+		ID:   "ctx-snap-1",
+		Kind: store.NodeKindContextSnapshot,
+		Content: map[string]interface{}{
+			"kind":    "context-snapshot",
+			"content": map[string]interface{}{"canonical": "Snapshot of session state"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("adding context-snapshot node: %v", err)
+	}
+
+	// Store embeddings for both — the non-behavior node should be filtered out.
+	if err := s.StoreEmbedding(ctx, "bhv-500", []float32{0.9, 0.1, 0.0}, "test-model"); err != nil {
+		t.Fatalf("storing bhv embedding: %v", err)
+	}
+	if err := s.StoreEmbedding(ctx, "ctx-snap-1", []float32{0.85, 0.15, 0.0}, "test-model"); err != nil {
+		t.Fatalf("storing ctx-snap embedding: %v", err)
+	}
+
+	response := makeLLMResponse([]relateProposal{
+		{
+			MemoryIndex: 0,
+			Action:      "create",
+			Edges: []proposedEdge{
+				{Target: "bhv-500", Kind: "similar-to", Weight: 0.8},
+			},
+		},
+	})
+
+	client := &mockEmbeddingClient{
+		mockLLMClient: mockLLMClient{response: response, available: true},
+		embeddings: map[string][]float32{
+			"Use fmt.Errorf to wrap errors": {0.8, 0.2, 0.0},
+		},
+	}
+
+	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
+	memories := testMemories("sess-kind-filter")
+
+	edges, _, _, err := c.Relate(ctx, memories, s)
+	if err != nil {
+		t.Fatalf("Relate returned error: %v", err)
+	}
+
+	// Verify only behavior nodes ended up as neighbors — the context-snapshot
+	// should have been filtered out. The LLM response only references bhv-500,
+	// so we should get exactly 1 LLM edge.
+	var llmEdges int
+	for _, e := range edges {
+		if e.Kind == store.EdgeKindSimilarTo {
+			llmEdges++
+			if e.Target != "bhv-500" {
+				t.Errorf("expected edge to bhv-500, got %q", e.Target)
+			}
+		}
+	}
+	if llmEdges != 1 {
+		t.Errorf("expected 1 similar-to edge, got %d", llmEdges)
+	}
+}
+
 func TestRelateMemoriesPrompt(t *testing.T) {
 	memories := testMemories("sess-1")
 	neighbors := map[int][]scoredNode{
