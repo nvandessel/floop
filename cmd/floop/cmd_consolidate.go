@@ -120,10 +120,11 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create LLM client if needed for llm executor
+	// Create LLM client if needed for llm executor.
+	// Consolidation prompts are large (30-80k chars) and need longer timeouts than dedup.
 	var llmClient llm.Client
 	if executor == "llm" {
-		llmClient = createLLMClient(floopCfg)
+		llmClient = createLLMClient(floopCfg, 120*time.Second)
 		if llmClient == nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --executor llm requested but no LLM provider configured; falling back to heuristic")
 		}
