@@ -182,11 +182,30 @@ func ParseMergeResponse(response string) (*MergeResult, error) {
 		return nil, fmt.Errorf("merge result must include source_ids")
 	}
 
+	// Validate kind is a known BehaviorKind
+	validKinds := map[models.BehaviorKind]bool{
+		models.BehaviorKindDirective:  true,
+		models.BehaviorKindConstraint: true,
+		models.BehaviorKindProcedure:  true,
+		models.BehaviorKindPreference: true,
+		models.BehaviorKindEpisodic:   true,
+		models.BehaviorKindWorkflow:   true,
+	}
+	kind := models.BehaviorKind(raw.Merged.Kind)
+	if !validKinds[kind] {
+		return nil, fmt.Errorf("invalid behavior kind %q", raw.Merged.Kind)
+	}
+
+	// Validate confidence range
+	if raw.Merged.Confidence < 0 || raw.Merged.Confidence > 1 {
+		return nil, fmt.Errorf("confidence must be between 0.0 and 1.0, got %f", raw.Merged.Confidence)
+	}
+
 	// Convert to MergeResult with proper Behavior struct
 	result := &MergeResult{
 		Merged: &models.Behavior{
 			Name: raw.Merged.Name,
-			Kind: models.BehaviorKind(raw.Merged.Kind),
+			Kind: kind,
 			Content: models.BehaviorContent{
 				Canonical: raw.Merged.Content.Canonical,
 			},

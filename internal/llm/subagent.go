@@ -107,15 +107,20 @@ func (c *SubagentClient) Complete(ctx context.Context, messages []Message) (stri
 		return "", fmt.Errorf("subagent client not available")
 	}
 
+	if len(messages) == 0 {
+		return "", fmt.Errorf("at least one message is required")
+	}
+
 	// Concatenate messages into a prompt string
 	var prompt strings.Builder
 	for _, m := range messages {
-		if m.Role == "system" {
+		switch m.Role {
+		case "system":
 			fmt.Fprintf(&prompt, "[System]\n%s\n\n", m.Content)
-		} else if m.Role == "assistant" {
+		case "assistant":
 			fmt.Fprintf(&prompt, "[Assistant]\n%s\n\n", m.Content)
-		} else {
-			fmt.Fprintf(&prompt, "%s\n\n", m.Content)
+		default:
+			fmt.Fprintf(&prompt, "[User]\n%s\n\n", m.Content)
 		}
 	}
 
