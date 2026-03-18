@@ -12,17 +12,15 @@ import (
 
 // Candidate is a memory candidate extracted from raw events.
 type Candidate struct {
-	SourceEvents   []string       `json:"source_events,omitempty"`   // event IDs
-	RawText        string         `json:"raw_text,omitempty"`        // relevant excerpt
-	CandidateType  string         `json:"candidate_type,omitempty"`  // correction, discovery, decision, failure, workflow
-	Confidence     float64        `json:"confidence"`                // 0.0-1.0
-	SessionContext map[string]any `json:"session_context,omitempty"` // project, file, task, branch, model
-
-	// LLM-enriched fields (v1 Extract stage)
-	Sentiment          string `json:"sentiment,omitempty"`           // neutral, curious, frustrated, satisfied, breakthrough
-	SessionPhase       string `json:"session_phase,omitempty"`       // opening, exploring, building, stuck, resolving, wrapping-up
-	InteractionPattern string `json:"interaction_pattern,omitempty"` // teaching, collaborating, debugging, reviewing, planning
-	Rationale          string `json:"rationale,omitempty"`           // LLM's reasoning for why this is a candidate
+	SourceEvents       []string       // event IDs
+	RawText            string         // relevant excerpt
+	CandidateType      string         // correction, discovery, decision, failure, workflow
+	Confidence         float64        // 0.0-1.0
+	SessionContext     map[string]any // project, file, task, branch, model
+	Sentiment          string         // neutral, curious, frustrated, satisfied, breakthrough
+	SessionPhase       string         // opening, exploring, building, stuck, resolving, wrapping-up
+	InteractionPattern string         // teaching, collaborating, debugging, reviewing, planning
+	Rationale          string         // why this is a behavioral signal
 }
 
 // ClassifiedMemory is a typed, classified memory ready for graph insertion.

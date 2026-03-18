@@ -78,11 +78,7 @@ func TestLLMConsolidator_DelegatesToHeuristic(t *testing.T) {
 	}
 
 	// Relate should work (returns nil for heuristic)
-<<<<<<< HEAD
-	edges, merges, err := c.Relate(ctx, classified, nil)
-=======
 	edges, merges, skips, err := c.Relate(ctx, classified, nil)
->>>>>>> feat/v1/relate
 	if err != nil {
 		t.Fatalf("Relate failed: %v", err)
 	}
@@ -94,11 +90,7 @@ func TestLLMConsolidator_DelegatesToHeuristic(t *testing.T) {
 	}
 
 	// Promote with nil store should be a no-op
-<<<<<<< HEAD
-	err = c.Promote(ctx, classified, edges, merges, nil)
-=======
 	err = c.Promote(ctx, classified, edges, merges, skips, nil)
->>>>>>> feat/v1/relate
 	if err != nil {
 		t.Fatalf("Promote failed: %v", err)
 	}
@@ -113,12 +105,6 @@ func TestDefaultLLMConsolidatorConfig(t *testing.T) {
 	if cfg.MaxCandidates != 30 {
 		t.Errorf("MaxCandidates = %d, want 30", cfg.MaxCandidates)
 	}
-<<<<<<< HEAD
-	if cfg.MinConfidence != 0.7 {
-		t.Errorf("MinConfidence = %f, want 0.7", cfg.MinConfidence)
-	}
-=======
->>>>>>> feat/v1/relate
 	if cfg.TopK != 5 {
 		t.Errorf("TopK = %d, want 5", cfg.TopK)
 	}

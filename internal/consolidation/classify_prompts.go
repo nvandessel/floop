@@ -167,11 +167,14 @@ type workflowStepJSON struct {
 // It validates enums, importance range, canonical non-empty, summary length, scope format,
 // tag count, kind/memory_type consistency, and structured data presence.
 func ParseClassifiedMemories(response string, candidates []Candidate) ([]ClassifiedMemory, error) {
-	// Strip markdown code fences if present
-	response = stripCodeFences(response)
+	// Strip markdown code fences if present (LLMs often wrap JSON in ```json...```)
+	cleaned := llm.ExtractJSON(response)
+	if cleaned == "" {
+		return nil, fmt.Errorf("no JSON found in classify response")
+	}
 
 	var resp classifiedResponse
-	if err := json.Unmarshal([]byte(response), &resp); err != nil {
+	if err := json.Unmarshal([]byte(cleaned), &resp); err != nil {
 		return nil, fmt.Errorf("parsing classify response: %w", err)
 	}
 
@@ -302,20 +305,4 @@ func ParseClassifiedMemories(response string, candidates []Candidate) ([]Classif
 	}
 
 	return memories, nil
-}
-
-// stripCodeFences removes markdown code fences from a JSON response.
-// Handles case-insensitive language tags (```json, ```JSON, ```Json, etc.).
-func stripCodeFences(s string) string {
-	s = strings.TrimSpace(s)
-	lower := strings.ToLower(s)
-	if strings.HasPrefix(lower, "```json") {
-		s = s[len("```json"):]
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	if strings.HasSuffix(s, "```") {
-		s = strings.TrimSuffix(s, "```")
-	}
-	return strings.TrimSpace(s)
 }

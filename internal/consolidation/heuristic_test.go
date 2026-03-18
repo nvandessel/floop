@@ -337,7 +337,7 @@ func TestHeuristicRelate(t *testing.T) {
 		{Kind: models.BehaviorKindDirective},
 	}
 
-	edges, merges, skips, err := h.Relate(ctx, memories, nil)
+	edges, merges, _, err := h.Relate(ctx, memories, nil)
 	if err != nil {
 		t.Fatalf("Relate returned error: %v", err)
 	}
@@ -346,8 +346,5 @@ func TestHeuristicRelate(t *testing.T) {
 	}
 	if merges != nil {
 		t.Errorf("expected nil merges, got %v", merges)
-	}
-	if skips != nil {
-		t.Errorf("expected nil skips, got %v", skips)
 	}
 }

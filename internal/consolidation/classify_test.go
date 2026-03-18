@@ -7,48 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
 )
-
-// mockLLMClient is a test double for llm.Client.
-type mockLLMClient struct {
-	responses []string
-	errors    []error
-	calls     int
-}
-
-func (m *mockLLMClient) Complete(_ context.Context, _ []llm.Message) (string, error) {
-	idx := m.calls
-	m.calls++
-	if idx < len(m.errors) && m.errors[idx] != nil {
-		return "", m.errors[idx]
-	}
-	if idx < len(m.responses) {
-		return m.responses[idx], nil
-	}
-	return "", fmt.Errorf("no more mock responses (call %d)", idx)
-}
-
-func (m *mockLLMClient) Available() bool { return true }
-
-// makeCandidates creates n test candidates.
-func makeCandidates(n int) []Candidate {
-	candidates := make([]Candidate, n)
-	for i := range candidates {
-		candidates[i] = Candidate{
-			SourceEvents:  []string{fmt.Sprintf("evt-%d", i)},
-			RawText:       fmt.Sprintf("Test candidate %d raw text content here", i),
-			CandidateType: "correction",
-			Confidence:    0.7,
-			SessionContext: map[string]any{
-				"session_id": "sess-1",
-				"project_id": "proj-1",
-			},
-		}
-	}
-	return candidates
-}
 
 // makeClassifyResponse builds a valid JSON response for n candidates.
 func makeClassifyResponse(candidates []Candidate) string {
@@ -79,14 +39,6 @@ func makeClassifyResponseWithOffset(candidates []Candidate, offset int) string {
 	return string(data)
 }
 
-func newTestLLMConsolidator(client llm.Client) *LLMConsolidator {
-	return NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
-}
-
-func newTestLLMConsolidatorWithConfig(client llm.Client, config LLMConsolidatorConfig) *LLMConsolidator {
-	return NewLLMConsolidator(client, nil, config)
-}
-
 func TestLLMClassify_SingleBatch(t *testing.T) {
 	candidates := makeCandidates(5)
 	response := makeClassifyResponse(candidates)
@@ -103,8 +55,8 @@ func TestLLMClassify_SingleBatch(t *testing.T) {
 		t.Fatalf("expected 5 memories, got %d", len(memories))
 	}
 
-	if client.calls != 1 {
-		t.Errorf("expected 1 LLM call, got %d", client.calls)
+	if client.callIndex != 1 {
+		t.Errorf("expected 1 LLM call, got %d", client.callIndex)
 	}
 
 	for i, mem := range memories {
@@ -146,8 +98,8 @@ func TestLLMClassify_MultiBatch(t *testing.T) {
 		t.Fatalf("expected 35 memories, got %d", len(memories))
 	}
 
-	if client.calls != 2 {
-		t.Errorf("expected 2 LLM calls for batching, got %d", client.calls)
+	if client.callIndex != 2 {
+		t.Errorf("expected 2 LLM calls for batching, got %d", client.callIndex)
 	}
 }
 
@@ -195,8 +147,8 @@ func TestLLMClassify_BadJSON(t *testing.T) {
 		t.Fatalf("expected 3 memories after retry, got %d", len(memories))
 	}
 
-	if client.calls != 2 {
-		t.Errorf("expected 2 LLM calls (initial + retry), got %d", client.calls)
+	if client.callIndex != 2 {
+		t.Errorf("expected 2 LLM calls (initial + retry), got %d", client.callIndex)
 	}
 }
 
@@ -719,8 +671,8 @@ func TestLLMClassify_EmptyCandidates(t *testing.T) {
 	if memories != nil {
 		t.Errorf("expected nil for empty candidates, got %v", memories)
 	}
-	if client.calls != 0 {
-		t.Errorf("expected 0 LLM calls for empty input, got %d", client.calls)
+	if client.callIndex != 0 {
+		t.Errorf("expected 0 LLM calls for empty input, got %d", client.callIndex)
 	}
 }
 
@@ -961,8 +913,8 @@ func TestLLMClassify_MultiBatchPartialFailure(t *testing.T) {
 	}
 
 	// Should have had 2 LLM calls: batch1 (failed) + batch2 (succeeded)
-	if client.calls != 2 {
-		t.Errorf("expected 2 LLM calls, got %d", client.calls)
+	if client.callIndex != 2 {
+		t.Errorf("expected 2 LLM calls, got %d", client.callIndex)
 	}
 }
 
@@ -984,8 +936,8 @@ func TestLLMClassify_ContextCancellation(t *testing.T) {
 	if !strings.Contains(err.Error(), "cancelled") {
 		t.Errorf("expected cancellation error, got %q", err.Error())
 	}
-	if client.calls != 0 {
-		t.Errorf("expected 0 LLM calls after cancellation, got %d", client.calls)
+	if client.callIndex != 0 {
+		t.Errorf("expected 0 LLM calls after cancellation, got %d", client.callIndex)
 	}
 }
 

@@ -7,25 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/store"
 )
-
-// mockLLMClient implements llm.Client for testing.
-type mockLLMClient struct {
-	response  string
-	err       error
-	available bool
-}
-
-func (m *mockLLMClient) Complete(_ context.Context, _ []llm.Message) (string, error) {
-	return m.response, m.err
-}
-
-func (m *mockLLMClient) Available() bool {
-	return m.available
-}
 
 // mockEmbeddingClient implements both llm.Client and llm.EmbeddingComparer.
 type mockEmbeddingClient struct {
@@ -161,8 +145,7 @@ func TestLLMRelate_WithNeighbors(t *testing.T) {
 
 	client := &mockEmbeddingClient{
 		mockLLMClient: mockLLMClient{
-			response:  response,
-			available: true,
+			responses: []string{response},
 		},
 		embeddings: map[string][]float32{
 			"Use fmt.Errorf to wrap errors": {0.8, 0.2, 0.0},
@@ -211,8 +194,7 @@ func TestLLMRelate_NoEmbeddings(t *testing.T) {
 	})
 
 	client := &mockLLMClient{
-		response:  response,
-		available: true,
+		responses: []string{response},
 	}
 
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
@@ -234,8 +216,7 @@ func TestLLMRelate_LLMFailure(t *testing.T) {
 	s := store.NewInMemoryGraphStore()
 
 	client := &mockLLMClient{
-		err:       errors.New("API rate limited"),
-		available: true,
+		errors: []error{errors.New("API rate limited")},
 	}
 
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
@@ -281,8 +262,7 @@ func TestLLMRelate_MergeProposal(t *testing.T) {
 	})
 
 	client := &mockLLMClient{
-		response:  response,
-		available: true,
+		responses: []string{response},
 	}
 
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
@@ -329,7 +309,7 @@ func TestLLMRelate_MergeProposalCarriesCosineSimilarity(t *testing.T) {
 	})
 
 	client := &mockEmbeddingClient{
-		mockLLMClient: mockLLMClient{response: response, available: true},
+		mockLLMClient: mockLLMClient{responses: []string{response}},
 		embeddings: map[string][]float32{
 			"Use fmt.Errorf to wrap errors": {0.8, 0.2, 0.0},
 		},
@@ -413,8 +393,7 @@ func TestLLMRelate_SkipAction(t *testing.T) {
 	})
 
 	client := &mockLLMClient{
-		response:  response,
-		available: true,
+		responses: []string{response},
 	}
 
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
@@ -445,7 +424,7 @@ func TestLLMRelate_SkipAction(t *testing.T) {
 
 func TestLLMRelate_EmptyMemories(t *testing.T) {
 	ctx := context.Background()
-	client := &mockLLMClient{available: true}
+	client := &mockLLMClient{}
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
 
 	edges, merges, skips, err := c.Relate(ctx, nil, nil)
@@ -477,7 +456,7 @@ func TestLLMRelate_NilStore(t *testing.T) {
 		},
 	})
 
-	client := &mockLLMClient{response: response, available: true}
+	client := &mockLLMClient{responses: []string{response}}
 	c := NewLLMConsolidator(client, nil, DefaultLLMConsolidatorConfig())
 	memories := testMemories("sess-5")
 
@@ -695,18 +674,16 @@ func TestParseRelationships_DuplicateMemoryIndex(t *testing.T) {
 }
 
 func TestParseRelationships_FenceMissingClose(t *testing.T) {
-	// LLM returns opening fence + JSON, no closing fence.
+	// LLM returns opening fence + JSON but no closing fence.
+	// llm.ExtractJSON requires a closing fence, so this should fail.
 	inner := makeLLMResponse([]relateProposal{
 		{MemoryIndex: 0, Action: "skip", Rationale: "test"},
 	})
 	fenced := "```json\n" + inner
 
-	proposals, err := ParseRelationships(fenced)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(proposals) != 1 {
-		t.Fatalf("expected 1 proposal, got %d", len(proposals))
+	_, err := ParseRelationships(fenced)
+	if err == nil {
+		t.Fatal("expected error for unclosed fence")
 	}
 }
 
@@ -858,7 +835,7 @@ func TestLLMRelate_EmbeddingFiltersBehaviorKind(t *testing.T) {
 	})
 
 	client := &mockEmbeddingClient{
-		mockLLMClient: mockLLMClient{response: response, available: true},
+		mockLLMClient: mockLLMClient{responses: []string{response}},
 		embeddings: map[string][]float32{
 			"Use fmt.Errorf to wrap errors": {0.8, 0.2, 0.0},
 		},

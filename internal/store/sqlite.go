@@ -34,6 +34,11 @@ type SQLiteGraphStore struct {
 	edgesFile string
 }
 
+// DB returns the underlying *sql.DB for direct SQL access (e.g., persistRun).
+func (s *SQLiteGraphStore) DB() *sql.DB {
+	return s.db
+}
+
 // NewSQLiteGraphStore creates a new SQLiteGraphStore rooted at projectRoot.
 // It creates the database at .floop/floop.db and auto-imports existing JSONL files.
 func NewSQLiteGraphStore(projectRoot string) (*SQLiteGraphStore, error) {

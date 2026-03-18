@@ -3,7 +3,6 @@ package consolidation
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/store"
@@ -151,18 +150,10 @@ var validMergeStrategies = map[string]bool{
 
 // ParseRelationships parses the raw LLM JSON response into structured proposals.
 func ParseRelationships(response string) ([]relateProposal, error) {
-	// Strip markdown fences if present.
-	cleaned := strings.TrimSpace(response)
-	if strings.HasPrefix(cleaned, "```") {
-		lines := strings.Split(cleaned, "\n")
-		start := 1 // skip opening fence
-		end := len(lines)
-		if end > start && strings.HasPrefix(strings.TrimSpace(lines[end-1]), "```") {
-			end-- // remove closing fence only if present
-		}
-		if start < end {
-			cleaned = strings.Join(lines[start:end], "\n")
-		}
+	// Strip markdown code fences if present (LLMs often wrap JSON in ```json...```)
+	cleaned := llm.ExtractJSON(response)
+	if cleaned == "" {
+		return nil, fmt.Errorf("no JSON found in relate response")
 	}
 
 	var resp relateResponse

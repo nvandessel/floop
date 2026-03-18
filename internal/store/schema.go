@@ -10,7 +10,7 @@ import (
 )
 
 // SchemaVersion is the current schema version.
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
@@ -155,6 +155,23 @@ CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
 CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated);
+
+-- Consolidation run metadata (V10)
+CREATE TABLE IF NOT EXISTS consolidation_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT,
+    session_id TEXT,
+    arc_summary TEXT,
+    candidates_found INTEGER,
+    memories_promoted INTEGER,
+    merges_executed INTEGER,
+    model TEXT,
+    tokens_used INTEGER,
+    duration_ms INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_consolidation_runs_project ON consolidation_runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_consolidation_runs_session ON consolidation_runs(session_id);
 
 -- Schema version
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -341,6 +358,11 @@ func migrateSchema(ctx context.Context, db *sql.DB, currentVersion int, projectI
 	if currentVersion < 9 {
 		if err := migrateV8ToV9(ctx, db, projectID); err != nil {
 			return fmt.Errorf("migrate v8 to v9: %w", err)
+		}
+	}
+	if currentVersion < 10 {
+		if err := migrateV9ToV10(ctx, db); err != nil {
+			return fmt.Errorf("migrate v9 to v10: %w", err)
 		}
 	}
 	return nil
@@ -849,6 +871,49 @@ func migrateV8ToV9(ctx context.Context, db *sql.DB, projectID string) error {
 	return tx.Commit()
 }
 
+// migrateV9ToV10 creates the consolidation_runs table for tracking
+// consolidation pipeline run metadata.
+func migrateV9ToV10(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS consolidation_runs (
+			id TEXT PRIMARY KEY,
+			project_id TEXT,
+			session_id TEXT,
+			arc_summary TEXT,
+			candidates_found INTEGER,
+			memories_promoted INTEGER,
+			merges_executed INTEGER,
+			model TEXT,
+			tokens_used INTEGER,
+			duration_ms INTEGER,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+		return fmt.Errorf("create consolidation_runs table: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_consolidation_runs_project ON consolidation_runs(project_id)`); err != nil {
+		return fmt.Errorf("create consolidation_runs project index: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_consolidation_runs_session ON consolidation_runs(session_id)`); err != nil {
+		return fmt.Errorf("create consolidation_runs session index: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO schema_version (version, applied_at) VALUES (?, datetime('now'))`, 10)
+	if err != nil {
+		return fmt.Errorf("record schema version: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 // validateStructuralIntegrity checks for SQLite database corruption.
 // It only runs PRAGMA integrity_check — not foreign_key_check.
 // Use ValidateIntegrity for full validation including FK checks.
@@ -920,6 +985,7 @@ func ValidateIntegrity(ctx context.Context, db *sql.DB) error {
 func ResetSchema(ctx context.Context, db *sql.DB) error {
 	// Drop all tables
 	tables := []string{
+		"consolidation_runs",
 		"events",
 		"co_activations",
 		"dirty_behaviors",

@@ -1,12 +1,8 @@
 package consolidation
 
 import (
-	"context"
-
-	"github.com/nvandessel/floop/internal/events"
 	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/logging"
-	"github.com/nvandessel/floop/internal/store"
 )
 
 // LLMConsolidatorConfig configures the LLM-based consolidator.
@@ -19,6 +15,10 @@ type LLMConsolidatorConfig struct {
 
 	// MaxCandidates is the maximum number of candidates to extract per run.
 	MaxCandidates int
+
+	// MinConfidence is the server-side minimum confidence threshold for extracted candidates.
+	// Candidates below this threshold are filtered out. 0 disables the filter.
+	MinConfidence float64
 
 	// TopK is the number of similar behaviors to retrieve during Relate.
 	TopK int
@@ -33,6 +33,7 @@ func DefaultLLMConsolidatorConfig() LLMConsolidatorConfig {
 		Model:         "",
 		ChunkSize:     20,
 		MaxCandidates: 30,
+		MinConfidence: 0.7,
 		TopK:          5,
 		RetryOnce:     true,
 	}
@@ -72,17 +73,18 @@ type MergeDetail struct {
 
 // ConsolidationRunRecord records metadata about a consolidation run.
 type ConsolidationRunRecord struct {
-	Executor        string `json:"executor"` // "heuristic", "llm", "local"
 	EventsProcessed int    `json:"events_processed"`
 	CandidatesFound int    `json:"candidates_found"`
 	Classified      int    `json:"classified"`
 	Promoted        int    `json:"promoted"`
 	DurationMS      int64  `json:"duration_ms"`
+	ProjectID       string `json:"project_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	TokensUsed      int    `json:"tokens_used,omitempty"`
 }
 
 // LLMConsolidator implements the Consolidator interface using an LLM client
-// for extraction and classification. It delegates to HeuristicConsolidator
-// as a stub until real LLM-based stages are implemented.
+// for extraction and classification.
 type LLMConsolidator struct {
 	client    llm.Client
 	heuristic *HeuristicConsolidator
@@ -91,7 +93,6 @@ type LLMConsolidator struct {
 }
 
 // NewLLMConsolidator creates a new LLM-based consolidator.
-// All four pipeline stages currently delegate to heuristic as a stub.
 func NewLLMConsolidator(client llm.Client, decisions *logging.DecisionLogger, config LLMConsolidatorConfig) *LLMConsolidator {
 	return &LLMConsolidator{
 		client:    client,
@@ -101,19 +102,7 @@ func NewLLMConsolidator(client llm.Client, decisions *logging.DecisionLogger, co
 	}
 }
 
-// Extract delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]Candidate, error) {
-	return c.heuristic.Extract(ctx, evts)
-}
-
-// Classify delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) ([]ClassifiedMemory, error) {
-	return c.heuristic.Classify(ctx, candidates)
-}
-
-// Relate is implemented in relate.go.
-
-// Promote delegates to the heuristic consolidator (stub).
-func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) error {
-	return c.heuristic.Promote(ctx, memories, edges, merges, skips, s)
-}
+// Extract is implemented in extract.go with three-pass chunked extraction.
+// Classify is implemented in classify.go with batched LLM classification.
+// Relate is implemented in relate.go with vector search + LLM proposals.
+// Promote is implemented in promote.go with merge-aware logic.

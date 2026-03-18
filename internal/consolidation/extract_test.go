@@ -9,37 +9,8 @@ import (
 	"testing"
 
 	"github.com/nvandessel/floop/internal/events"
-	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
 )
-
-// mockLLMClient is a test double for llm.Client.
-type mockLLMClient struct {
-	// responses maps call index to response string.
-	responses []string
-	// errors maps call index to error (nil = success).
-	errs []error
-	// callIndex tracks the current call number.
-	callIndex int
-	// calls records messages from each call for inspection.
-	calls [][]llm.Message
-}
-
-func (m *mockLLMClient) Complete(_ context.Context, messages []llm.Message) (string, error) {
-	idx := m.callIndex
-	m.callIndex++
-	m.calls = append(m.calls, messages)
-
-	if idx < len(m.errs) && m.errs[idx] != nil {
-		return "", m.errs[idx]
-	}
-	if idx < len(m.responses) {
-		return m.responses[idx], nil
-	}
-	return "{}", nil
-}
-
-func (m *mockLLMClient) Available() bool { return true }
 
 // makeEvents creates n test events with sequential IDs.
 func makeEvents(n int) []events.Event {
@@ -201,7 +172,7 @@ func TestLLMExtract_Pass1Failure(t *testing.T) {
 			"", // Pass 1: will error (index 0) — chunk skipped
 			makeExtractResponse([]string{"evt-1"}, false), // Pass 3: extract without arc (index 1)
 		},
-		errs: []error{
+		errors: []error{
 			errors.New("API unavailable"), // Pass 1 fails for chunk
 			nil,                           // Pass 3 succeeds
 		},
@@ -236,7 +207,7 @@ func TestLLMExtract_Pass2Failure(t *testing.T) {
 			"",                     // Pass 2: will error
 			makeExtractResponse([]string{"evt-1"}, false), // Pass 3: extract without arc
 		},
-		errs: []error{
+		errors: []error{
 			nil,                              // Pass 1 succeeds
 			errors.New("arc synthesis fail"), // Pass 2 fails
 			nil,                              // Pass 3 succeeds
@@ -274,7 +245,7 @@ func TestLLMExtract_Pass3Failure(t *testing.T) {
 			makeArcResponse(),      // Pass 2
 			"",                     // Pass 3: will error
 		},
-		errs: []error{
+		errors: []error{
 			nil,                              // Pass 1
 			nil,                              // Pass 2
 			errors.New("extract chunk fail"), // Pass 3 fails
@@ -838,7 +809,7 @@ func TestLLMExtract_Pass1PartialFailure(t *testing.T) {
 			makeExtractResponse([]string{"evt-1"}, false),  // Pass 3 chunk 0
 			makeExtractResponse([]string{"evt-21"}, false), // Pass 3 chunk 1
 		},
-		errs: []error{
+		errors: []error{
 			errors.New("chunk 0 API error"), // Pass 1 chunk 0 fails
 			nil,                             // Pass 1 chunk 1 succeeds
 			nil,                             // Pass 2 succeeds
