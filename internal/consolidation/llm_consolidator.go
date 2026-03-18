@@ -19,6 +19,11 @@ type LLMConsolidatorConfig struct {
 	// MaxCandidates is the maximum number of candidates to extract per run.
 	MaxCandidates int
 
+	// MinConfidence is the minimum confidence threshold for extracted candidates.
+	// Candidates below this threshold are filtered out server-side, enforcing
+	// the prompt instruction that only high-confidence signals should be emitted.
+	MinConfidence float64
+
 	// TopK is the number of similar behaviors to retrieve during Relate.
 	TopK int
 
@@ -32,6 +37,7 @@ func DefaultLLMConsolidatorConfig() LLMConsolidatorConfig {
 		Model:         "",
 		ChunkSize:     20,
 		MaxCandidates: 30,
+		MinConfidence: 0.7,
 		TopK:          5,
 		RetryOnce:     true,
 	}

@@ -105,6 +105,9 @@ func TestDefaultLLMConsolidatorConfig(t *testing.T) {
 	if cfg.MaxCandidates != 30 {
 		t.Errorf("MaxCandidates = %d, want 30", cfg.MaxCandidates)
 	}
+	if cfg.MinConfidence != 0.7 {
+		t.Errorf("MinConfidence = %f, want 0.7", cfg.MinConfidence)
+	}
 	if cfg.TopK != 5 {
 		t.Errorf("TopK = %d, want 5", cfg.TopK)
 	}

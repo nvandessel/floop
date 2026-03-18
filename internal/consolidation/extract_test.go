@@ -525,6 +525,50 @@ func TestExtractCandidatesPrompt_WithBehaviors(t *testing.T) {
 	}
 }
 
+func TestExtractCandidatesPrompt_ConditionalContext(t *testing.T) {
+	evts := makeEvents(5)
+	arc := &extractArcSummary{Arc: "Test arc"}
+	behaviors := []models.Behavior{
+		{ID: "beh-1", Kind: "correction", Content: models.BehaviorContent{Canonical: "test"}},
+	}
+
+	// No arc, no behaviors: system prompt should NOT claim context is available
+	msgs := extractCandidatesPrompt(evts, nil, nil)
+	if strings.Contains(msgs[0].Content, "You have session arc context") {
+		t.Error("system prompt should not mention arc context when arc is nil")
+	}
+	if strings.Contains(msgs[0].Content, "existing behaviors for deduplication") {
+		t.Error("system prompt should not mention behaviors when none provided")
+	}
+
+	// Arc only
+	msgs = extractCandidatesPrompt(evts, arc, nil)
+	if !strings.Contains(msgs[0].Content, "session arc context") {
+		t.Error("system prompt should mention arc context when arc is provided")
+	}
+	if strings.Contains(msgs[0].Content, "existing behaviors") {
+		t.Error("system prompt should not mention behaviors when none provided")
+	}
+
+	// Behaviors only
+	msgs = extractCandidatesPrompt(evts, nil, behaviors)
+	if strings.Contains(msgs[0].Content, "session arc context") {
+		t.Error("system prompt should not mention arc when nil")
+	}
+	if !strings.Contains(msgs[0].Content, "existing behaviors") {
+		t.Error("system prompt should mention behaviors when provided")
+	}
+
+	// Both arc and behaviors
+	msgs = extractCandidatesPrompt(evts, arc, behaviors)
+	if !strings.Contains(msgs[0].Content, "session arc context") {
+		t.Error("system prompt should mention arc context when both provided")
+	}
+	if !strings.Contains(msgs[0].Content, "existing behaviors") {
+		t.Error("system prompt should mention behaviors when both provided")
+	}
+}
+
 func TestBuildSessionContext(t *testing.T) {
 	evts := []events.Event{
 		{SessionID: "sess-1", ProjectID: "proj-1"},
@@ -620,6 +664,92 @@ func TestLLMExtract_MaxCandidatesCap(t *testing.T) {
 	// Should keep the highest-confidence candidate, not the first by chunk order
 	if candidates[0].Confidence != 0.95 {
 		t.Errorf("expected highest-confidence candidate (0.95) to be kept, got %f", candidates[0].Confidence)
+	}
+}
+
+func TestLLMExtract_MinConfidenceFilter(t *testing.T) {
+	evts := makeEvents(10)
+
+	// Return a candidate with confidence below the 0.7 threshold
+	lowConfResp := `{"candidates": [{"source_events": ["evt-1"], "raw_text": "maybe use pathlib", "candidate_type": "discovery", "confidence": 0.4, "sentiment": "neutral", "session_phase": "exploring", "interaction_pattern": "collaborating", "rationale": "weak signal", "already_captured": false}]}`
+
+	mock := &mockLLMClient{
+		responses: []string{
+			makeSummaryResponse(0),
+			makeArcResponse(),
+			lowConfResp,
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	// MinConfidence defaults to 0.7
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	// Candidate at 0.4 confidence should be filtered out by MinConfidence=0.7
+	if len(candidates) != 0 {
+		t.Fatalf("expected 0 candidates (below MinConfidence), got %d", len(candidates))
+	}
+}
+
+func TestLLMExtract_MinConfidenceDisabled(t *testing.T) {
+	evts := makeEvents(10)
+
+	lowConfResp := `{"candidates": [{"source_events": ["evt-1"], "raw_text": "maybe use pathlib", "candidate_type": "discovery", "confidence": 0.3, "sentiment": "neutral", "session_phase": "exploring", "interaction_pattern": "collaborating", "rationale": "weak signal", "already_captured": false}]}`
+
+	mock := &mockLLMClient{
+		responses: []string{
+			makeSummaryResponse(0),
+			makeArcResponse(),
+			lowConfResp,
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	config.MinConfidence = 0 // disabled
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	// With MinConfidence=0, low-confidence candidates should pass through
+	if len(candidates) != 1 {
+		t.Fatalf("expected 1 candidate with MinConfidence disabled, got %d", len(candidates))
+	}
+}
+
+func TestLLMExtract_EmptyRawTextFiltered(t *testing.T) {
+	evts := makeEvents(10)
+
+	emptyRawResp := `{"candidates": [{"source_events": ["evt-1"], "raw_text": "  ", "candidate_type": "correction", "confidence": 0.9, "sentiment": "neutral", "session_phase": "building", "interaction_pattern": "collaborating", "rationale": "test", "already_captured": false}]}`
+
+	mock := &mockLLMClient{
+		responses: []string{
+			makeSummaryResponse(0),
+			makeArcResponse(),
+			emptyRawResp,
+		},
+	}
+
+	config := DefaultLLMConsolidatorConfig()
+	config.ChunkSize = 20
+	c := NewLLMConsolidator(mock, nil, config)
+
+	candidates, err := c.Extract(context.Background(), evts)
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	if len(candidates) != 0 {
+		t.Fatalf("expected 0 candidates (empty raw_text), got %d", len(candidates))
 	}
 }
 

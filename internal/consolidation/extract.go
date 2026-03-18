@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/nvandessel/floop/internal/events"
 	"github.com/nvandessel/floop/internal/models"
@@ -236,12 +237,26 @@ func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.E
 			continue
 		}
 
+		// Skip candidates with empty raw text (nothing actionable)
+		if strings.TrimSpace(ec.RawText) == "" {
+			continue
+		}
+
 		// Clamp confidence to [0.0, 1.0]
 		confidence := ec.Confidence
 		if confidence < 0 {
 			confidence = 0
 		} else if confidence > 1 {
 			confidence = 1
+		}
+
+		// Enforce server-side minimum confidence threshold.
+		// The prompt instructs the LLM to only emit high-confidence signals,
+		// but a non-compliant LLM may ignore that instruction.
+		if c.config.MinConfidence > 0 && confidence < c.config.MinConfidence {
+			slog.Debug("extract: filtering low-confidence candidate",
+				"confidence", confidence, "min", c.config.MinConfidence, "raw_text", ec.RawText)
+			continue
 		}
 
 		candidates = append(candidates, Candidate{

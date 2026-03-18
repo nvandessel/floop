@@ -97,11 +97,20 @@ func extractCandidatesPrompt(evts []events.Event, arc *extractArcSummary, existi
 		behaviorsContext = fmt.Sprintf("\n\nExisting behaviors (avoid duplicates):\n%s", strings.Join(briefs, "\n"))
 	}
 
+	var contextNote string
+	switch {
+	case arc != nil && len(existingBehaviors) > 0:
+		contextNote = "\nYou have session arc context and existing behaviors for deduplication."
+	case arc != nil:
+		contextNote = "\nYou have session arc context to inform your analysis."
+	case len(existingBehaviors) > 0:
+		contextNote = "\nYou have existing behaviors for deduplication."
+	}
+
 	return []llm.Message{
 		{
 			Role: "system",
-			Content: `You are extracting behavioral memory candidates from conversation events.
-You have session arc context and existing behaviors for deduplication.
+			Content: `You are extracting behavioral memory candidates from conversation events.` + contextNote + `
 
 Respond with ONLY valid JSON matching this schema:
 {
