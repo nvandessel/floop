@@ -112,6 +112,10 @@ func (c *AnthropicClient) Complete(ctx context.Context, messages []Message) (str
 		}
 	}
 
+	if len(apiMsgs) == 0 {
+		return "", fmt.Errorf("anthropic API requires at least one non-system message")
+	}
+
 	reqBody := anthropicRequest{
 		Model:     c.model,
 		MaxTokens: 1024,

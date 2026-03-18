@@ -99,6 +99,10 @@ func (c *OpenAIClient) Complete(ctx context.Context, messages []Message) (string
 		return "", fmt.Errorf("openai client not available: missing API key")
 	}
 
+	if len(messages) == 0 {
+		return "", fmt.Errorf("at least one message is required")
+	}
+
 	var apiMsgs []openAIChatMessage
 	for _, m := range messages {
 		apiMsgs = append(apiMsgs, openAIChatMessage{

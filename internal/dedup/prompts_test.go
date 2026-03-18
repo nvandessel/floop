@@ -37,6 +37,60 @@ func TestComparisonPrompt(t *testing.T) {
 	}
 }
 
+func TestComparisonPromptWithQuotes(t *testing.T) {
+	a := &models.Behavior{
+		ID:      "b1",
+		Name:    `Use "pathlib"`,
+		Kind:    models.BehaviorKindDirective,
+		Content: models.BehaviorContent{Canonical: `Content with "quotes" and backslashes \ and markdown # headers`},
+	}
+	b := &models.Behavior{
+		ID:      "b2",
+		Name:    "Normal behavior",
+		Kind:    models.BehaviorKindPreference,
+		Content: models.BehaviorContent{Canonical: "Normal content"},
+	}
+
+	prompt := ComparisonPrompt(a, b)
+
+	// The double-quoted content must appear verbatim in the prompt
+	if !strings.Contains(prompt, `Use "pathlib"`) {
+		t.Error("prompt should preserve double quotes in behavior name")
+	}
+	if !strings.Contains(prompt, `Content with "quotes"`) {
+		t.Error("prompt should preserve double quotes in behavior content")
+	}
+	if !strings.Contains(prompt, `# headers`) {
+		t.Error("prompt should preserve markdown headers in content")
+	}
+}
+
+func TestMergePromptWithQuotes(t *testing.T) {
+	behaviors := []*models.Behavior{
+		{
+			ID:      "b1",
+			Name:    `Use "double quotes"`,
+			Kind:    models.BehaviorKindDirective,
+			Content: models.BehaviorContent{Canonical: `Content with "quotes" and special chars`},
+		},
+		{
+			ID:      "b2",
+			Name:    "Normal",
+			Kind:    models.BehaviorKindPreference,
+			Content: models.BehaviorContent{Canonical: "Normal content"},
+		},
+	}
+
+	prompt := MergePrompt(behaviors)
+
+	if !strings.Contains(prompt, `Use "double quotes"`) {
+		t.Error("prompt should preserve double quotes in behavior name")
+	}
+	if !strings.Contains(prompt, `Content with "quotes"`) {
+		t.Error("prompt should preserve double quotes in behavior content")
+	}
+}
+
 func TestMergePrompt(t *testing.T) {
 	t.Run("empty input returns empty string", func(t *testing.T) {
 		prompt := MergePrompt([]*models.Behavior{})
@@ -84,11 +138,19 @@ func TestParseComparisonResponse(t *testing.T) {
 		}
 	})
 
-	t.Run("similarity out of range", func(t *testing.T) {
+	t.Run("similarity above range", func(t *testing.T) {
 		response := `{"semantic_similarity": 1.5, "intent_match": true, "merge_candidate": true}`
 		_, err := ParseComparisonResponse(response)
 		if err == nil {
 			t.Error("expected error for similarity > 1.0")
+		}
+	})
+
+	t.Run("similarity below range", func(t *testing.T) {
+		response := `{"semantic_similarity": -0.1, "intent_match": true, "merge_candidate": true}`
+		_, err := ParseComparisonResponse(response)
+		if err == nil {
+			t.Error("expected error for similarity < 0.0")
 		}
 	})
 
@@ -139,6 +201,22 @@ func TestParseMergeResponse(t *testing.T) {
 		_, err := ParseMergeResponse(response)
 		if err == nil {
 			t.Error("expected error for missing source_ids")
+		}
+	})
+
+	t.Run("invalid kind", func(t *testing.T) {
+		response := `{"merged": {"name": "Test", "kind": "invalid_kind", "content": {"canonical": "test"}, "confidence": 0.5}, "source_ids": ["b1"]}`
+		_, err := ParseMergeResponse(response)
+		if err == nil {
+			t.Error("expected error for invalid behavior kind")
+		}
+	})
+
+	t.Run("confidence out of range", func(t *testing.T) {
+		response := `{"merged": {"name": "Test", "kind": "directive", "content": {"canonical": "test"}, "confidence": 2.5}, "source_ids": ["b1"]}`
+		_, err := ParseMergeResponse(response)
+		if err == nil {
+			t.Error("expected error for confidence > 1.0")
 		}
 	})
 }
