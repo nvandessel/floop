@@ -27,10 +27,16 @@ type RunResult struct {
 	Duration       time.Duration
 }
 
+// ModelProvider is an optional interface that Consolidator implementations
+// can satisfy to report which LLM model they use. Runner uses this for
+// run persistence so the DB model column matches actual LLM usage.
+type ModelProvider interface {
+	Model() string
+}
+
 // Runner orchestrates the consolidation pipeline.
 type Runner struct {
 	consolidator Consolidator
-	model        string // model identifier for run persistence
 }
 
 // NewRunner creates a new consolidation runner.
@@ -38,10 +44,14 @@ func NewRunner(c Consolidator) *Runner {
 	return &Runner{consolidator: c}
 }
 
-// NewRunnerWithModel creates a new consolidation runner with a model identifier
-// for persisting run records to the consolidation_runs table.
-func NewRunnerWithModel(c Consolidator, model string) *Runner {
-	return &Runner{consolidator: c, model: model}
+// model returns the LLM model identifier from the consolidator, or "unknown".
+func (r *Runner) model() string {
+	if mp, ok := r.consolidator.(ModelProvider); ok {
+		if m := mp.Model(); m != "" {
+			return m
+		}
+	}
+	return "unknown"
 }
 
 // Run executes the full consolidation pipeline: Extract, Classify, Relate, Promote.
@@ -50,6 +60,12 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 	start := time.Now()
 	runID := fmt.Sprintf("run-%d", start.UnixNano())
 	result := &RunResult{RunID: runID}
+
+	// Set runID on the consolidator if it supports it, so all decision log
+	// entries across Extract/Classify/Relate/Promote share the same run_id.
+	if rs, ok := r.consolidator.(interface{ SetRunID(string) }); ok {
+		rs.SetRunID(runID)
+	}
 
 	// Stage 1: Extract
 	candidates, err := r.consolidator.Extract(ctx, evts)
@@ -113,11 +129,13 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 	result.Duration = time.Since(start)
 
 	// Persist run record with all stage counts (best-effort).
+	// NOTE: TokensUsed is always 0 because the SubagentClient (llm.Client)
+	// does not currently report token counts. When token reporting is added
+	// to llm.Client (e.g. via a CompletionResult return type), accumulate
+	// tokens across all LLM calls in Extract/Classify/Relate and pass the
+	// total here via ConsolidationRunRecord.TokensUsed.
 	{
-		model := r.model
-		if model == "" {
-			model = "unknown"
-		}
+		model := r.model()
 		var projectID, sessionID string
 		for _, mem := range classified {
 			if projectID == "" {

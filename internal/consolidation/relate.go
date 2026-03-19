@@ -32,7 +32,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 	// 1. Find neighbors (vector search or fallback).
 	neighbors, err := c.findNeighbors(ctx, memories, s)
 	if err != nil {
-		c.decisions.Log(map[string]any{
+		c.logDecision(map[string]any{
 			"stage": "relate",
 			"event": "neighbor_search_failed",
 			"error": err.Error(),
@@ -41,7 +41,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 		neighbors = make(map[int][]scoredNode)
 	}
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":           "relate",
 		"event":           "neighbors_found",
 		"memory_count":    len(memories),
@@ -56,7 +56,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 	if c.client != nil && c.client.Available() {
 		msgs, promptErr := RelateMemoriesPrompt(memories, neighbors)
 		if promptErr != nil {
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "relate",
 				"event": "prompt_build_failed",
 				"error": promptErr.Error(),
@@ -70,7 +70,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 			llmErr = promptErr
 		}
 		if llmErr != nil {
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "relate",
 				"event": "llm_failed",
 				"error": llmErr.Error(),
@@ -79,14 +79,14 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 		} else {
 			proposals, parseErr := ParseRelationships(response)
 			if parseErr != nil {
-				c.decisions.Log(map[string]any{
+				c.logDecision(map[string]any{
 					"stage": "relate",
 					"event": "parse_failed",
 					"error": parseErr.Error(),
 				})
 			} else {
 				edges, merges, skips = convertProposals(proposals, memories, neighbors)
-				c.decisions.Log(map[string]any{
+				c.logDecision(map[string]any{
 					"stage":     "relate",
 					"event":     "proposals_converted",
 					"edges":     len(edges),
@@ -102,7 +102,7 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 	coEdges := buildCoOccurrenceEdges(memories)
 	edges = append(edges, coEdges...)
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":           "relate",
 		"event":           "complete",
 		"total_edges":     len(edges),
@@ -158,7 +158,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 	for i, mem := range memories {
 		queryVec, embedErr := ec.Embed(ctx, mem.Content.Canonical)
 		if embedErr != nil {
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "relate",
 				"event": "embed_failed",
 				"index": i,
@@ -167,7 +167,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 			// Fall back to unranked query neighbors for this memory.
 			fallback, qErr := c.findNeighborsByQuery(ctx, memories[i:i+1], s, topK)
 			if qErr != nil {
-				c.decisions.Log(map[string]any{
+				c.logDecision(map[string]any{
 					"stage": "relate",
 					"event": "embed_fallback_also_failed",
 					"index": i,
@@ -193,7 +193,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 		}
 
 		if len(scores) == 0 {
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "relate",
 				"event": "no_neighbors_above_threshold",
 				"index": i,
@@ -214,7 +214,7 @@ func (c *LLMConsolidator) findNeighborsByEmbedding(ctx context.Context, ec llm.E
 		for _, sc := range scores[:limit] {
 			node, nodeErr := s.GetNode(ctx, sc.id)
 			if nodeErr != nil {
-				c.decisions.Log(map[string]any{
+				c.logDecision(map[string]any{
 					"stage": "relate",
 					"event": "get_node_failed",
 					"id":    sc.id,

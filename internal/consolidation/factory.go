@@ -8,13 +8,16 @@ import (
 // NewConsolidator creates a Consolidator for the given executor type.
 // Supported executors: "llm", "local" (future), "heuristic" (default).
 // Unknown executor strings fall back to heuristic.
-func NewConsolidator(executor string, client llm.Client, decisions *logging.DecisionLogger) Consolidator {
+// The model parameter identifies the LLM model for decision logging and run persistence.
+func NewConsolidator(executor string, client llm.Client, decisions *logging.DecisionLogger, model string) Consolidator {
 	switch executor {
 	case "llm":
 		if client == nil {
 			return NewHeuristicConsolidator()
 		}
-		return NewLLMConsolidator(client, decisions, DefaultLLMConsolidatorConfig())
+		cfg := DefaultLLMConsolidatorConfig()
+		cfg.Model = model
+		return NewLLMConsolidator(client, decisions, cfg)
 	case "local":
 		// v2, not yet implemented — fall back to heuristic
 		return NewHeuristicConsolidator()

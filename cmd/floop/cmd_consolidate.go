@@ -131,12 +131,12 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run consolidation pipeline
-	consolidator := consolidation.NewConsolidator(executor, llmClient, nil)
 	var model string
 	if floopCfg != nil {
 		model = floopCfg.LLM.ComparisonModel
 	}
-	runner := consolidation.NewRunnerWithModel(consolidator, model)
+	consolidator := consolidation.NewConsolidator(executor, llmClient, nil, model)
+	runner := consolidation.NewRunner(consolidator)
 
 	result, err := runner.Run(ctx, evts, graphStore, consolidation.RunOptions{
 		DryRun: dryRun,

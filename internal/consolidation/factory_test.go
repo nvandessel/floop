@@ -9,21 +9,21 @@ import (
 )
 
 func TestNewConsolidator_HeuristicDefault(t *testing.T) {
-	c := NewConsolidator("heuristic", nil, nil)
+	c := NewConsolidator("heuristic", nil, nil, "")
 	if _, ok := c.(*HeuristicConsolidator); !ok {
 		t.Errorf("expected *HeuristicConsolidator, got %T", c)
 	}
 }
 
 func TestNewConsolidator_UnknownFallsBackToHeuristic(t *testing.T) {
-	c := NewConsolidator("unknown", nil, nil)
+	c := NewConsolidator("unknown", nil, nil, "")
 	if _, ok := c.(*HeuristicConsolidator); !ok {
 		t.Errorf("expected *HeuristicConsolidator, got %T", c)
 	}
 }
 
 func TestNewConsolidator_EmptyFallsBackToHeuristic(t *testing.T) {
-	c := NewConsolidator("", nil, nil)
+	c := NewConsolidator("", nil, nil, "")
 	if _, ok := c.(*HeuristicConsolidator); !ok {
 		t.Errorf("expected *HeuristicConsolidator, got %T", c)
 	}
@@ -31,14 +31,14 @@ func TestNewConsolidator_EmptyFallsBackToHeuristic(t *testing.T) {
 
 func TestNewConsolidator_LLM(t *testing.T) {
 	mock := llm.NewMockClient()
-	c := NewConsolidator("llm", mock, nil)
+	c := NewConsolidator("llm", mock, nil, "test-model")
 	if _, ok := c.(*LLMConsolidator); !ok {
 		t.Errorf("expected *LLMConsolidator, got %T", c)
 	}
 }
 
 func TestNewConsolidator_Local(t *testing.T) {
-	c := NewConsolidator("local", nil, nil)
+	c := NewConsolidator("local", nil, nil, "")
 	// v2 not implemented, should fall back to heuristic
 	if _, ok := c.(*HeuristicConsolidator); !ok {
 		t.Errorf("expected *HeuristicConsolidator for 'local' (not yet implemented), got %T", c)

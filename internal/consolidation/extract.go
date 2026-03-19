@@ -75,7 +75,7 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 
 	chunks := chunkEvents(evts, chunkSize)
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":      "extract",
 		"pass":       "start",
 		"num_events": len(evts),
@@ -93,7 +93,7 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 		arc, pass2Err = c.synthesizeArc(ctx, summaries)
 		if pass2Err != nil {
 			slog.Warn("extract pass 2 (arc) failed, continuing without arc", "error", pass2Err)
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "extract",
 				"pass":  "arc",
 				"error": pass2Err.Error(),
@@ -113,7 +113,7 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 		if err != nil {
 			slog.Warn("extract pass 3 failed for chunk, falling back to heuristic",
 				"chunk", i, "error", err)
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage":    "extract",
 				"pass":     "extract",
 				"chunk":    i,
@@ -138,7 +138,7 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 		candidates = candidates[:c.config.MaxCandidates]
 	}
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":            "extract",
 		"pass":             "complete",
 		"total_candidates": len(candidates),
@@ -157,7 +157,7 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 		response, err := c.client.Complete(ctx, messages)
 		if err != nil {
 			slog.Warn("extract pass 1: summarize chunk failed, skipping", "chunk", i, "error", err)
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "extract",
 				"pass":  "summarize",
 				"chunk": i,
@@ -169,7 +169,7 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 		var summary extractChunkSummary
 		if err := json.Unmarshal([]byte(llm.ExtractJSON(response)), &summary); err != nil {
 			slog.Warn("extract pass 1: parse chunk summary failed, skipping", "chunk", i, "error", err)
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage": "extract",
 				"pass":  "summarize",
 				"chunk": i,
@@ -185,7 +185,7 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 		summaries = append(summaries, summary)
 	}
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":         "extract",
 		"pass":          "summarize",
 		"num_summaries": len(summaries),
@@ -208,7 +208,7 @@ func (c *LLMConsolidator) synthesizeArc(ctx context.Context, summaries []extract
 		return nil, fmt.Errorf("parse arc summary: %w", err)
 	}
 
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":           "extract",
 		"pass":            "arc",
 		"session_outcome": arc.SessionOutcome,
