@@ -128,7 +128,7 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 	}
 
 	// Stage 4: Promote
-	promoteResult, err := r.consolidator.Promote(ctx, runID, classified, edges, merges, skips, s)
+	promoteResult, err := r.consolidator.Promote(ctx, classified, edges, merges, skips, s)
 	if err != nil {
 		return nil, fmt.Errorf("promote stage: %w", err)
 	}

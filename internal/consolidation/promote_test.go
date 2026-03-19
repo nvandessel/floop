@@ -57,7 +57,7 @@ func TestLLMPromote_CreateNodes(t *testing.T) {
 		testMemory("Prefer table-driven tests", models.BehaviorKindPreference),
 	}
 
-	promoted, err := c.Promote(ctx, "test-run", memories, nil, nil, nil, s)
+	promoted, err := c.Promote(ctx, memories, nil, nil, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestLLMPromote_AbsorbMerge(t *testing.T) {
 		Strategy:   "absorb",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestLLMPromote_SupersedeMerge(t *testing.T) {
 		Strategy:   "supersede",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestLLMPromote_SupplementMerge(t *testing.T) {
 		Strategy:   "supplement",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestLLMPromote_MergeFailure(t *testing.T) {
 		Strategy:   "absorb",
 	}}
 
-	promoted, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s)
+	promoted, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestLLMPromote_NilStore(t *testing.T) {
 	c := newTestPromoteConsolidator()
 	ctx := context.Background()
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{
+	_, err := c.Promote(ctx, []ClassifiedMemory{
 		testMemory("test", models.BehaviorKindDirective),
 	}, nil, nil, nil, nil)
 
@@ -368,7 +368,7 @@ func TestLLMPromote_DecisionLogging(t *testing.T) {
 		Strategy:   "absorb",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestLLMPromote_MergeFailureFallbackCreatesNode(t *testing.T) {
 		Strategy:   "supersede",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestLLMPromote_SupersedeRollbackOnUpdateFailure(t *testing.T) {
 		Strategy:   "supersede",
 	}}
 
-	if _, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
+	if _, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
 
@@ -521,7 +521,7 @@ func TestLLMPromote_SupplementRollbackOnEdgeFailure(t *testing.T) {
 		Strategy:   "supplement",
 	}}
 
-	if _, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
+	if _, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
 		t.Fatalf("Promote: %v", err)
 	}
 
@@ -590,7 +590,7 @@ func TestLLMPromote_DuplicateRawTextNotSilentlyDropped(t *testing.T) {
 		Strategy:   "absorb",
 	}}
 
-	_, err := c.Promote(ctx, "test-run", []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
+	_, err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
 	if err != nil {
 		t.Fatalf("Promote: %v", err)
 	}

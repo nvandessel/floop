@@ -271,7 +271,7 @@ func TestHeuristicPromote(t *testing.T) {
 
 	s := store.NewInMemoryGraphStore()
 
-	_, err := h.Promote(ctx, "test-run", memories, nil, nil, nil, s)
+	_, err := h.Promote(ctx, memories, nil, nil, nil, s)
 	if err != nil {
 		t.Fatalf("Promote returned error: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestHeuristicPromote_NilStore(t *testing.T) {
 		},
 	}
 
-	_, err := h.Promote(ctx, "test-run", memories, nil, nil, nil, nil)
+	_, err := h.Promote(ctx, memories, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Promote with nil store should not error, got: %v", err)
 	}

@@ -90,7 +90,7 @@ func TestLLMConsolidator_DelegatesToHeuristic(t *testing.T) {
 	}
 
 	// Promote with nil store should be a no-op
-	_, err = c.Promote(ctx, "test-run", classified, edges, merges, skips, nil)
+	_, err = c.Promote(ctx, classified, edges, merges, skips, nil)
 	if err != nil {
 		t.Fatalf("Promote failed: %v", err)
 	}
