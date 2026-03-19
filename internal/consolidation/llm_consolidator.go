@@ -125,7 +125,11 @@ func (c *LLMConsolidator) logDecision(fields map[string]any) {
 		merged[k] = v
 	}
 	merged["run_id"] = c.runID
-	merged["model"] = c.config.Model
+	model := c.config.Model
+	if model == "" {
+		model = "unknown"
+	}
+	merged["model"] = model
 	c.decisions.Log(merged)
 }
 
