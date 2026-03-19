@@ -42,6 +42,9 @@ func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []
 		skipped[idx] = true
 	}
 	mergeCount := 0
+	// nodesCreatedByMerge counts new nodes added by supersede/supplement strategies
+	// (absorb modifies an existing node, so it doesn't create a new one).
+	nodesCreatedByMerge := 0
 
 	for _, merge := range merges {
 		mergeStart := time.Now()
@@ -60,6 +63,9 @@ func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []
 		}
 
 		mergeCount++
+		if merge.Strategy == "supersede" || merge.Strategy == "supplement" {
+			nodesCreatedByMerge++
+		}
 		cl.LogPromote("merge", elapsed, map[string]any{
 			"target_id":  merge.TargetID,
 			"strategy":   merge.Strategy,
@@ -130,7 +136,7 @@ func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []
 		}
 	}
 
-	return promoted, nil
+	return promoted + nodesCreatedByMerge, nil
 }
 
 // executeMerge applies a single merge proposal to the graph store.
