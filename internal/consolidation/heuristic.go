@@ -195,30 +195,35 @@ func toInterfaceSlice(ss []string) []interface{} {
 	return result
 }
 
-// Relate is a v0 passthrough that returns empty edges and merge proposals.
-func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error) {
-	return nil, nil, nil
+// Relate is a v0 passthrough that returns empty edges, merge proposals, and skips.
+func (h *HeuristicConsolidator) Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, []int, error) {
+	return nil, nil, nil, nil
 }
 
 // Promote writes classified memories into the graph store as behavior nodes.
-func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error {
+// Memories whose indices appear in skips are not created as nodes.
+// Returns the number of memories promoted as new nodes.
+func (h *HeuristicConsolidator) Promote(ctx context.Context, _ string, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) (PromoteResult, error) {
 	if s == nil {
-		return nil
+		return PromoteResult{}, nil
 	}
 
 	// Build set of memories that have merge proposals (skip them in v0)
 	merged := make(map[int]bool)
 	for _, m := range merges {
-		for i, mem := range memories {
-			if mem.RawText == m.Memory.RawText {
-				merged[i] = true
-			}
-		}
+		merged[m.MemoryIndex] = true
 	}
 
+	// Build set of memories to skip (already captured)
+	skipped := make(map[int]bool, len(skips))
+	for _, idx := range skips {
+		skipped[idx] = true
+	}
+
+	promoted := 0
 	baseTS := time.Now().UnixNano()
 	for i, mem := range memories {
-		if merged[i] {
+		if merged[i] || skipped[i] {
 			continue
 		}
 
@@ -258,15 +263,16 @@ func (h *HeuristicConsolidator) Promote(ctx context.Context, memories []Classifi
 		}
 
 		if _, err := s.AddNode(ctx, node); err != nil {
-			return fmt.Errorf("adding consolidated node: %w", err)
+			return PromoteResult{}, fmt.Errorf("adding consolidated node: %w", err)
 		}
+		promoted++
 	}
 
 	for _, edge := range edges {
 		if err := s.AddEdge(ctx, edge); err != nil {
-			return fmt.Errorf("adding edge: %w", err)
+			return PromoteResult{}, fmt.Errorf("adding edge: %w", err)
 		}
 	}
 
-	return nil
+	return PromoteResult{Promoted: promoted}, nil
 }

@@ -12,11 +12,15 @@ import (
 
 // Candidate is a memory candidate extracted from raw events.
 type Candidate struct {
-	SourceEvents   []string       // event IDs
-	RawText        string         // relevant excerpt
-	CandidateType  string         // correction, discovery, decision, failure, workflow
-	Confidence     float64        // 0.0-1.0
-	SessionContext map[string]any // project, file, task, branch, model
+	SourceEvents       []string       // event IDs
+	RawText            string         // relevant excerpt
+	CandidateType      string         // correction, discovery, decision, failure, workflow
+	Confidence         float64        // 0.0-1.0
+	SessionContext     map[string]any // project, file, task, branch, model
+	Sentiment          string         // neutral, curious, frustrated, satisfied, breakthrough
+	SessionPhase       string         // opening, exploring, building, stuck, resolving, wrapping-up
+	InteractionPattern string         // teaching, collaborating, debugging, reviewing, planning
+	Rationale          string         // why this is a behavioral signal
 }
 
 // ClassifiedMemory is a typed, classified memory ready for graph insertion.
@@ -33,10 +37,17 @@ type ClassifiedMemory struct {
 
 // MergeProposal proposes merging a new memory into an existing behavior.
 type MergeProposal struct {
-	Memory     ClassifiedMemory
-	TargetID   string  // existing behavior ID
-	Similarity float64 // cosine similarity
-	Strategy   string  // "absorb", "supersede", "supplement"
+	Memory      ClassifiedMemory
+	MemoryIndex int     // index in the memories slice (for pending-ID mapping)
+	TargetID    string  // existing behavior ID
+	Similarity  float64 // cosine similarity
+	Strategy    string  // "absorb", "supersede", "supplement"
+}
+
+// PromoteResult holds the counts from a Promote execution.
+type PromoteResult struct {
+	Promoted       int // new nodes created (create-new + supersede/supplement)
+	MergesExecuted int // successful merge proposals (absorb + supersede + supplement)
 }
 
 // Consolidator defines the four-stage consolidation pipeline.
@@ -48,8 +59,11 @@ type Consolidator interface {
 	Classify(ctx context.Context, candidates []Candidate) ([]ClassifiedMemory, error)
 
 	// Relate finds relationships between new memories and existing behaviors.
-	Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, error)
+	// Returns edges, merge proposals, and indices of memories to skip (already captured).
+	Relate(ctx context.Context, memories []ClassifiedMemory, s store.GraphStore) ([]store.Edge, []MergeProposal, []int, error)
 
 	// Promote writes classified memories and edges into the graph store.
-	Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, s store.GraphStore) error
+	// Memories whose indices appear in skips are not created as nodes.
+	// runID correlates decision log entries with the DB run record.
+	Promote(ctx context.Context, runID string, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) (PromoteResult, error)
 }

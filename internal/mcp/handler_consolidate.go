@@ -101,7 +101,11 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 
 	// Run consolidation pipeline
 	c := consolidation.NewConsolidator(executor, s.llmClient, nil)
-	result, err := consolidation.NewRunner(c).
+	var model string
+	if s.floopConfig != nil {
+		model = s.floopConfig.LLM.ComparisonModel
+	}
+	result, err := consolidation.NewRunnerWithModel(c, model).
 		Run(ctx, evts, s.store, consolidation.RunOptions{DryRun: args.DryRun})
 	if err != nil {
 		return nil, FloopConsolidateOutput{}, fmt.Errorf("consolidation pipeline failed: %w", err)

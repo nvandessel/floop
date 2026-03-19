@@ -28,14 +28,15 @@ type CorrectionExtractionResult struct {
 
 // CorrectionExtractionPrompt generates a prompt for extracting correction details from user text.
 //
-// User-provided text is concatenated via strings.Builder rather than interpolated
-// through fmt.Sprintf alongside JSON template text, to prevent prompt-structure
-// corruption if the text contains markdown headers or format directives (CWE-94).
+// User-provided text is concatenated via strings.Builder rather than
+// interpolated through fmt.Sprintf alongside JSON template text, to prevent
+// quote-breaking if the user text contains special characters (CWE-94).
 func CorrectionExtractionPrompt(userText string) string {
-	var p strings.Builder
-	p.WriteString("You are analyzing a user message to determine if it contains a correction to an AI agent's behavior.\n\n## User Message\n")
-	p.WriteString(userText)
-	p.WriteString(`
+	var prompt strings.Builder
+
+	prompt.WriteString("You are analyzing a user message to determine if it contains a correction to an AI agent's behavior.\n\n## User Message\n")
+	prompt.WriteString(userText)
+	prompt.WriteString(`
 
 ## Task
 Analyze whether this message is correcting something the AI agent did wrong, and if so, extract:
@@ -61,7 +62,7 @@ Respond with ONLY a JSON object (no markdown code blocks, no additional text):
   "confidence": <float between 0.0 and 1.0>,
   "reasoning": "<brief explanation>"
 }`)
-	return p.String()
+	return prompt.String()
 }
 
 // ParseCorrectionExtractionResponse parses an LLM response into a CorrectionExtractionResult.

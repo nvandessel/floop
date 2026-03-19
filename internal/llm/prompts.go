@@ -13,8 +13,8 @@ import (
 func ExtractJSON(s string) string {
 	s = strings.TrimSpace(s)
 
-	// Try to extract from markdown code block with json language tag
-	jsonBlockRe := regexp.MustCompile("(?s)```json\\s*\\n?(.*?)\\s*```")
+	// Try to extract from markdown code block with json language tag (case-insensitive)
+	jsonBlockRe := regexp.MustCompile("(?si)```json\\s*\\n?(.*?)\\s*```")
 	if matches := jsonBlockRe.FindStringSubmatch(s); len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
 	}

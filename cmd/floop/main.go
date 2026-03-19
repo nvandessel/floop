@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"time"
 
 	"github.com/nvandessel/floop/internal/config"
 	"github.com/nvandessel/floop/internal/llm"
@@ -14,14 +15,29 @@ import (
 // Returns nil if LLM is not enabled or configured.
 // Supports providers: anthropic, openai, ollama, subagent, local.
 // When provider is "subagent" or not specified with LLM enabled, attempts auto-detection.
-func createLLMClient(cfg *config.FloopConfig) llm.Client {
+// An optional timeout overrides the default for subagent and API clients.
+func createLLMClient(cfg *config.FloopConfig, timeout ...time.Duration) llm.Client {
 	if cfg == nil {
 		return nil
 	}
 
+	// resolveTimeout returns the explicit override or falls back to config/default.
+	resolveTimeout := func(fallback time.Duration) time.Duration {
+		if len(timeout) > 0 && timeout[0] > 0 {
+			return timeout[0]
+		}
+		if fallback > 0 {
+			return fallback
+		}
+		return 30 * time.Second
+	}
+
 	// If no explicit provider but LLM is enabled, try subagent auto-detection
 	if cfg.LLM.Enabled && cfg.LLM.Provider == "" {
-		if client := llm.DetectAndCreate(); client != nil {
+		subCfg := llm.DefaultSubagentConfig()
+		subCfg.Timeout = resolveTimeout(subCfg.Timeout)
+		client := llm.NewSubagentClient(subCfg)
+		if client.Available() {
 			return client
 		}
 		return nil
@@ -36,7 +52,7 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 		APIKey:   cfg.LLM.APIKey,
 		BaseURL:  cfg.LLM.BaseURL,
 		Model:    cfg.LLM.ComparisonModel,
-		Timeout:  cfg.LLM.Timeout,
+		Timeout:  resolveTimeout(cfg.LLM.Timeout),
 	}
 
 	switch cfg.LLM.Provider {
@@ -53,7 +69,10 @@ func createLLMClient(cfg *config.FloopConfig) llm.Client {
 			ContextSize:        cfg.LLM.LocalContextSize,
 		})
 	case "subagent":
-		if client := llm.DetectAndCreate(); client != nil {
+		subCfg := llm.DefaultSubagentConfig()
+		subCfg.Timeout = resolveTimeout(subCfg.Timeout)
+		client := llm.NewSubagentClient(subCfg)
+		if client.Available() {
 			return client
 		}
 		return nil
