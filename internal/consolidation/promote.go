@@ -23,12 +23,12 @@ const EdgeKindSupplements store.EdgeKind = "supplements"
 // Promote writes classified memories into the graph store, executing merge
 // proposals (absorb/supersede/supplement) and logging every decision.
 // It replaces the heuristic Promote with merge-aware logic.
-func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) (PromoteResult, error) {
+func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemory, edges []store.Edge, merges []MergeProposal, skips []int, s store.GraphStore) (PromoteResult, error) {
 	if s == nil {
 		return PromoteResult{}, nil
 	}
 
-	cl := NewConsolidationLogger(c.decisions, runID, c.config.Model)
+	cl := NewConsolidationLogger(c.decisions, c.runID, c.normalizedModel())
 
 	// Index merge proposals by memory position so we can skip merged memories
 	// in the create-new pass. Uses MemoryIndex from MergeProposal for exact matching.
@@ -48,7 +48,7 @@ func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []
 
 	for _, merge := range merges {
 		mergeStart := time.Now()
-		err := c.executeMerge(ctx, merge, s, runID)
+		err := c.executeMerge(ctx, merge, s, c.runID)
 		elapsed := time.Since(mergeStart).Milliseconds()
 
 		if err != nil {
@@ -105,7 +105,7 @@ func (c *LLMConsolidator) Promote(ctx context.Context, runID string, memories []
 			continue
 		}
 
-		node := c.buildPromoteNode(mem, runID, baseTS, i)
+		node := c.buildPromoteNode(mem, c.runID, baseTS, i)
 		if _, err := s.AddNode(ctx, node); err != nil {
 			return PromoteResult{}, fmt.Errorf("adding consolidated node: %w", err)
 		}
@@ -206,7 +206,7 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 	if prov == nil {
 		prov = make(map[string]interface{})
 	}
-	prov["consolidated_by"] = c.config.Model
+	prov["consolidated_by"] = c.normalizedModel()
 	prov["source_type"] = string(models.SourceTypeConsolidated)
 	now := time.Now().UTC()
 	prov["consolidated_at"] = now.Format(time.RFC3339)
@@ -394,7 +394,7 @@ func (c *LLMConsolidator) buildPromoteNode(mem ClassifiedMemory, runID string, b
 	// Rich provenance
 	prov := map[string]interface{}{
 		"source_type":     string(models.SourceTypeConsolidated),
-		"consolidated_by": c.config.Model,
+		"consolidated_by": c.normalizedModel(),
 		"source_events":   toInterfaceSlice(mem.SourceEvents),
 		"confidence":      mem.Confidence,
 		"importance":      mem.Importance,

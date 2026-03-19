@@ -130,7 +130,7 @@ func (c *LLMConsolidator) Classify(ctx context.Context, candidates []Candidate) 
 		classified, err := c.classifyBatch(ctx, batch, batchIdx)
 		if err != nil {
 			// Log the failure
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage":     "classify",
 				"event":     "llm_fallback",
 				"batch":     batchIdx,
@@ -168,7 +168,7 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 	if err != nil {
 		// Retry once if configured
 		if c.config.RetryOnce {
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage":  "classify",
 				"event":  "parse_retry",
 				"batch":  batchIdx,
@@ -182,7 +182,7 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 			if err2 != nil {
 				return nil, fmt.Errorf("parse failed after retry: %w", err2)
 			}
-			c.decisions.Log(map[string]any{
+			c.logDecision(map[string]any{
 				"stage":      "classify",
 				"event":      "batch_classified",
 				"batch":      batchIdx,
@@ -196,7 +196,7 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 	}
 
 	// Log successful classification
-	c.decisions.Log(map[string]any{
+	c.logDecision(map[string]any{
 		"stage":      "classify",
 		"event":      "batch_classified",
 		"batch":      batchIdx,

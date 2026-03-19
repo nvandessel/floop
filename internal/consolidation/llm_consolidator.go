@@ -89,6 +89,7 @@ type LLMConsolidator struct {
 	heuristic *HeuristicConsolidator
 	decisions *logging.DecisionLogger
 	config    LLMConsolidatorConfig
+	runID     string // set by Runner before each pipeline execution
 }
 
 // NewLLMConsolidator creates a new LLM-based consolidator.
@@ -99,6 +100,43 @@ func NewLLMConsolidator(client llm.Client, decisions *logging.DecisionLogger, co
 		decisions: decisions,
 		config:    config,
 	}
+}
+
+// Model returns the configured LLM model identifier.
+func (c *LLMConsolidator) Model() string {
+	return c.config.Model
+}
+
+// normalizedModel returns the model identifier, falling back to "unknown"
+// when unconfigured. Use this for all output paths (logs, DB, node provenance)
+// to ensure consistent model attribution.
+func (c *LLMConsolidator) normalizedModel() string {
+	if c.config.Model == "" {
+		return "unknown"
+	}
+	return c.config.Model
+}
+
+// SetRunID sets the run identifier used in decision log entries.
+// Called by Runner before each pipeline execution.
+func (c *LLMConsolidator) SetRunID(id string) {
+	c.runID = id
+}
+
+// logDecision writes a decision log entry with the current run_id and model
+// automatically injected. All stages should use this instead of c.decisions.Log
+// directly so that every JSONL entry is correlated with its run.
+func (c *LLMConsolidator) logDecision(fields map[string]any) {
+	if c.decisions == nil {
+		return
+	}
+	merged := make(map[string]any, len(fields)+2)
+	for k, v := range fields {
+		merged[k] = v
+	}
+	merged["run_id"] = c.runID
+	merged["model"] = c.normalizedModel()
+	c.decisions.Log(merged)
 }
 
 // Extract is implemented in extract.go with three-pass chunked extraction.

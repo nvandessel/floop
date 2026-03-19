@@ -3,11 +3,13 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nvandessel/floop/internal/consolidation"
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/logging"
 	"github.com/nvandessel/floop/internal/utils"
 )
 
@@ -100,12 +102,22 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 	}
 
 	// Run consolidation pipeline
-	c := consolidation.NewConsolidator(executor, s.llmClient, nil)
-	var model string
+	var model, logLevel string
 	if s.floopConfig != nil {
 		model = s.floopConfig.LLM.ComparisonModel
+		logLevel = s.floopConfig.Logging.Level
 	}
-	result, err := consolidation.NewRunnerWithModel(c, model).
+	// Only create decision logger when actually using the LLM executor to
+	// avoid empty JSONL files from heuristic fallback runs.
+	var decisions *logging.DecisionLogger
+	if executor == "llm" && s.llmClient != nil {
+		decisions = logging.NewDecisionLogger(filepath.Join(s.root, ".floop"), logLevel)
+		if decisions != nil {
+			defer decisions.Close()
+		}
+	}
+	c := consolidation.NewConsolidator(executor, s.llmClient, decisions, model)
+	result, err := consolidation.NewRunner(c).
 		Run(ctx, evts, s.store, consolidation.RunOptions{DryRun: args.DryRun})
 	if err != nil {
 		return nil, FloopConsolidateOutput{}, fmt.Errorf("consolidation pipeline failed: %w", err)

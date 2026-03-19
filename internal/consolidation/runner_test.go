@@ -1,10 +1,16 @@
 package consolidation
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nvandessel/floop/internal/events"
+	"github.com/nvandessel/floop/internal/logging"
 	"github.com/nvandessel/floop/internal/store"
 )
 
@@ -128,5 +134,63 @@ func TestRunner_FullPipeline(t *testing.T) {
 	}
 	if len(nodes) != 2 {
 		t.Errorf("expected 2 nodes in store, got %d", len(nodes))
+	}
+}
+
+func TestRunner_RunIDThreadedToDecisionLog(t *testing.T) {
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	cfg := DefaultLLMConsolidatorConfig()
+	cfg.Model = "test-model-abc"
+	// Use a mock client that returns empty JSON — Extract will fall back to
+	// heuristic per chunk, but decision log entries are still emitted.
+	mock := &mockLLMClient{responses: []string{"{}", "{}", "{}"}}
+	c := NewLLMConsolidator(mock, dl, cfg)
+	runner := NewRunner(c)
+
+	evts := []events.Event{
+		{
+			ID:      "evt-1",
+			Actor:   events.ActorUser,
+			Kind:    events.KindMessage,
+			Content: "no, don't use pip, use uv instead for package management",
+		},
+	}
+
+	_, err := runner.Run(context.Background(), evts, nil, RunOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	dl.Close()
+
+	// Read the JSONL and verify every entry has run_id and model
+	path := filepath.Join(dir, "decisions.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open decisions.jsonl: %v", err)
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	lines := 0
+	for scanner.Scan() {
+		lines++
+		var entry map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			t.Fatalf("line %d: bad JSON: %v", lines, err)
+		}
+		runID, _ := entry["run_id"].(string)
+		if !strings.HasPrefix(runID, "run-") {
+			t.Errorf("line %d: expected run_id starting with 'run-', got %q", lines, runID)
+		}
+		model, _ := entry["model"].(string)
+		if model != "test-model-abc" {
+			t.Errorf("line %d: expected model 'test-model-abc', got %q", lines, model)
+		}
+	}
+	if lines == 0 {
+		t.Fatal("expected at least one decision log entry")
 	}
 }
