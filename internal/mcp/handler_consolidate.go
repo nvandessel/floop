@@ -107,9 +107,14 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 		model = s.floopConfig.LLM.ComparisonModel
 		logLevel = s.floopConfig.Logging.Level
 	}
-	decisions := logging.NewDecisionLogger(filepath.Join(s.root, ".floop"), logLevel)
-	if decisions != nil {
-		defer decisions.Close()
+	// Only create decision logger for LLM executor to avoid empty JSONL files
+	// from heuristic runs when debug/trace logging is enabled.
+	var decisions *logging.DecisionLogger
+	if executor == "llm" {
+		decisions = logging.NewDecisionLogger(filepath.Join(s.root, ".floop"), logLevel)
+		if decisions != nil {
+			defer decisions.Close()
+		}
 	}
 	c := consolidation.NewConsolidator(executor, s.llmClient, decisions, model)
 	result, err := consolidation.NewRunner(c).
