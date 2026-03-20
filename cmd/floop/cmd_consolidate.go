@@ -103,7 +103,7 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	var graphStore store.GraphStore
 	if !dryRun {
 		root, _ := cmd.Flags().GetString("root")
-		graphStore, err = store.NewSQLiteGraphStore(root)
+		graphStore, err = store.NewMultiGraphStore(root)
 		if err != nil {
 			return fmt.Errorf("opening graph store: %w", err)
 		}
