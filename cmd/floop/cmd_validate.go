@@ -55,9 +55,11 @@ Examples:
 			if storeScope == store.ScopeGlobal || storeScope == store.ScopeBoth {
 				globalPath, err := store.GlobalFloopPath()
 				if err != nil {
-					return fmt.Errorf("failed to get global path: %w", err)
-				}
-				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+					hasGlobal = false
+					if storeScope == store.ScopeGlobal {
+						return fmt.Errorf("failed to get global path: %w", err)
+					}
+				} else if _, err := os.Stat(globalPath); os.IsNotExist(err) {
 					hasGlobal = false
 					if storeScope == store.ScopeGlobal {
 						return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")

@@ -23,10 +23,14 @@ func newListCmd() *cobra.Command {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			showCorrections, _ := cmd.Flags().GetBool("corrections")
 			globalFlag, _ := cmd.Flags().GetBool("global")
+			localFlag, _ := cmd.Flags().GetBool("local")
 			allFlag, _ := cmd.Flags().GetBool("all")
 			tagFilter, _ := cmd.Flags().GetString("tag")
 
 			// Validate flag combinations
+			if globalFlag && localFlag {
+				return fmt.Errorf("cannot specify both --global and --local")
+			}
 			if globalFlag && allFlag {
 				return fmt.Errorf("cannot specify both --global and --all")
 			}
@@ -35,6 +39,8 @@ func newListCmd() *cobra.Command {
 			scope := constants.ScopeBoth
 			if globalFlag {
 				scope = constants.ScopeGlobal
+			} else if localFlag {
+				scope = constants.ScopeLocal
 			}
 			if allFlag {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --all is deprecated; 'both' is now the default scope")
@@ -170,6 +176,7 @@ func newListCmd() *cobra.Command {
 
 	cmd.Flags().Bool("corrections", false, "Show captured corrections instead of behaviors")
 	cmd.Flags().Bool("global", false, "Show behaviors from global user store (~/.floop/) only")
+	cmd.Flags().Bool("local", false, "Show behaviors from local project store only")
 	cmd.Flags().Bool("all", false, "Show behaviors from both local and global stores (now the default; this flag is deprecated)")
 	cmd.Flags().String("tag", "", "Filter behaviors by tag (exact match)")
 

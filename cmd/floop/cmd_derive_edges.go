@@ -62,9 +62,11 @@ Examples:
 			if storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth {
 				globalPath, err := store.GlobalFloopPath()
 				if err != nil {
-					return fmt.Errorf("failed to get global path: %w", err)
-				}
-				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+					hasGlobal = false
+					if storeScope == constants.ScopeGlobal {
+						return fmt.Errorf("failed to get global path: %w", err)
+					}
+				} else if _, err := os.Stat(globalPath); os.IsNotExist(err) {
 					hasGlobal = false
 					if storeScope == constants.ScopeGlobal {
 						return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
