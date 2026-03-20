@@ -40,18 +40,24 @@ func newListCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --all is deprecated; 'both' is now the default scope")
 			}
 
-			// Check initialization based on scope
+			// Check initialization — for ScopeBoth, degrade gracefully if one store is missing
+			hasLocal := true
+			hasGlobal := true
+
 			if scope == constants.ScopeLocal || scope == constants.ScopeBoth {
 				floopDir := filepath.Join(root, ".floop")
 				if _, err := os.Stat(floopDir); os.IsNotExist(err) {
-					if jsonOut {
-						json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
-							"error": "local .floop not initialized",
-						})
-					} else {
-						fmt.Fprintln(cmd.OutOrStdout(), "Local .floop not initialized. Run 'floop init' first.")
+					hasLocal = false
+					if scope == constants.ScopeLocal {
+						if jsonOut {
+							json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
+								"error": "local .floop not initialized",
+							})
+						} else {
+							fmt.Fprintln(cmd.OutOrStdout(), "Local .floop not initialized. Run 'floop init' first.")
+						}
+						return nil
 					}
-					return nil
 				}
 			}
 
@@ -59,6 +65,7 @@ func newListCmd() *cobra.Command {
 				globalPath, err := store.GlobalFloopPath()
 				if err == nil {
 					if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+						hasGlobal = false
 						if scope == constants.ScopeGlobal {
 							if jsonOut {
 								json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
@@ -70,6 +77,27 @@ func newListCmd() *cobra.Command {
 							return nil
 						}
 					}
+				}
+			}
+
+			// For ScopeBoth, degrade to whichever store is available
+			if scope == constants.ScopeBoth {
+				if !hasLocal && !hasGlobal {
+					if jsonOut {
+						json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
+							"error": "no .floop stores initialized",
+						})
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "No .floop stores initialized. Run 'floop init' first.")
+					}
+					return nil
+				}
+				if !hasLocal {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: local .floop not initialized, showing global behaviors only")
+					scope = constants.ScopeGlobal
+				} else if !hasGlobal {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: global .floop not initialized, showing local behaviors only")
+					scope = constants.ScopeLocal
 				}
 			}
 

@@ -38,22 +38,43 @@ Examples:
 				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
 			}
 
-			// Check local initialization if needed
+			// Check initialization — for ScopeBoth, degrade gracefully if one store is missing
+			hasLocal := true
+			hasGlobal := true
+
 			if storeScope == store.ScopeLocal || storeScope == store.ScopeBoth {
 				floopDir := filepath.Join(root, ".floop")
 				if _, err := os.Stat(floopDir); os.IsNotExist(err) {
-					return fmt.Errorf(".floop not initialized. Run 'floop init' first")
+					hasLocal = false
+					if storeScope == store.ScopeLocal {
+						return fmt.Errorf(".floop not initialized. Run 'floop init' first")
+					}
 				}
 			}
 
-			// Check global initialization if needed
 			if storeScope == store.ScopeGlobal || storeScope == store.ScopeBoth {
 				globalPath, err := store.GlobalFloopPath()
 				if err != nil {
 					return fmt.Errorf("failed to get global path: %w", err)
 				}
 				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
-					return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
+					hasGlobal = false
+					if storeScope == store.ScopeGlobal {
+						return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
+					}
+				}
+			}
+
+			if storeScope == store.ScopeBoth {
+				if !hasLocal && !hasGlobal {
+					return fmt.Errorf("no .floop stores initialized. Run 'floop init' first")
+				}
+				if !hasLocal {
+					fmt.Fprintln(os.Stderr, "Warning: local .floop not initialized, validating global store only")
+					storeScope = store.ScopeGlobal
+				} else if !hasGlobal {
+					fmt.Fprintln(os.Stderr, "Warning: global .floop not initialized, validating local store only")
+					storeScope = store.ScopeLocal
 				}
 			}
 

@@ -124,6 +124,11 @@ func TestList_GlobalFlagOverridesScope(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("list --global failed: %v\noutput: %s", err, buf.String())
 	}
+
+	out := buf.String()
+	if !bytes.Contains([]byte(out), []byte(`"scope":"global"`)) {
+		t.Errorf("expected scope 'global' in JSON output, got: %s", out)
+	}
 }
 
 // TestDedup_DefaultsScopeToBoth verifies that dedup defaults scope to "both".
@@ -263,11 +268,9 @@ func TestLearn_ScopeOverrideToLocal(t *testing.T) {
 		t.Error("learn --scope local created empty local store database")
 	}
 
-	// Verify global store DB was not created (learn --scope local should skip global)
-	globalDB := filepath.Join(homeDir, ".floop", "floop.db")
-	if _, err := os.Stat(globalDB); err == nil {
-		t.Log("Note: global store exists — checking it was not written to by --scope local")
-	}
+	// Note: MultiGraphStore may create the global DB file during initialization
+	// (schema migration). The key invariant is that the behavior was written to
+	// the local store, which is verified by the localDB checks above.
 }
 
 // TestCrossPath_LearnAndListSeesSameBehaviors verifies that behaviors written
