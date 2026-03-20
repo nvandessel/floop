@@ -45,11 +45,47 @@ Examples:
 			ctx := context.Background()
 			var allResults []edges.DeriveResult
 
+			// Check initialization — for ScopeBoth, degrade gracefully if one store is missing
+			hasLocal := true
+			hasGlobal := true
+
 			if storeScope == constants.ScopeLocal || storeScope == constants.ScopeBoth {
 				floopDir := filepath.Join(root, ".floop")
 				if _, err := os.Stat(floopDir); os.IsNotExist(err) {
-					return fmt.Errorf(".floop not initialized. Run 'floop init' first")
+					hasLocal = false
+					if storeScope == constants.ScopeLocal {
+						return fmt.Errorf(".floop not initialized. Run 'floop init' first")
+					}
 				}
+			}
+
+			if storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth {
+				globalPath, err := store.GlobalFloopPath()
+				if err != nil {
+					return fmt.Errorf("failed to get global path: %w", err)
+				}
+				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+					hasGlobal = false
+					if storeScope == constants.ScopeGlobal {
+						return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
+					}
+				}
+			}
+
+			if storeScope == constants.ScopeBoth {
+				if !hasLocal && !hasGlobal {
+					return fmt.Errorf("no .floop stores initialized. Run 'floop init' first")
+				}
+				if !hasLocal {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: local .floop not initialized, deriving edges from global store only")
+					storeScope = constants.ScopeGlobal
+				} else if !hasGlobal {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: global .floop not initialized, deriving edges from local store only")
+					storeScope = constants.ScopeLocal
+				}
+			}
+
+			if hasLocal && (storeScope == constants.ScopeLocal || storeScope == constants.ScopeBoth) {
 				graphStore, err := store.NewSQLiteGraphStore(root)
 				if err != nil {
 					return fmt.Errorf("failed to open local store: %w", err)
@@ -62,7 +98,7 @@ Examples:
 				allResults = append(allResults, result)
 			}
 
-			if storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth {
+			if hasGlobal && (storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth) {
 				globalPath, err := store.GlobalFloopPath()
 				if err != nil {
 					return fmt.Errorf("failed to get global path: %w", err)

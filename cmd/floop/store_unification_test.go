@@ -2,9 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/nvandessel/floop/internal/events"
+
+	_ "modernc.org/sqlite"
 )
 
 // initFloopDir creates a minimal .floop directory at root.
@@ -19,6 +26,33 @@ func initFloopDir(t *testing.T, root string) {
 // TestConsolidate_UsesMultiGraphStore verifies that consolidate command
 // opens a MultiGraphStore (writes to global store by default).
 // With no events, the command should succeed with "no_events" output.
+func seedEvent(t *testing.T, homeDir string) {
+	t.Helper()
+	dbPath := filepath.Join(homeDir, ".floop", "floop.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open event DB: %v", err)
+	}
+	defer db.Close()
+
+	es := events.NewSQLiteEventStore(db)
+	if err := es.InitSchema(context.Background()); err != nil {
+		t.Fatalf("failed to init events schema: %v", err)
+	}
+	evt := events.Event{
+		ID:        "test-event-1",
+		SessionID: "test-session",
+		Timestamp: time.Now(),
+		Source:    "test",
+		Actor:     "user",
+		Kind:      "correction",
+		Content:   "always use global store",
+	}
+	if err := es.Add(context.Background(), evt); err != nil {
+		t.Fatalf("failed to seed event: %v", err)
+	}
+}
+
 func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
@@ -28,6 +62,9 @@ func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 	initFloopDir(t, projectRoot)
 	initFloopDir(t, homeDir)
 
+	// Seed an event so consolidation actually reaches the graph store code path
+	seedEvent(t, homeDir)
+
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newConsolidateCmd())
 
@@ -36,13 +73,24 @@ func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 	rootCmd.SetErr(buf)
 	rootCmd.SetArgs([]string{"consolidate", "--root", projectRoot, "--json"})
 
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("consolidate failed: %v\noutput: %s", err, buf.String())
+	err := rootCmd.Execute()
+	out := buf.String()
+
+	// The consolidation may fail (no LLM configured) or succeed with heuristic fallback.
+	// The key assertion: it should NOT fail with a store-related error.
+	// If the old NewSQLiteGraphStore(root) were used, it would write to the wrong place.
+	if err != nil {
+		// Acceptable errors: LLM not available, no config, etc.
+		// Unacceptable: "opening graph store" errors
+		if bytes.Contains([]byte(err.Error()), []byte("opening graph store")) {
+			t.Fatalf("consolidate failed to open graph store: %v", err)
+		}
+		t.Logf("consolidate returned expected non-store error: %v", err)
 	}
 
-	out := buf.String()
-	if !bytes.Contains([]byte(out), []byte("no_events")) {
-		t.Errorf("expected no_events in output, got: %s", out)
+	// If it succeeded, verify it processed (not no_events)
+	if err == nil && bytes.Contains([]byte(out), []byte("no_events")) {
+		t.Error("expected consolidation to process seeded event, got no_events")
 	}
 }
 

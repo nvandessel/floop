@@ -70,10 +70,10 @@ Examples:
 					return fmt.Errorf("no .floop stores initialized. Run 'floop init' first")
 				}
 				if !hasLocal {
-					fmt.Fprintln(os.Stderr, "Warning: local .floop not initialized, validating global store only")
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: local .floop not initialized, validating global store only")
 					storeScope = store.ScopeGlobal
 				} else if !hasGlobal {
-					fmt.Fprintln(os.Stderr, "Warning: global .floop not initialized, validating local store only")
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: global .floop not initialized, validating local store only")
 					storeScope = store.ScopeLocal
 				}
 			}
