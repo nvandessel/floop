@@ -63,19 +63,22 @@ func newListCmd() *cobra.Command {
 
 			if scope == constants.ScopeGlobal || scope == constants.ScopeBoth {
 				globalPath, err := store.GlobalFloopPath()
-				if err == nil {
-					if _, err := os.Stat(globalPath); os.IsNotExist(err) {
-						hasGlobal = false
-						if scope == constants.ScopeGlobal {
-							if jsonOut {
-								json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
-									"error": "global .floop not initialized",
-								})
-							} else {
-								fmt.Fprintln(cmd.OutOrStdout(), "Global .floop not initialized. Run 'floop init --global' first.")
-							}
-							return nil
+				if err != nil {
+					hasGlobal = false
+					if scope == constants.ScopeGlobal {
+						return fmt.Errorf("failed to get global path: %w", err)
+					}
+				} else if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+					hasGlobal = false
+					if scope == constants.ScopeGlobal {
+						if jsonOut {
+							json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]interface{}{
+								"error": "global .floop not initialized",
+							})
+						} else {
+							fmt.Fprintln(cmd.OutOrStdout(), "Global .floop not initialized. Run 'floop init --global' first.")
 						}
+						return nil
 					}
 				}
 			}

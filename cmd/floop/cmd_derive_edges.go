@@ -99,13 +99,6 @@ Examples:
 			}
 
 			if hasGlobal && (storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth) {
-				globalPath, err := store.GlobalFloopPath()
-				if err != nil {
-					return fmt.Errorf("failed to get global path: %w", err)
-				}
-				if _, err := os.Stat(globalPath); os.IsNotExist(err) {
-					return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
-				}
 				homeDir, err := os.UserHomeDir()
 				if err != nil {
 					return fmt.Errorf("failed to get home directory: %w", err)

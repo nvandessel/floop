@@ -23,9 +23,7 @@ func initFloopDir(t *testing.T, root string) {
 	}
 }
 
-// TestConsolidate_UsesMultiGraphStore verifies that consolidate command
-// opens a MultiGraphStore (writes to global store by default).
-// With no events, the command should succeed with "no_events" output.
+// seedEvent inserts a test event into the global event store for consolidation tests.
 func seedEvent(t *testing.T, homeDir string) {
 	t.Helper()
 	dbPath := filepath.Join(homeDir, ".floop", "floop.db")
@@ -53,6 +51,9 @@ func seedEvent(t *testing.T, homeDir string) {
 	}
 }
 
+// TestConsolidate_UsesMultiGraphStore verifies that the consolidate command
+// opens a MultiGraphStore (writes to global store by default) by seeding an
+// event and confirming consolidation reaches the graph store code path.
 func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
