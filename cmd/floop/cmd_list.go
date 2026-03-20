@@ -41,6 +41,9 @@ func newListCmd() *cobra.Command {
 			// Handle --corrections early: it reads from local corrections.jsonl only,
 			// scope checks are irrelevant and would emit misleading warnings.
 			if showCorrections {
+				if globalFlag || localFlag || allFlag {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --corrections reads local corrections only; scope flags are ignored")
+				}
 				return listCorrections(root, jsonOut)
 			}
 

@@ -147,6 +147,8 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 			return fmt.Errorf("failed to get global path: %w", pathErr)
 		}
 		graphStore, err = store.NewSQLiteGraphStore(filepath.Dir(globalPath))
+	default:
+		return fmt.Errorf("runSingleStoreDedup requires local or global scope, got %q", scope)
 	}
 
 	if err != nil {

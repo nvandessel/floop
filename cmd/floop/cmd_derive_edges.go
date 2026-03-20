@@ -101,11 +101,11 @@ Examples:
 			}
 
 			if hasGlobal && (storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth) {
-				homeDir, err := os.UserHomeDir()
+				globalPath, err := store.GlobalFloopPath()
 				if err != nil {
-					return fmt.Errorf("failed to get home directory: %w", err)
+					return fmt.Errorf("failed to get global path: %w", err)
 				}
-				graphStore, err := store.NewSQLiteGraphStore(homeDir)
+				graphStore, err := store.NewSQLiteGraphStore(filepath.Dir(globalPath))
 				if err != nil {
 					return fmt.Errorf("failed to open global store: %w", err)
 				}
