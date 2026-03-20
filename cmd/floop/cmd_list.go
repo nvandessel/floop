@@ -34,6 +34,9 @@ func newListCmd() *cobra.Command {
 			if globalFlag && allFlag {
 				return fmt.Errorf("cannot specify both --global and --all")
 			}
+			if localFlag && allFlag {
+				return fmt.Errorf("cannot specify both --local and --all")
+			}
 
 			// Determine scope
 			scope := constants.ScopeBoth
@@ -44,6 +47,7 @@ func newListCmd() *cobra.Command {
 			}
 			if allFlag {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --all is deprecated; 'both' is now the default scope")
+				scope = constants.ScopeBoth
 			}
 
 			// Check initialization — for ScopeBoth, degrade gracefully if one store is missing
