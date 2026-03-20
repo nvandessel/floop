@@ -7,7 +7,7 @@ toolchain go1.26.1
 require (
 	github.com/apache/arrow/go/v17 v17.0.0
 	github.com/hybridgroup/yzma v1.10.0
-	github.com/lancedb/lancedb-go v0.1.2
+	github.com/lancedb/lancedb-go v0.2.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
@@ -101,3 +101,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/lancedb/lancedb-go => github.com/nvandessel/lancedb-go v0.2.0
