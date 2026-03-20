@@ -322,6 +322,10 @@ func mergeDuplicatePairs(ctx context.Context, graphStore store.GraphStore, dupli
 }
 
 // runCrossStoreDedup runs deduplication across local and global stores.
+// Note: the caller's pre-checks verify that both store directories exist, but not
+// that the DB files are healthy. If a store is corrupted or locked, this function
+// returns a hard error rather than falling back to single-store dedup. This is
+// intentional: cross-store dedup requires both stores to produce correct results.
 func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.DeduplicatorConfig, llmClient llm.Client, dryRun, jsonOut bool) error {
 	// Open local store
 	localStore, err := store.NewSQLiteGraphStore(root)

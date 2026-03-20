@@ -55,7 +55,7 @@ func newListCmd() *cobra.Command {
 				scope = constants.ScopeLocal
 			}
 			if allFlag {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --all is deprecated; 'both' is now the default scope")
+				// MarkDeprecated already prints a warning via Cobra
 				scope = constants.ScopeBoth // explicit: don't rely on default if flag ordering changes
 			}
 
