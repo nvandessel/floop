@@ -100,21 +100,13 @@ func newListCmd() *cobra.Command {
 				result := map[string]interface{}{
 					"behaviors": behaviors,
 					"count":     len(behaviors),
-				}
-				if globalFlag {
-					result["scope"] = string(constants.ScopeGlobal)
-				} else if allFlag {
-					result["scope"] = "all"
-				} else {
-					result["scope"] = string(constants.ScopeLocal)
+					"scope":     string(scope),
 				}
 				json.NewEncoder(cmd.OutOrStdout()).Encode(result)
 			} else {
 				// Show scope in header
-				scopeStr := string(constants.ScopeLocal)
-				if globalFlag {
-					scopeStr = string(constants.ScopeGlobal)
-				} else if allFlag {
+				scopeStr := string(scope)
+				if scope == constants.ScopeBoth {
 					scopeStr = "all (local + global)"
 				}
 

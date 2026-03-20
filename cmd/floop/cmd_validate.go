@@ -24,9 +24,9 @@ This command checks for:
   - Edge property issues (zero weight, missing timestamps)
 
 Examples:
-  floop validate                  # Validate local store
+  floop validate                  # Validate both stores (default)
   floop validate --scope global   # Validate global store only
-  floop validate --scope both     # Validate both stores`,
+  floop validate --scope local    # Validate local store only`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
 			jsonOut, _ := cmd.Flags().GetBool("json")
