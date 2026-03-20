@@ -41,7 +41,7 @@ Examples:
 			scope, _ := cmd.Flags().GetString("scope")
 
 			// Validate scope
-			storeScope := constants.Scope(scope)
+			storeScope := store.StoreScope(scope)
 			if !storeScope.Valid() {
 				return fmt.Errorf("invalid scope: %s (must be local, global, or both)", scope)
 			}
