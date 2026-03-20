@@ -200,6 +200,34 @@ func TestList_GlobalFlagOverridesScope(t *testing.T) {
 	}
 }
 
+// TestList_LocalFlagOverridesScope verifies --local flag scopes to local only.
+func TestList_LocalFlagOverridesScope(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	homeDir := filepath.Join(tmpDir, "home")
+
+	projectRoot := t.TempDir()
+	initFloopDir(t, projectRoot)
+	initFloopDir(t, homeDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newListCmd())
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"list", "--root", projectRoot, "--local", "--json"})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("list --local failed: %v\noutput: %s", err, buf.String())
+	}
+
+	out := buf.String()
+	if !bytes.Contains([]byte(out), []byte(`"scope":"local"`)) {
+		t.Errorf("expected scope 'local' in JSON output, got: %s", out)
+	}
+}
+
 // TestDedup_DefaultsScopeToBoth verifies that dedup defaults scope to "both".
 func TestDedup_DefaultsScopeToBoth(t *testing.T) {
 	cmd := newDeduplicateCmd()

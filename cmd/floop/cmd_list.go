@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -44,7 +45,7 @@ func newListCmd() *cobra.Command {
 				if globalFlag || localFlag || allFlag {
 					fmt.Fprintln(cmd.ErrOrStderr(), "Warning: --corrections reads local corrections only; scope flags are ignored")
 				}
-				return listCorrections(root, jsonOut)
+				return listCorrections(cmd.OutOrStdout(), root, jsonOut)
 			}
 
 			// Determine scope
@@ -197,19 +198,19 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
-func listCorrections(root string, jsonOut bool) error {
+func listCorrections(w io.Writer, root string, jsonOut bool) error {
 	correctionsPath := filepath.Join(root, ".floop", "corrections.jsonl")
 
 	data, err := os.ReadFile(correctionsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOut {
-				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				json.NewEncoder(w).Encode(map[string]interface{}{
 					"corrections": []models.Correction{},
 					"count":       0,
 				})
 			} else {
-				fmt.Println("No corrections captured yet.")
+				fmt.Fprintln(w, "No corrections captured yet.")
 			}
 			return nil
 		}
@@ -231,24 +232,24 @@ func listCorrections(root string, jsonOut bool) error {
 	}
 
 	if jsonOut {
-		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"corrections": corrections,
 			"count":       len(corrections),
 		})
 	} else {
 		if len(corrections) == 0 {
-			fmt.Println("No corrections captured yet.")
+			fmt.Fprintln(w, "No corrections captured yet.")
 			return nil
 		}
-		fmt.Printf("Captured corrections (%d):\n\n", len(corrections))
+		fmt.Fprintf(w, "Captured corrections (%d):\n\n", len(corrections))
 		for i, c := range corrections {
-			fmt.Printf("%d. [%s]\n", i+1, c.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
-			fmt.Printf("   Wrong: %s\n", c.AgentAction)
-			fmt.Printf("   Right: %s\n", c.CorrectedAction)
+			fmt.Fprintf(w, "%d. [%s]\n", i+1, c.Timestamp.Format("2006-01-02T15:04:05Z07:00"))
+			fmt.Fprintf(w, "   Wrong: %s\n", c.AgentAction)
+			fmt.Fprintf(w, "   Right: %s\n", c.CorrectedAction)
 			if c.Context.FilePath != "" {
-				fmt.Printf("   File:  %s\n", c.Context.FilePath)
+				fmt.Fprintf(w, "   File:  %s\n", c.Context.FilePath)
 			}
-			fmt.Println()
+			fmt.Fprintln(w)
 		}
 	}
 

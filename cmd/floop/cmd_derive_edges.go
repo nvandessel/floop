@@ -59,18 +59,21 @@ Examples:
 				}
 			}
 
+			var resolvedGlobalPath string
 			if storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth {
-				globalPath, err := store.GlobalFloopPath()
+				gp, err := store.GlobalFloopPath()
 				if err != nil {
 					hasGlobal = false
 					if storeScope == constants.ScopeGlobal {
 						return fmt.Errorf("failed to get global path: %w", err)
 					}
-				} else if _, err := os.Stat(globalPath); os.IsNotExist(err) {
+				} else if _, err := os.Stat(gp); os.IsNotExist(err) {
 					hasGlobal = false
 					if storeScope == constants.ScopeGlobal {
 						return fmt.Errorf("global .floop not initialized. Run 'floop init --global' first")
 					}
+				} else {
+					resolvedGlobalPath = gp
 				}
 			}
 
@@ -101,11 +104,7 @@ Examples:
 			}
 
 			if hasGlobal && (storeScope == constants.ScopeGlobal || storeScope == constants.ScopeBoth) {
-				globalPath, err := store.GlobalFloopPath()
-				if err != nil {
-					return fmt.Errorf("failed to get global path: %w", err)
-				}
-				graphStore, err := store.NewSQLiteGraphStore(filepath.Dir(globalPath))
+				graphStore, err := store.NewSQLiteGraphStore(filepath.Dir(resolvedGlobalPath))
 				if err != nil {
 					return fmt.Errorf("failed to open global store: %w", err)
 				}
