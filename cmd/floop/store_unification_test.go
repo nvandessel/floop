@@ -93,6 +93,12 @@ func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 	if err == nil && bytes.Contains([]byte(out), []byte("no_events")) {
 		t.Error("expected consolidation to process seeded event, got no_events")
 	}
+
+	// Verify MultiGraphStore was opened — it creates/touches the global DB
+	globalDB := filepath.Join(homeDir, ".floop", "floop.db")
+	if _, err := os.Stat(globalDB); os.IsNotExist(err) {
+		t.Error("consolidate did not open global store via MultiGraphStore")
+	}
 }
 
 // TestConsolidate_RootFlagOverride verifies --root flag changes the local store path.

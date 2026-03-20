@@ -255,20 +255,21 @@ Lists learned behaviors from the behavior store, or captured corrections when `-
 |------|------|---------|-------------|
 | `--corrections` | bool | `false` | Show captured corrections instead of behaviors |
 | `--global` | bool | `false` | Show behaviors from global user store (`~/.floop/`) only |
-| `--all` | bool | `false` | Show behaviors from both local and global stores |
+| `--local` | bool | `false` | Show behaviors from local project store only |
+| `--all` | bool | `false` | **Deprecated** — both is now the default scope |
 | `--tag` | string | `""` | Filter behaviors by tag (exact match) |
 
 **Examples:**
 
 ```bash
-# List local behaviors
+# List all behaviors (local + global, default)
 floop list
 
-# List behaviors from global store
+# List behaviors from global store only
 floop list --global
 
-# List all behaviors across both stores
-floop list --all
+# List behaviors from local project store only
+floop list --local
 
 # Filter by tag
 floop list --tag go
@@ -277,7 +278,7 @@ floop list --tag go
 floop list --corrections
 
 # JSON output for scripting
-floop list --all --json
+floop list --json
 ```
 
 **See also:** [active](#active), [show](#show), [learn](#learn)
@@ -530,7 +531,7 @@ Analyzes all behaviors in the store, identifies duplicates based on semantic sim
 |------|------|---------|-------------|
 | `--dry-run` | bool | `false` | Show duplicates without merging |
 | `--threshold` | float64 | `0.9` | Similarity threshold for duplicate detection (0.0-1.0) |
-| `--scope` | string | `"local"` | Store scope: `local`, `global`, or `both` |
+| `--scope` | string | `"both"` | Store scope: `local`, `global`, or `both` |
 
 **Examples:**
 
@@ -567,7 +568,7 @@ Checks for dangling references (behaviors referencing non-existent IDs), self-re
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--scope` | string | `"local"` | Store scope: `local`, `global`, or `both` |
+| `--scope` | string | `"both"` | Store scope: `local`, `global`, or `both` |
 
 **Examples:**
 

@@ -219,6 +219,12 @@ func TestNewListCmd(t *testing.T) {
 	if allFlag == nil {
 		t.Error("missing --all flag")
 	}
+
+	// Check local flag exists
+	localFlag := cmd.Flags().Lookup("local")
+	if localFlag == nil {
+		t.Error("missing --local flag")
+	}
 }
 
 func TestInitCmdCreatesDirectory(t *testing.T) {
