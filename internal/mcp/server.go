@@ -58,6 +58,7 @@ type Server struct {
 
 	// Bounded worker pool for background goroutines
 	workerPool chan struct{}
+	workerWg   sync.WaitGroup
 
 	// Session-scoped implicit confirmation tracking.
 	// Each behavior gets at most 1 implicit confirmation per session (not per
@@ -388,11 +389,14 @@ func (s *Server) debouncedRefreshPageRank() {
 // If the pool is full, the task is dropped with a warning.
 // If the server is shutting down, the task is not started.
 func (s *Server) runBackground(name string, fn func()) {
+	s.workerWg.Add(1)
 	select {
 	case <-s.done:
+		s.workerWg.Done()
 		return // server is shutting down
 	case s.workerPool <- struct{}{}:
 		go func() {
+			defer s.workerWg.Done()
 			defer func() { <-s.workerPool }()
 			select {
 			case <-s.done:
@@ -402,6 +406,7 @@ func (s *Server) runBackground(name string, fn func()) {
 			fn()
 		}()
 	default:
+		s.workerWg.Done()
 		s.logger.Warn("background worker pool full, skipping task", "task", name)
 	}
 }
@@ -483,11 +488,15 @@ func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.done)
 
+		// Stop the debounce timer before draining workers so it cannot
+		// spawn new background work after Wait() returns.
 		s.pageRankDebounceMu.Lock()
 		if s.pageRankDebounce != nil {
 			s.pageRankDebounce.Stop()
 		}
 		s.pageRankDebounceMu.Unlock()
+
+		s.workerWg.Wait()
 
 		if s.auditLogger != nil {
 			s.auditLogger.Close()
