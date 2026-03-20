@@ -94,12 +94,17 @@ func TestConsolidate_UsesMultiGraphStore(t *testing.T) {
 		t.Error("expected consolidation to process seeded event, got no_events")
 	}
 
-	// Note: Verifying that promoted behaviors land in the global graph store
-	// requires an LLM or heuristic runner to complete consolidation successfully.
-	// In CI (no LLM configured), consolidation fails after opening the store but
-	// before promotion. The "opening graph store" error check above confirms the
-	// correct store constructor is used. Full end-to-end promotion is validated
-	// by integration tests with LLM available (see floop-bench).
+	// Verify the global graph store DB was created/touched by MultiGraphStore.
+	// Note: seedEvent also writes to this path (event schema), so this check
+	// alone doesn't prove MultiGraphStore was used. Combined with the
+	// "opening graph store" error guard above, it confirms the correct store
+	// constructor was invoked. Full promotion verification (behaviors landing
+	// in the global store) requires an LLM runner, which is not available in
+	// CI — that path is validated by floop-bench integration tests.
+	globalDB := filepath.Join(homeDir, ".floop", "floop.db")
+	if _, err := os.Stat(globalDB); os.IsNotExist(err) {
+		t.Error("global store DB does not exist after consolidation")
+	}
 }
 
 // TestConsolidate_RootFlagOverride verifies --root flag changes the local store path.
