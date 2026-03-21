@@ -838,6 +838,8 @@ func migrateV8ToV9(ctx context.Context, db *sql.DB, projectID string) error {
 	if _, err := tx.ExecContext(ctx, EventsTableDDL); err != nil {
 		return fmt.Errorf("create events table: %w", err)
 	}
+	// NOTE: Index DDL intentionally hardcoded here rather than using EventsIndexesDDL.
+	// Historical migrations are frozen snapshots and must not change if the shared constant evolves.
 	for _, idx := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
@@ -845,7 +847,7 @@ func migrateV8ToV9(ctx context.Context, db *sql.DB, projectID string) error {
 		`CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated)`,
 	} {
 		if _, err := tx.ExecContext(ctx, idx); err != nil {
-			return fmt.Errorf("create events index: %w", err)
+			return fmt.Errorf("create events index (%s): %w", idx, err)
 		}
 	}
 
