@@ -156,8 +156,8 @@ github.com/modelcontextprotocol/go-sdk v1.4.1 h1:M4x9GyIPj+HoIlHNGpK2hq5o3BFhC+7
 github.com/modelcontextprotocol/go-sdk v1.4.1/go.mod h1:Bo/mS87hPQqHSRkMv4dQq1XCu6zv4INdXnFZabkNU6s=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
-github.com/nvandessel/lancedb-go v0.2.0 h1:lZRcK6yZGdGP1KyCfCX0f5nzo8ksYK+CI5+5Erd5tvY=
-github.com/nvandessel/lancedb-go v0.2.0/go.mod h1:MIL9xwm6mYzZbFh23sYOJt17TU0fDAPeOvDE15/1P8k=
+github.com/nvandessel/lancedb-go v0.2.1 h1:h+qHbg36rFojNMQZe3V6ZtoGH/HM9TNN6xI4VcLgLnw=
+github.com/nvandessel/lancedb-go v0.2.1/go.mod h1:MIL9xwm6mYzZbFh23sYOJt17TU0fDAPeOvDE15/1P8k=
 github.com/pierrec/lz4/v4 v4.1.21 h1:yOVMLb6qSIDP67pl/5F7RepeKYu/VmTyEXvuMI5d9mQ=
 github.com/pierrec/lz4/v4 v4.1.21/go.mod h1:gZWDp/Ze/IJXGXf23ltt2EXimqmTUXEy0GFuRQyBid4=
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 h1:GFCKgmp0tecUJ0sJuv4pzYCqS9+RGSn52M3FUwPs+uo=

@@ -116,7 +116,7 @@ jobs:
           - os: macos-latest
             lib_dir: darwin_arm64
           - os: windows-latest
-            lib_dir: windows_amd64
+            lib_dir: windows-gnu_amd64
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "1"

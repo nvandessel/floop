@@ -102,4 +102,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/lancedb/lancedb-go => github.com/nvandessel/lancedb-go v0.2.0
+replace github.com/lancedb/lancedb-go => github.com/nvandessel/lancedb-go v0.2.1
