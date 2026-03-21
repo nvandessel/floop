@@ -113,15 +113,18 @@ jobs:
         include:
           - os: ubuntu-latest
             lib_dir: linux_amd64
+            extra_ldflags: ""
           - os: macos-latest
             lib_dir: darwin_arm64
+            extra_ldflags: ""
           - os: windows-latest
             lib_dir: windows-gnu_amd64
+            extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt"
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "1"
       CGO_CFLAGS: "-I${{ github.workspace }}/include"
-      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/${{ matrix.lib_dir }} -llancedb_go"
+      CGO_LDFLAGS: "-L${{ github.workspace }}/lib/${{ matrix.lib_dir }} -llancedb_go ${{ matrix.extra_ldflags }}"
       LD_LIBRARY_PATH: "${{ github.workspace }}/lib/${{ matrix.lib_dir }}"
       DYLD_LIBRARY_PATH: "${{ github.workspace }}/lib/${{ matrix.lib_dir }}"
     steps:
