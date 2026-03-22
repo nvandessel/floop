@@ -120,7 +120,8 @@ func TestLibraryName(t *testing.T) {
 	if name == "" {
 		t.Error("expected non-empty library filename")
 	}
-	// On linux should be .so, on darwin .dylib
+
+	// Verify platform-specific extension
 	switch runtime.GOOS {
 	case "linux":
 		if name != "libllama.so" {
@@ -130,6 +131,26 @@ func TestLibraryName(t *testing.T) {
 		if name != "libllama.dylib" {
 			t.Errorf("expected libllama.dylib on darwin, got %q", name)
 		}
+	case "windows":
+		if name != "libllama.dll" {
+			t.Errorf("expected libllama.dll on windows, got %q", name)
+		}
+	default:
+		t.Logf("untested platform %q, got library name %q", runtime.GOOS, name)
+	}
+
+	// Verify the name has a recognized extension
+	validExts := []string{".so", ".dylib", ".dll"}
+	ext := name[strings.LastIndex(name, "."):]
+	found := false
+	for _, valid := range validExts {
+		if ext == valid {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("library filename %q has unrecognized extension %q", name, ext)
 	}
 }
 

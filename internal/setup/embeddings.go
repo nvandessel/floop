@@ -66,6 +66,8 @@ func libraryFileName() string {
 	switch runtime.GOOS {
 	case "darwin":
 		return "libllama.dylib"
+	case "windows":
+		return "libllama.dll"
 	default:
 		return "libllama.so"
 	}
