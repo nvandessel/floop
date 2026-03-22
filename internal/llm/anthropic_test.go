@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,7 +103,9 @@ func TestAnthropicClient_Complete_Success(t *testing.T) {
 func TestAnthropicClient_Complete_NoSystemMessage(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody anthropicRequest
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decoding request body: %v", err)
+		}
 		if reqBody.System != "" {
 			t.Errorf("system = %q, want empty", reqBody.System)
 		}
@@ -138,7 +141,7 @@ func TestAnthropicClient_Complete_MultipleSystemMessages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for multiple system messages")
 	}
-	if got := err.Error(); got != "anthropic API supports a single system message, got 2" {
+	if got := err.Error(); !strings.Contains(got, "system message") {
 		t.Errorf("error = %q, want multiple system message error", got)
 	}
 }

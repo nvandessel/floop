@@ -20,7 +20,9 @@ func TestOpenAIClient_Complete_Success(t *testing.T) {
 		}
 
 		var reqBody openAIChatRequest
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Fatalf("decoding request body: %v", err)
+		}
 		if reqBody.Model != "gpt-4o" {
 			t.Errorf("model = %q, want gpt-4o", reqBody.Model)
 		}
