@@ -159,12 +159,18 @@ func TestLibraryName(t *testing.T) {
 func TestDetectInstalled_IgnoresDirectoriesAndNonGGUF(t *testing.T) {
 	baseDir := t.TempDir()
 	modelsDir := filepath.Join(baseDir, "models")
-	os.MkdirAll(modelsDir, 0755)
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 
 	// Create a subdirectory (should be ignored)
-	os.MkdirAll(filepath.Join(modelsDir, "subdir"), 0755)
+	if err := os.MkdirAll(filepath.Join(modelsDir, "subdir"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	// Create a non-gguf file (should be ignored)
-	os.WriteFile(filepath.Join(modelsDir, "readme.txt"), []byte("not a model"), 0644)
+	if err := os.WriteFile(filepath.Join(modelsDir, "readme.txt"), []byte("not a model"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	result := DetectInstalled(baseDir)
 	if result.ModelPath != "" {
@@ -175,7 +181,9 @@ func TestDetectInstalled_IgnoresDirectoriesAndNonGGUF(t *testing.T) {
 func TestDetectInstalled_LibDirExistsButNoLibFile(t *testing.T) {
 	baseDir := t.TempDir()
 	libDir := filepath.Join(baseDir, "lib")
-	os.MkdirAll(libDir, 0755)
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	// lib dir exists but no libllama file inside
 
 	result := DetectInstalled(baseDir)
