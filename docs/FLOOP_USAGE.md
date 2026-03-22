@@ -118,8 +118,12 @@ floop learn --right "..." --scope global
 ### Querying Behaviors
 
 ```bash
-# List all behaviors
+# List all behaviors (global + local stores, default)
 floop list
+
+# List from a specific store
+floop list --local        # Project store only
+floop list --global       # Global store only
 
 # List only corrections
 floop list --corrections
@@ -136,18 +140,26 @@ floop prompt --file "src/main.go" --task "coding"
 
 ### Store Management
 
-```bash
-# View store statistics and token budget (see docs/TOKEN_BUDGET.md for details)
-floop stats
-floop stats --budget 3000  # Simulate different budget
-floop stats --json         # Machine-readable output
+floop uses a **global-first architecture**. The global store (`~/.floop/`) is the default — behaviors you learn follow you across projects. Project-local stores (`.floop/` in your repo) are opt-in for repo-specific rules.
 
-# Deduplicate similar behaviors
+```bash
+# Initialize stores
+floop init              # Global store (default)
+floop init --local      # Project-local store
+
+# View store statistics
+floop stats             # Shows stats for both stores
+floop stats --json      # Machine-readable output
+floop stats --budget 3000  # Simulate different token budget
+
+# Deduplicate similar behaviors (default scope: both stores)
 floop deduplicate --dry-run    # Preview what would merge
 floop deduplicate              # Actually merge duplicates
+floop deduplicate --scope local   # Local store only
 
-# Validate graph consistency (dangling refs, cycles, self-refs, edge properties)
+# Validate graph consistency (default scope: both stores)
 floop validate
+floop validate --scope global  # Global store only
 
 # Backup and restore (V2: compressed + integrity verification)
 floop backup                       # Create compressed .json.gz backup
@@ -156,6 +168,8 @@ floop backup list                  # List all backups with metadata
 floop backup verify <file>         # Verify backup integrity (SHA-256)
 floop restore-backup <backup-file> # Restore (auto-detects V1/V2)
 ```
+
+> **Note:** `--all` is deprecated. Both stores are now queried by default for `list`, `deduplicate`, and `validate`.
 
 ### Similarity & Deduplication
 
@@ -174,8 +188,9 @@ floop deduplicate --dry-run
 # Use a custom similarity threshold (default: 0.9)
 floop deduplicate --threshold 0.85
 
-# Cross-store deduplication (local + global)
-floop deduplicate --scope both
+# Scope to a single store
+floop deduplicate --scope local
+floop deduplicate --scope global
 ```
 
 ### Graph Operations
