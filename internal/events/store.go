@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/nvandessel/floop/internal/store"
 )
 
 // EventStore defines the interface for event persistence.
@@ -34,27 +36,7 @@ func NewSQLiteEventStore(db *sql.DB) *SQLiteEventStore {
 
 // InitSchema creates the events table if it does not exist.
 func (s *SQLiteEventStore) InitSchema(ctx context.Context) error {
-	// DDL matches internal/store/schema.go schemaV1 and migrateV8ToV9 — single source of truth.
-	_, err := s.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS events (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			timestamp DATETIME NOT NULL,
-			source TEXT NOT NULL,
-			actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
-			kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
-			content TEXT NOT NULL,
-			metadata TEXT,
-			project_id TEXT,
-			provenance TEXT,
-			consolidated INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-		CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
-		CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated);
-	`)
+	_, err := s.db.ExecContext(ctx, store.EventsTableDDL+";"+store.EventsIndexesDDL)
 	if err != nil {
 		return fmt.Errorf("initializing events schema: %w", err)
 	}

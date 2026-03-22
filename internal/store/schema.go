@@ -12,6 +12,29 @@ import (
 // SchemaVersion is the current schema version.
 const SchemaVersion = 10
 
+// EventsTableDDL is the canonical DDL for the events table.
+// Both the initial schema and migrations reference this constant.
+const EventsTableDDL = `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    source TEXT NOT NULL,
+    actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
+    kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
+    content TEXT NOT NULL,
+    metadata TEXT,
+    project_id TEXT,
+    provenance TEXT,
+    consolidated INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)`
+
+// EventsIndexesDDL is the canonical DDL for the events table indexes.
+const EventsIndexesDDL = `CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
+CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated)`
+
 // schemaV1 is the initial schema for the SQLite store.
 const schemaV1 = `
 -- Core behavior table (denormalized for single-query retrieval)
@@ -137,24 +160,8 @@ CREATE TABLE IF NOT EXISTS config (
 );
 
 -- Events (V9) — episodic memory event buffer
-CREATE TABLE IF NOT EXISTS events (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    timestamp DATETIME NOT NULL,
-    source TEXT NOT NULL,
-    actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
-    kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
-    content TEXT NOT NULL,
-    metadata TEXT,
-    project_id TEXT,
-    provenance TEXT,
-    consolidated INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
-CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
-CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
-CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated);
+` + EventsTableDDL + `;
+` + EventsIndexesDDL + `;
 
 -- Consolidation run metadata (V10)
 CREATE TABLE IF NOT EXISTS consolidation_runs (
@@ -828,38 +835,20 @@ func migrateV8ToV9(ctx context.Context, db *sql.DB, projectID string) error {
 	}
 
 	// Create events table
-	if _, err := tx.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS events (
-			id TEXT PRIMARY KEY,
-			session_id TEXT NOT NULL,
-			timestamp DATETIME NOT NULL,
-			source TEXT NOT NULL,
-			actor TEXT NOT NULL CHECK(actor IN ('user', 'agent', 'tool', 'system')),
-			kind TEXT NOT NULL CHECK(kind IN ('message', 'action', 'result', 'error', 'correction')),
-			content TEXT NOT NULL,
-			metadata TEXT,
-			project_id TEXT,
-			provenance TEXT,
-			consolidated INTEGER DEFAULT 0,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`); err != nil {
+	if _, err := tx.ExecContext(ctx, EventsTableDDL); err != nil {
 		return fmt.Errorf("create events table: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`); err != nil {
-		return fmt.Errorf("create events session index: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`); err != nil {
-		return fmt.Errorf("create events timestamp index: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id)`); err != nil {
-		return fmt.Errorf("create events project index: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated)`); err != nil {
-		return fmt.Errorf("create events consolidated index: %w", err)
+	// NOTE: Index DDL intentionally hardcoded here rather than using EventsIndexesDDL.
+	// Historical migrations are frozen snapshots and must not change if the shared constant evolves.
+	for _, idx := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_consolidated ON events(consolidated)`,
+	} {
+		if _, err := tx.ExecContext(ctx, idx); err != nil {
+			return fmt.Errorf("create events index (%s): %w", idx, err)
+		}
 	}
 
 	_, err = tx.ExecContext(ctx,

@@ -122,10 +122,11 @@ func TestLLMPromote_AbsorbMerge(t *testing.T) {
 
 	mem := testMemory("Use fmt.Errorf to wrap errors with context", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-existing",
-		Similarity: 0.92,
-		Strategy:   "absorb",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-existing",
+		Similarity:  0.92,
+		Strategy:    "absorb",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
@@ -186,10 +187,11 @@ func TestLLMPromote_SupersedeMerge(t *testing.T) {
 
 	mem := testMemory("New improved pattern", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-old",
-		Similarity: 0.88,
-		Strategy:   "supersede",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-old",
+		Similarity:  0.88,
+		Strategy:    "supersede",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
@@ -247,10 +249,11 @@ func TestLLMPromote_SupplementMerge(t *testing.T) {
 
 	mem := testMemory("Additional detail about base behavior", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-base",
-		Similarity: 0.75,
-		Strategy:   "supplement",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-base",
+		Similarity:  0.75,
+		Strategy:    "supplement",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
@@ -294,10 +297,11 @@ func TestLLMPromote_MergeFailure(t *testing.T) {
 	// Merge targets a non-existent node — should fail gracefully
 	mem := testMemory("Should be promoted as new", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-nonexistent",
-		Similarity: 0.9,
-		Strategy:   "absorb",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-nonexistent",
+		Similarity:  0.9,
+		Strategy:    "absorb",
 	}}
 
 	promoted, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
@@ -357,15 +361,14 @@ func TestLLMPromote_DecisionLogging(t *testing.T) {
 	}
 
 	mem1 := testMemory("New memory to promote", models.BehaviorKindDirective)
-	mem1.RawText = "unique-raw-1" // ensure unique for merge matching
 	mem2 := testMemory("Memory to absorb", models.BehaviorKindPreference)
-	mem2.RawText = "unique-raw-2"
 
 	merges := []MergeProposal{{
-		Memory:     mem2,
-		TargetID:   "bhv-log-target",
-		Similarity: 0.91,
-		Strategy:   "absorb",
+		Memory:      mem2,
+		MemoryIndex: 1,
+		TargetID:    "bhv-log-target",
+		Similarity:  0.91,
+		Strategy:    "absorb",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
@@ -388,10 +391,11 @@ func TestLLMPromote_MergeFailureFallbackCreatesNode(t *testing.T) {
 
 	mem := testMemory("Should be promoted as new after supersede fails", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-nonexistent",
-		Similarity: 0.9,
-		Strategy:   "supersede",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-nonexistent",
+		Similarity:  0.9,
+		Strategy:    "supersede",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
@@ -444,10 +448,11 @@ func TestLLMPromote_SupersedeRollbackOnUpdateFailure(t *testing.T) {
 	// Run supersede — should succeed fully
 	mem := testMemory("Better behavior", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-existing",
-		Similarity: 0.9,
-		Strategy:   "supersede",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-existing",
+		Similarity:  0.9,
+		Strategy:    "supersede",
 	}}
 
 	if _, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
@@ -515,10 +520,11 @@ func TestLLMPromote_SupplementRollbackOnEdgeFailure(t *testing.T) {
 
 	mem := testMemory("Supplementary detail", models.BehaviorKindDirective)
 	merges := []MergeProposal{{
-		Memory:     mem,
-		TargetID:   "bhv-target",
-		Similarity: 0.75,
-		Strategy:   "supplement",
+		Memory:      mem,
+		MemoryIndex: 0,
+		TargetID:    "bhv-target",
+		Similarity:  0.75,
+		Strategy:    "supplement",
 	}}
 
 	if _, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s); err != nil {
@@ -557,9 +563,9 @@ func TestLLMPromote_SupplementRollbackOnEdgeFailure(t *testing.T) {
 	}
 }
 
-func TestLLMPromote_DuplicateRawTextNotSilentlyDropped(t *testing.T) {
-	// Two memories with the same RawText but different kinds — only one is
-	// in a merge proposal. The other should still be created as a new node.
+func TestLLMPromote_SameTextDifferentIndex(t *testing.T) {
+	// Two memories with identical text but different kinds — only the one
+	// at the correct MemoryIndex is merged. The other is created as a new node.
 	c := newTestPromoteConsolidator()
 	ctx := context.Background()
 	s := store.NewInMemoryGraphStore()
@@ -578,16 +584,17 @@ func TestLLMPromote_DuplicateRawTextNotSilentlyDropped(t *testing.T) {
 		t.Fatalf("AddNode: %v", err)
 	}
 
-	// Two memories with same RawText but different kinds
-	mem1 := testMemory("Shared raw text", models.BehaviorKindDirective)
-	mem2 := testMemory("Shared raw text", models.BehaviorKindPreference)
+	// Two memories with identical text but different kinds
+	mem1 := testMemory("Shared text", models.BehaviorKindDirective)
+	mem2 := testMemory("Shared text", models.BehaviorKindPreference)
 
-	// Only mem1 is in a merge proposal
+	// Only mem1 (index 0) is in a merge proposal
 	merges := []MergeProposal{{
-		Memory:     mem1,
-		TargetID:   "bhv-target",
-		Similarity: 0.9,
-		Strategy:   "absorb",
+		Memory:      mem1,
+		MemoryIndex: 0,
+		TargetID:    "bhv-target",
+		Similarity:  0.9,
+		Strategy:    "absorb",
 	}}
 
 	_, err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
@@ -599,5 +606,58 @@ func TestLLMPromote_DuplicateRawTextNotSilentlyDropped(t *testing.T) {
 	nodes, _ := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if len(nodes) != 2 {
 		t.Fatalf("expected 2 behavior nodes (1 existing + 1 new for mem2), got %d", len(nodes))
+	}
+}
+
+func TestLLMPromote_MergeMatchesByIndexNotText(t *testing.T) {
+	// Verify that merge proposals match by MemoryIndex, not by RawText.
+	// mem2 has MemoryIndex=1 in the merge; mem1 (index 0) with the same text
+	// must NOT be merged.
+	c := newTestPromoteConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	existing := store.Node{
+		ID:   "bhv-target",
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "Existing",
+			"kind": "directive",
+		},
+		Metadata: map[string]interface{}{"confidence": 0.6},
+	}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	mem1 := testMemory("Identical text", models.BehaviorKindDirective)
+	mem2 := testMemory("Identical text", models.BehaviorKindPreference)
+
+	// Merge targets mem2 (index 1), not mem1 (index 0)
+	merges := []MergeProposal{{
+		Memory:      mem2,
+		MemoryIndex: 1,
+		TargetID:    "bhv-target",
+		Similarity:  0.9,
+		Strategy:    "absorb",
+	}}
+
+	result, err := c.Promote(ctx, []ClassifiedMemory{mem1, mem2}, nil, merges, nil, s)
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+
+	// mem1 (index 0) should be promoted as new, mem2 (index 1) absorbed
+	if result.Promoted != 1 {
+		t.Errorf("expected promoted=1 (mem1 created as new), got %d", result.Promoted)
+	}
+	if result.MergesExecuted != 1 {
+		t.Errorf("expected merges=1, got %d", result.MergesExecuted)
+	}
+
+	// Should have 2 behavior nodes: existing (updated) + mem1 (new)
+	nodes, _ := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 behavior nodes, got %d", len(nodes))
 	}
 }
