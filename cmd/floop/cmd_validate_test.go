@@ -16,7 +16,7 @@ func TestNewValidateCmd(t *testing.T) {
 
 	scopeFlag := cmd.Flags().Lookup("scope")
 	if scopeFlag == nil {
-		t.Error("missing --scope flag")
+		t.Fatal("missing --scope flag")
 	}
 	if scopeFlag.DefValue != "both" {
 		t.Errorf("scope default = %q, want %q", scopeFlag.DefValue, "both")
