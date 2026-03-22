@@ -40,8 +40,6 @@ brew install nvandessel/tap/floop
 go install github.com/nvandessel/floop/cmd/floop@latest
 ```
 
-> **Windows:** `go install` is the recommended method. Ensure `$GOPATH/bin` (usually `%USERPROFILE%\go\bin`) is in your PATH.
-
 ### Initialize
 
 ```bash
