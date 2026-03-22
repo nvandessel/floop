@@ -128,9 +128,11 @@ func TestHandleFloopPackInstall_LocalFileNotFound(t *testing.T) {
 
 	_, _, err := server.handleFloopPackInstall(ctx, req, args)
 	if err == nil {
-		// It's fine if the path validation rejects it or the file isn't found
-		return
+		t.Fatal("Expected error for nonexistent pack file, but got nil")
 	}
 	// We expect either a path rejection or file-not-found error
-	_ = err // error is expected
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "pack install path rejected") && !strings.Contains(errMsg, "not found") && !strings.Contains(errMsg, "no such file") {
+		t.Errorf("error = %q, want it to contain 'pack install path rejected', 'not found', or 'no such file'", errMsg)
+	}
 }
