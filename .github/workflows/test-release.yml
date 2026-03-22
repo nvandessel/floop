@@ -87,9 +87,9 @@ jobs:
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
           if [ ! -f "lib/${PLATFORM}/liblancedb_go.a" ]; then
             rm -rf lib/ include/
-            LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+            LANCE_VERSION=$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/lancedb/lancedb-go)
             gh release download "${LANCE_VERSION}" \
-              --repo lancedb/lancedb-go \
+              --repo nvandessel/lancedb-go \
               --pattern 'lancedb-go-native-binaries.tar.gz'
             tar -xzf lancedb-go-native-binaries.tar.gz
             rm -f lancedb-go-native-binaries.tar.gz
