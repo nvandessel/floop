@@ -242,6 +242,7 @@ func TestNewOpenAIClient_CustomConfig(t *testing.T) {
 }
 
 func TestOpenAIClient_Complete_OllamaNoAuthHeader(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Ollama with no API key should not send Authorization header
 		if auth := r.Header.Get("Authorization"); auth != "" {
