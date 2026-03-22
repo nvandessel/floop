@@ -166,10 +166,11 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 		}
 	}
 
-	// With burst=100 and 200 requests, should allow roughly 100
-	// Wide tolerance to account for goroutine scheduling jitter
-	if allowedCount < 80 || allowedCount > 130 {
-		t.Errorf("allowed %d requests, expected 80-130 (burst limit ≈100)", allowedCount)
+	// With burst=100 and 200 concurrent requests, should allow roughly 100
+	// Symmetric ±15% tolerance for goroutine scheduling jitter
+	t.Logf("allowed %d of 200 requests (burst limit: 100)", allowedCount)
+	if allowedCount < 85 || allowedCount > 115 {
+		t.Errorf("allowed %d requests, expected 85-115 (burst limit 100 ±15%%)", allowedCount)
 	}
 }
 
