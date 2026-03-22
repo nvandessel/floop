@@ -1320,18 +1320,12 @@ func (s *SQLiteGraphStore) exportEdgesToJSONL(ctx context.Context) error {
 // in the same directory, calling fsync, then atomically renaming over the target.
 func atomicWriteFile(targetPath string, writeFn func(f *os.File) error) error {
 	dir := filepath.Dir(targetPath)
-	tmp, err := os.CreateTemp(dir, filepath.Base(targetPath)+".tmp.*")
+	// Use os.OpenFile with 0666 so the kernel applies umask at creation time,
+	// matching the permissions that os.Create would produce (typically 0644).
+	tmpPath := filepath.Join(dir, filepath.Base(targetPath)+fmt.Sprintf(".tmp.%d", os.Getpid()))
+	tmp, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	// Match os.Create's 0666 permissions (umask applies) so the renamed file
-	// preserves the same access as before the atomic-write refactor.
-	if err := os.Chmod(tmpPath, 0666); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("failed to set temp file permissions: %w", err)
 	}
 
 	// Clean up temp file on any error
