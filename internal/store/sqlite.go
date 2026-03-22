@@ -4,6 +4,7 @@ package store
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -1320,9 +1321,14 @@ func (s *SQLiteGraphStore) exportEdgesToJSONL(ctx context.Context) error {
 // in the same directory, calling fsync, then atomically renaming over the target.
 func atomicWriteFile(targetPath string, writeFn func(f *os.File) error) error {
 	dir := filepath.Dir(targetPath)
-	// Use os.OpenFile with 0666 so the kernel applies umask at creation time,
-	// matching the permissions that os.Create would produce (typically 0644).
-	tmpPath := filepath.Join(dir, filepath.Base(targetPath)+fmt.Sprintf(".tmp.%d", os.Getpid()))
+	// Use os.OpenFile with O_EXCL and mode 0666 so the kernel applies umask
+	// at creation time, matching the permissions os.Create produces (typically 0644).
+	// Random suffix ensures uniqueness across concurrent calls and PID reuse.
+	var rnd [4]byte
+	if _, err := rand.Read(rnd[:]); err != nil {
+		return fmt.Errorf("failed to generate random suffix: %w", err)
+	}
+	tmpPath := filepath.Join(dir, fmt.Sprintf("%s.tmp.%x", filepath.Base(targetPath), rnd))
 	tmp, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
