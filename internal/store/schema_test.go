@@ -335,6 +335,184 @@ func TestMigrateV4ToV5(t *testing.T) {
 	}
 }
 
+func TestMigrateV6ToV7_StripsAvoidField(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create tables at v6
+	if _, err := db.ExecContext(ctx, preSchemaVersionDDL); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+	// Add v2 columns
+	for _, col := range []string{
+		"ALTER TABLE behaviors ADD COLUMN behavior_type TEXT",
+		"ALTER TABLE behaviors ADD COLUMN metadata_extra TEXT",
+		"ALTER TABLE behaviors ADD COLUMN content_hash TEXT",
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil {
+			t.Fatalf("add column: %v", err)
+		}
+	}
+	// Add v3 edge columns
+	for _, col := range []string{
+		"ALTER TABLE edges ADD COLUMN weight REAL DEFAULT 1.0",
+		"ALTER TABLE edges ADD COLUMN created_at TEXT",
+		"ALTER TABLE edges ADD COLUMN last_activated TEXT",
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil {
+			t.Fatalf("add edge column: %v", err)
+		}
+	}
+	// Add v6 embedding columns
+	for _, col := range []string{
+		"ALTER TABLE behaviors ADD COLUMN embedding BLOB",
+		"ALTER TABLE behaviors ADD COLUMN embedding_model TEXT",
+	} {
+		if _, err := db.ExecContext(ctx, col); err != nil {
+			t.Fatalf("add embedding column: %v", err)
+		}
+	}
+
+	// Create schema_version and set to 6
+	if _, err := db.ExecContext(ctx, `CREATE TABLE schema_version (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (6, datetime('now'))`); err != nil {
+		t.Fatalf("insert version: %v", err)
+	}
+
+	// Insert behaviors - one with "avoid" in structured, one without
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO behaviors (id, name, kind, content_canonical, content_expanded, content_structured, created_at, updated_at)
+		VALUES ('b1', 'with-avoid', 'behavior', 'do X instead', 'avoid: Y\n\nInstead: do X instead',
+			'{"avoid":"Y","do":"X"}', '2024-01-01', '2024-01-01')
+	`); err != nil {
+		t.Fatalf("insert behavior with avoid: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO behaviors (id, name, kind, content_canonical, content_expanded, content_structured, created_at, updated_at)
+		VALUES ('b2', 'without-avoid', 'behavior', 'do Z', 'do Z',
+			'{"do":"Z"}', '2024-01-01', '2024-01-01')
+	`); err != nil {
+		t.Fatalf("insert behavior without avoid: %v", err)
+	}
+
+	// Run InitSchema — should detect v6 and migrate through v7+
+	if err := InitSchema(ctx, db); err != nil {
+		t.Fatalf("InitSchema failed: %v", err)
+	}
+
+	// Verify "avoid" field was stripped from structured content
+	var structured sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT content_structured FROM behaviors WHERE id = 'b1'`).Scan(&structured); err != nil {
+		t.Fatalf("query structured: %v", err)
+	}
+	if structured.Valid {
+		if s := structured.String; s != "" {
+			// Should not contain "avoid"
+			if containsStr(s, `"avoid"`) {
+				t.Errorf("structured still contains avoid: %s", s)
+			}
+		}
+	}
+
+	// Verify schema migrated to current version
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("get schema version: %v", err)
+	}
+	if version != SchemaVersion {
+		t.Errorf("schema version = %d, want %d", version, SchemaVersion)
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMigrateV9ToV10_CreatesConsolidationRuns(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// Create full schema up to v9 by creating base and migrating
+	if _, err := db.ExecContext(ctx, preSchemaVersionDDL); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+	for _, col := range []string{
+		"ALTER TABLE behaviors ADD COLUMN behavior_type TEXT",
+		"ALTER TABLE behaviors ADD COLUMN metadata_extra TEXT",
+		"ALTER TABLE behaviors ADD COLUMN content_hash TEXT",
+	} {
+		db.ExecContext(ctx, col)
+	}
+	for _, col := range []string{
+		"ALTER TABLE edges ADD COLUMN weight REAL DEFAULT 1.0",
+		"ALTER TABLE edges ADD COLUMN created_at TEXT",
+		"ALTER TABLE edges ADD COLUMN last_activated TEXT",
+	} {
+		db.ExecContext(ctx, col)
+	}
+	for _, col := range []string{
+		"ALTER TABLE behaviors ADD COLUMN embedding BLOB",
+		"ALTER TABLE behaviors ADD COLUMN embedding_model TEXT",
+		"ALTER TABLE behaviors ADD COLUMN memory_type TEXT DEFAULT 'semantic'",
+		"ALTER TABLE behaviors ADD COLUMN episode_data TEXT",
+		"ALTER TABLE behaviors ADD COLUMN workflow_data TEXT",
+	} {
+		db.ExecContext(ctx, col)
+	}
+
+	// Create required tables
+	db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS co_activations (pair_key TEXT NOT NULL, timestamp TEXT NOT NULL)`)
+	db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, project_id TEXT, event_type TEXT NOT NULL, timestamp TEXT NOT NULL, data TEXT, consolidated INTEGER DEFAULT 0)`)
+
+	// Set version to 9
+	db.ExecContext(ctx, `CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`)
+	db.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (9, datetime('now'))`)
+
+	// Run InitSchema — should migrate v9->v10
+	if err := InitSchema(ctx, db); err != nil {
+		t.Fatalf("InitSchema failed: %v", err)
+	}
+
+	// Verify consolidation_runs table exists
+	var name string
+	err = db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='consolidation_runs'`).Scan(&name)
+	if err != nil {
+		t.Fatalf("consolidation_runs table should exist: %v", err)
+	}
+
+	// Verify schema version
+	var version int
+	db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_version`).Scan(&version)
+	if version != SchemaVersion {
+		t.Errorf("schema version = %d, want %d", version, SchemaVersion)
+	}
+}
+
 func TestMigrateV7ToV8(t *testing.T) {
 	// Scenario: DB at schema v7, content_expanded has data.
 	// After migration, content_expanded should be NULL for all rows.
