@@ -156,6 +156,12 @@ func runSingleStoreDedup(ctx context.Context, root string, scope store.StoreScop
 	}
 	defer graphStore.Close()
 
+	return runDedupOnStore(ctx, graphStore, cfg, llmClient, dryRun, jsonOut)
+}
+
+// runDedupOnStore performs deduplication on the given store.
+// Extracted for testability — accepts a GraphStore directly.
+func runDedupOnStore(ctx context.Context, graphStore store.GraphStore, cfg dedup.DeduplicatorConfig, llmClient llm.Client, dryRun, jsonOut bool) error {
 	// Load all behaviors
 	behaviors, err := edges.LoadBehaviorsFromStore(ctx, graphStore)
 	if err != nil {

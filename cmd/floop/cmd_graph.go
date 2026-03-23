@@ -38,7 +38,7 @@ func newGraphCmd() *cobra.Command {
 				format = string(visualization.FormatHTML)
 			}
 
-			ctx := context.Background()
+			ctx := cmd.Context()
 
 			switch visualization.Format(format) {
 			case visualization.FormatDOT:
