@@ -8128,9 +8128,7 @@ func TestLearnCmdScopeLocalExplicitR4(t *testing.T) {
 
 // pack show cmd
 func TestPackShowCmdR4(t *testing.T) {
-	tmpDir := t.TempDir()
-	isolateHome(t, tmpDir)
-	os.MkdirAll(filepath.Join(tmpDir, "home", ".floop"), 0700)
+	tmpDir, _ := setupQueryTest(t)
 
 	out := captureStdout(t, func() {
 		rootCmd := newTestRootCmd()
