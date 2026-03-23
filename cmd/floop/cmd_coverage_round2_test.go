@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -3875,18 +3876,16 @@ func TestIngestCmdNotInitialized(t *testing.T) {
 // --- graph cmd with serve flag (short timeout) ---
 
 func TestGraphCmdServeNoOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping server test on Windows: goroutine holds SQLite file preventing TempDir cleanup")
+	}
+
 	tmpDir, _ := setupQueryTest(t)
 
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newGraphCmd())
 	rootCmd.SetOut(&bytes.Buffer{})
 	rootCmd.SetArgs([]string{"graph", "--serve", "--no-open", "--root", tmpDir})
-
-	// Start in goroutine and cancel quickly
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		// The test will timeout naturally if this doesn't work
-	}()
 
 	// Run briefly - this will start the server
 	// The server test is tricky - just verify it doesn't panic immediately
@@ -5286,7 +5285,13 @@ func TestOpenStoreForGraph(t *testing.T) {
 }
 
 func TestOpenStoreForGraphInvalidDir(t *testing.T) {
-	_, err := openStoreForGraph("/nonexistent/path/nothing")
+	// Use a regular file as the root path — can't mkdir inside a file on any OS
+	f, err := os.CreateTemp(t.TempDir(), "not-a-dir")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	f.Close()
+	_, err = openStoreForGraph(f.Name())
 	if err == nil {
 		t.Fatal("expected error for invalid directory")
 	}
