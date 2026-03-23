@@ -1149,3 +1149,460 @@ func TestMultiGraphStore_ValidateBehaviorGraph_TrulyDanglingStillCaught(t *testi
 		t.Errorf("expected 1 dangling error, got %d. All errors: %v", danglingErrors, errors)
 	}
 }
+
+// newTestMultiStore creates a MultiGraphStore backed by two SQLiteGraphStores in temp dirs.
+func newTestMultiStore(t *testing.T) *MultiGraphStore {
+	t.Helper()
+	local, err := NewSQLiteGraphStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create local store: %v", err)
+	}
+	global, err := NewSQLiteGraphStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create global store: %v", err)
+	}
+	t.Cleanup(func() {
+		local.Close()
+		global.Close()
+	})
+	return &MultiGraphStore{localStore: local, globalStore: global}
+}
+
+// newTestMultiStoreInMemory creates a MultiGraphStore backed by two InMemoryGraphStores.
+func newTestMultiStoreInMemory(t *testing.T) *MultiGraphStore {
+	t.Helper()
+	return &MultiGraphStore{
+		localStore:  NewInMemoryGraphStore(),
+		globalStore: NewInMemoryGraphStore(),
+	}
+}
+
+func TestMultiGraphStore_RemoveEdge(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add nodes and edge to local store
+	m.localStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	m.localStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	m.localStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// RemoveEdge should succeed (removes from local)
+	err := m.RemoveEdge(ctx, "a", "b", EdgeKindRequires)
+	if err != nil {
+		t.Fatalf("RemoveEdge() error = %v", err)
+	}
+
+	// Verify edge is gone
+	edges, _ := m.localStore.GetEdges(ctx, "a", DirectionOutbound, EdgeKindRequires)
+	if len(edges) != 0 {
+		t.Errorf("edge should be removed, got %d", len(edges))
+	}
+
+	// RemoveEdge on non-existent edge in both stores should still succeed
+	// (both stores return nil for "not found")
+	// Both stores just try to remove; result depends on store semantics.
+	_ = m.RemoveEdge(ctx, "x", "y", EdgeKindRequires)
+}
+
+func TestMultiGraphStore_Traverse(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add a chain to global store: a -> b -> c
+	m.globalStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	m.globalStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	m.globalStore.AddNode(ctx, Node{ID: "c", Kind: NodeKindBehavior})
+	m.globalStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	m.globalStore.AddEdge(ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Traverse from a in global store
+	results, err := m.Traverse(ctx, "a", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 5)
+	if err != nil {
+		t.Fatalf("Traverse() error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse() got %d nodes, want 3", len(results))
+	}
+
+	// Add a chain to local store: x -> y
+	m.localStore.AddNode(ctx, Node{ID: "x", Kind: NodeKindBehavior})
+	m.localStore.AddNode(ctx, Node{ID: "y", Kind: NodeKindBehavior})
+	m.localStore.AddEdge(ctx, Edge{Source: "x", Target: "y", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Traverse from x should use local store
+	results, err = m.Traverse(ctx, "x", []EdgeKind{EdgeKindRequires}, DirectionOutbound, 5)
+	if err != nil {
+		t.Fatalf("Traverse() from local error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("Traverse() from local got %d nodes, want 2", len(results))
+	}
+
+	// Traverse from non-existent node should error
+	_, err = m.Traverse(ctx, "nonexistent", nil, DirectionOutbound, 5)
+	if err == nil {
+		t.Error("Traverse() should error for non-existent start node")
+	}
+}
+
+func TestMultiGraphStore_LocalStore(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	if m.LocalStore() == nil {
+		t.Error("LocalStore() returned nil")
+	}
+	if m.LocalStore() != m.localStore {
+		t.Error("LocalStore() should return the local store instance")
+	}
+}
+
+func TestMultiGraphStore_GetEdges(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add nodes in both stores with edges
+	m.localStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	m.localStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	m.localStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	m.globalStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	m.globalStore.AddNode(ctx, Node{ID: "c", Kind: NodeKindBehavior})
+	m.globalStore.AddEdge(ctx, Edge{Source: "a", Target: "c", Kind: EdgeKindOverrides, Weight: 0.5, CreatedAt: time.Now()})
+
+	// GetEdges should merge from both stores
+	edges, err := m.GetEdges(ctx, "a", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(edges) != 2 {
+		t.Errorf("GetEdges() got %d edges, want 2", len(edges))
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_UpdateConfidence(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	// Add behavior to global store
+	m.globalStore.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do this thing",
+		},
+	})
+
+	// UpdateConfidence should find it in global
+	err := m.UpdateConfidence(ctx, "b1", 0.95)
+	if err != nil {
+		t.Fatalf("UpdateConfidence() error = %v", err)
+	}
+
+	// Verify confidence updated
+	node, _ := m.globalStore.GetNode(ctx, "b1")
+	if node == nil {
+		t.Fatal("node not found after UpdateConfidence")
+	}
+
+	// UpdateConfidence for non-existent should error
+	err = m.UpdateConfidence(ctx, "nonexistent", 0.5)
+	if err == nil {
+		t.Error("UpdateConfidence() should error for non-existent behavior")
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_RecordActivationHit(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	// Add behavior to local store
+	m.localStore.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do this",
+		},
+	})
+
+	err := m.RecordActivationHit(ctx, "b1")
+	if err != nil {
+		t.Fatalf("RecordActivationHit() error = %v", err)
+	}
+
+	// Non-existent should error
+	err = m.RecordActivationHit(ctx, "nonexistent")
+	if err == nil {
+		t.Error("RecordActivationHit() should error for non-existent behavior")
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_RecordConfirmed(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	m.globalStore.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do this",
+		},
+	})
+
+	err := m.RecordConfirmed(ctx, "b1")
+	if err != nil {
+		t.Fatalf("RecordConfirmed() error = %v", err)
+	}
+
+	err = m.RecordConfirmed(ctx, "nonexistent")
+	if err == nil {
+		t.Error("RecordConfirmed() should error for non-existent behavior")
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_RecordOverridden(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	m.localStore.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do this",
+		},
+	})
+
+	err := m.RecordOverridden(ctx, "b1")
+	if err != nil {
+		t.Fatalf("RecordOverridden() error = %v", err)
+	}
+
+	err = m.RecordOverridden(ctx, "nonexistent")
+	if err == nil {
+		t.Error("RecordOverridden() should error for non-existent behavior")
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_TouchEdges(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	// Add behaviors and edges to both stores
+	m.localStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "a"}})
+	m.localStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "b"}})
+	m.localStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	err := m.TouchEdges(ctx, []string{"a", "b"})
+	if err != nil {
+		t.Fatalf("TouchEdges() error = %v", err)
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_BatchUpdateEdgeWeights(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	m.localStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "a"}})
+	m.localStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "b"}})
+	m.localStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindCoActivated, Weight: 0.5, CreatedAt: time.Now()})
+
+	updates := []EdgeWeightUpdate{
+		{Source: "a", Target: "b", Kind: EdgeKindCoActivated, NewWeight: 0.8},
+	}
+	err := m.BatchUpdateEdgeWeights(ctx, updates)
+	if err != nil {
+		t.Fatalf("BatchUpdateEdgeWeights() error = %v", err)
+	}
+}
+
+func TestMultiGraphStore_ExtendedStore_PruneWeakEdges(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	// Add weak edges to both stores
+	m.localStore.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "a"}})
+	m.localStore.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "b"}})
+	m.localStore.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindCoActivated, Weight: 0.1, CreatedAt: time.Now()})
+
+	m.globalStore.AddNode(ctx, Node{ID: "c", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "c"}})
+	m.globalStore.AddNode(ctx, Node{ID: "d", Kind: NodeKindBehavior, Content: map[string]interface{}{"right": "d"}})
+	m.globalStore.AddEdge(ctx, Edge{Source: "c", Target: "d", Kind: EdgeKindCoActivated, Weight: 0.05, CreatedAt: time.Now()})
+
+	pruned, err := m.PruneWeakEdges(ctx, EdgeKindCoActivated, 0.2)
+	if err != nil {
+		t.Fatalf("PruneWeakEdges() error = %v", err)
+	}
+	if pruned != 2 {
+		t.Errorf("PruneWeakEdges() pruned %d, want 2", pruned)
+	}
+}
+
+func TestMultiGraphStore_Embedding_StoreAndGet(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	// Add behavior to global store
+	m.globalStore.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do thing",
+		},
+	})
+	m.localStore.AddNode(ctx, Node{
+		ID:   "b2",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do other thing",
+		},
+	})
+
+	// StoreEmbedding for global behavior
+	err := m.StoreEmbedding(ctx, "b1", []float32{0.1, 0.2}, "model-1")
+	if err != nil {
+		t.Fatalf("StoreEmbedding(global) error = %v", err)
+	}
+
+	// StoreEmbedding for local behavior
+	err = m.StoreEmbedding(ctx, "b2", []float32{0.3, 0.4}, "model-1")
+	if err != nil {
+		t.Fatalf("StoreEmbedding(local) error = %v", err)
+	}
+
+	// StoreEmbedding for non-existent should error
+	err = m.StoreEmbedding(ctx, "nonexistent", []float32{0.5}, "model-1")
+	if err == nil {
+		t.Error("StoreEmbedding() should error for non-existent behavior")
+	}
+
+	// GetAllEmbeddings should return both
+	embeddings, err := m.GetAllEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetAllEmbeddings() error = %v", err)
+	}
+	if len(embeddings) != 2 {
+		t.Errorf("GetAllEmbeddings() got %d, want 2", len(embeddings))
+	}
+
+	// GetBehaviorIDsWithoutEmbeddings should return empty (both have embeddings)
+	ids, err := m.GetBehaviorIDsWithoutEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetBehaviorIDsWithoutEmbeddings() error = %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("GetBehaviorIDsWithoutEmbeddings() got %d, want 0", len(ids))
+	}
+}
+
+func TestMultiGraphStore_Close_BothStores(t *testing.T) {
+	local, err := NewSQLiteGraphStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create local store: %v", err)
+	}
+	global, err := NewSQLiteGraphStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("failed to create global store: %v", err)
+	}
+	m := &MultiGraphStore{localStore: local, globalStore: global}
+
+	err = m.Close()
+	if err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
+func TestMultiGraphStore_UpdateNode_NotFound(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	err := m.UpdateNode(ctx, Node{ID: "nonexistent", Kind: NodeKindBehavior})
+	if err == nil {
+		t.Error("UpdateNode() should error for non-existent node")
+	}
+}
+
+func TestMultiGraphStore_UpdateNode_InGlobalStore(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add node only to global
+	m.globalStore.AddNode(ctx, Node{ID: "g1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "original"}})
+
+	// Update should find it in global
+	err := m.UpdateNode(ctx, Node{ID: "g1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "updated"}})
+	if err != nil {
+		t.Fatalf("UpdateNode() error = %v", err)
+	}
+
+	got := mustGetNode(t, m.globalStore, ctx, "g1")
+	if got.Content["name"] != "updated" {
+		t.Errorf("name = %v, want updated", got.Content["name"])
+	}
+}
+
+func TestMultiGraphStore_UpdateNode_InLocalStore(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add to local
+	m.localStore.AddNode(ctx, Node{ID: "l1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "original"}})
+
+	// Update should find it in local
+	err := m.UpdateNode(ctx, Node{ID: "l1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "local-updated"}})
+	if err != nil {
+		t.Fatalf("UpdateNode() error = %v", err)
+	}
+}
+
+func TestMultiGraphStore_GetNode_FromGlobal(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	// Add only to global
+	m.globalStore.AddNode(ctx, Node{ID: "glob-only", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "global node"}})
+
+	got, err := m.GetNode(ctx, "glob-only")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() should find node in global store")
+	}
+	if got.Content["name"] != "global node" {
+		t.Errorf("name = %v, want global node", got.Content["name"])
+	}
+}
+
+func TestMultiGraphStore_GetNode_NotFound(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	got, err := m.GetNode(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got != nil {
+		t.Error("GetNode() should return nil for non-existent node")
+	}
+}
+
+func TestMultiGraphStore_AddEdge_EndpointsNotFound(t *testing.T) {
+	m := newTestMultiStoreInMemory(t)
+	ctx := context.Background()
+
+	err := m.AddEdge(ctx, Edge{Source: "nonexistent-src", Target: "nonexistent-tgt", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should error when endpoints not found")
+	}
+}
+
+func TestMultiGraphStore_Sync_BothStoresHaveData(t *testing.T) {
+	m := newTestMultiStore(t)
+	ctx := context.Background()
+
+	m.localStore.AddNode(ctx, Node{ID: "sync-l", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "l", "kind": "directive", "content": map[string]interface{}{"canonical": "sync local"}}})
+	m.globalStore.AddNode(ctx, Node{ID: "sync-g", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "g", "kind": "directive", "content": map[string]interface{}{"canonical": "sync global"}}})
+
+	err := m.Sync(ctx)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+}

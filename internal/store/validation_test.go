@@ -777,3 +777,41 @@ func filterByIssue(errors []ValidationError, issue string) []ValidationError {
 	}
 	return result
 }
+
+func TestValidationError_String(t *testing.T) {
+	tests := []struct {
+		name string
+		err  ValidationError
+		want string
+	}{
+		{
+			name: "dangling reference",
+			err: ValidationError{
+				BehaviorID: "b1",
+				Field:      "requires",
+				RefID:      "b2",
+				Issue:      "dangling",
+			},
+			want: "dangling: b1 in requires references b2",
+		},
+		{
+			name: "cycle",
+			err: ValidationError{
+				BehaviorID: "b3",
+				Field:      "requires",
+				RefID:      "b4",
+				Issue:      "cycle",
+			},
+			want: "cycle: b3 in requires references b4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.err.String()
+			if got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

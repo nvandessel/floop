@@ -147,6 +147,34 @@ func TestBruteForceIndex_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
+func TestBruteForceIndex_Save(t *testing.T) {
+	idx := NewBruteForceIndex()
+	if err := idx.Save(context.Background()); err != nil {
+		t.Errorf("Save() error = %v, want nil", err)
+	}
+}
+
+func TestBruteForceIndex_Close(t *testing.T) {
+	idx := NewBruteForceIndex()
+	if err := idx.Close(); err != nil {
+		t.Errorf("Close() error = %v, want nil", err)
+	}
+}
+
+func TestBruteForceIndex_SearchEmptyQuery(t *testing.T) {
+	idx := NewBruteForceIndex()
+	ctx := context.Background()
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0})
+
+	results, err := idx.Search(ctx, []float32{}, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty results for empty query, got %d", len(results))
+	}
+}
+
 func TestBruteForceIndex_MatchesBruteForceSearch(t *testing.T) {
 	// Verify that BruteForceIndex produces the same ordering as the
 	// existing vectorsearch.BruteForceSearch for identical inputs.
