@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -254,6 +255,139 @@ func TestTokenBudgetSection(t *testing.T) {
 	}
 	if utilization < 0 || utilization > 1.0 {
 		t.Errorf("utilization %f should be between 0 and 1", utilization)
+	}
+}
+
+func TestRepeatChar(t *testing.T) {
+	tests := []struct {
+		name string
+		char rune
+		n    int
+		want string
+	}{
+		{"dashes", '-', 5, "-----"},
+		{"zero", '-', 0, ""},
+		{"single", '*', 1, "*"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repeatChar(tt.char, tt.n)
+			if got != tt.want {
+				t.Errorf("repeatChar(%c, %d) = %q, want %q", tt.char, tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewStatsCmd(t *testing.T) {
+	cmd := newStatsCmd()
+	if cmd.Use != "stats" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "stats")
+	}
+	for _, flag := range []string{"top", "sort", "scope", "budget"} {
+		if cmd.Flags().Lookup(flag) == nil {
+			t.Errorf("missing --%s flag", flag)
+		}
+	}
+}
+
+func TestStatsCmdIntegration(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"stats", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("stats failed: %v", err)
+	}
+}
+
+func TestStatsCmdJSON(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"stats", "--json", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("stats --json failed: %v", err)
+	}
+}
+
+func TestStatsCmdTopN(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newStatsCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"stats", "--top", "1", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("stats --top failed: %v", err)
+	}
+}
+
+func TestStatsCmdSortOptions(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	for _, sortBy := range []string{"activations", "followed", "rate", "confidence", "priority", "score"} {
+		t.Run(sortBy, func(t *testing.T) {
+			rootCmd := newTestRootCmd()
+			rootCmd.AddCommand(newStatsCmd())
+			rootCmd.SetOut(&bytes.Buffer{})
+			rootCmd.SetArgs([]string{"stats", "--sort", sortBy, "--root", tmpDir})
+
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("stats --sort %s failed: %v", sortBy, err)
+			}
+		})
+	}
+}
+
+func TestStatsCmdEmptyStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	rootCmd2 := newTestRootCmd()
+	rootCmd2.AddCommand(newStatsCmd())
+	rootCmd2.SetOut(&bytes.Buffer{})
+	rootCmd2.SetArgs([]string{"stats", "--root", tmpDir})
+
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("stats empty store failed: %v", err)
+	}
+}
+
+func TestStatsCmdEmptyStoreJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	rootCmd2 := newTestRootCmd()
+	rootCmd2.AddCommand(newStatsCmd())
+	rootCmd2.SetOut(&bytes.Buffer{})
+	rootCmd2.SetArgs([]string{"stats", "--json", "--root", tmpDir})
+
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("stats --json empty failed: %v", err)
 	}
 }
 

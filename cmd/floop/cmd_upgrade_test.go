@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -97,6 +98,57 @@ func TestUpgradeScopeMigratesOldScripts(t *testing.T) {
 	has, _ := p.HasFloopHook(dir)
 	if !has {
 		t.Error("expected HasFloopHook=true after migration")
+	}
+}
+
+func TestNewUpgradeCmd(t *testing.T) {
+	cmd := newUpgradeCmd()
+	if cmd.Use != "upgrade" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "upgrade")
+	}
+	for _, flag := range []string{"force"} {
+		if cmd.Flags().Lookup(flag) == nil {
+			t.Errorf("missing --%s flag", flag)
+		}
+	}
+}
+
+func TestUpgradeCmdIntegration(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newUpgradeCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"upgrade", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+}
+
+func TestUpgradeCmdJSON(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newUpgradeCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"upgrade", "--json", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("upgrade --json failed: %v", err)
+	}
+}
+
+func TestUpgradeCmdForce(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newUpgradeCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"upgrade", "--force", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("upgrade --force failed: %v", err)
 	}
 }
 
