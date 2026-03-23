@@ -337,5 +337,146 @@ func TestLanceDBIndex_DimensionMismatchOnReopen(t *testing.T) {
 	}
 }
 
+func TestLanceDBIndex_Save(t *testing.T) {
+	idx := newTestLanceDB(t)
+	defer idx.Close()
+
+	if err := idx.Save(context.Background()); err != nil {
+		t.Errorf("Save() error = %v, want nil", err)
+	}
+}
+
+func TestLanceDBIndex_AddDimensionMismatch(t *testing.T) {
+	idx := newTestLanceDB(t) // dims=8
+	defer idx.Close()
+
+	err := idx.Add(context.Background(), "b1", []float32{1, 0, 0}) // only 3 dims
+	if err == nil {
+		t.Fatal("expected error for dimension mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "vector dimension mismatch") {
+		t.Errorf("expected dimension mismatch error, got: %v", err)
+	}
+}
+
+func TestLanceDBIndex_CloseReleasesResources(t *testing.T) {
+	idx := newTestLanceDB(t)
+	ctx := context.Background()
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+
+	// Close should succeed without error.
+	if err := idx.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestExtractVector(t *testing.T) {
+	tests := []struct {
+		name string
+		input interface{}
+		want  []float32
+	}{
+		{
+			name:  "[]interface{} with float64",
+			input: []interface{}{float64(1.0), float64(2.0), float64(3.0)},
+			want:  []float32{1.0, 2.0, 3.0},
+		},
+		{
+			name:  "[]interface{} with float32",
+			input: []interface{}{float32(1.0), float32(2.0)},
+			want:  []float32{1.0, 2.0},
+		},
+		{
+			name:  "[]interface{} with unknown type",
+			input: []interface{}{"not a number"},
+			want:  nil,
+		},
+		{
+			name:  "[]float32 passthrough",
+			input: []float32{1.0, 2.0, 3.0},
+			want:  []float32{1.0, 2.0, 3.0},
+		},
+		{
+			name:  "[]float64 conversion",
+			input: []float64{1.0, 2.0, 3.0},
+			want:  []float32{1.0, 2.0, 3.0},
+		},
+		{
+			name:  "nil input",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "unsupported type",
+			input: "not a vector",
+			want:  nil,
+		},
+		{
+			name:  "empty []interface{}",
+			input: []interface{}{},
+			want:  []float32{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractVector(tt.input)
+			if tt.want == nil {
+				if got != nil {
+					t.Errorf("extractVector() = %v, want nil", got)
+				}
+				return
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("extractVector() len = %d, want %d", len(got), len(tt.want))
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("extractVector()[%d] = %f, want %f", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestLanceDBIndex_SearchEmptyQuery(t *testing.T) {
+	idx := newTestLanceDB(t)
+	defer idx.Close()
+
+	ctx := context.Background()
+	mustAdd(t, idx, ctx, "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+
+	results, err := idx.Search(ctx, []float32{}, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected empty results for empty query, got %d", len(results))
+	}
+}
+
+func TestLanceDBIndex_NewReopenExistingTable(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create initial index.
+	idx, err := NewLanceDBIndex(LanceDBConfig{Dir: dir, Dims: 8})
+	if err != nil {
+		t.Fatalf("NewLanceDBIndex: %v", err)
+	}
+	mustAdd(t, idx, context.Background(), "b1", []float32{1, 0, 0, 0, 0, 0, 0, 0})
+	idx.Close()
+
+	// Reopen with same dims — should succeed and find existing data.
+	idx2, err := NewLanceDBIndex(LanceDBConfig{Dir: dir, Dims: 8})
+	if err != nil {
+		t.Fatalf("reopen NewLanceDBIndex: %v", err)
+	}
+	defer idx2.Close()
+
+	if idx2.Len() != 1 {
+		t.Errorf("expected Len()=1 after reopen, got %d", idx2.Len())
+	}
+}
+
 // Verify LanceDBIndex satisfies the VectorIndex interface at compile time.
 var _ VectorIndex = (*LanceDBIndex)(nil)
