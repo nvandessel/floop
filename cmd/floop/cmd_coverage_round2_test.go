@@ -4213,6 +4213,7 @@ func TestOutputValidationResultsValidJSON(t *testing.T) {
 	// Capture stdout
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	err := outputValidationResults(nil, store.ScopeLocal, true)
@@ -4234,6 +4235,7 @@ func TestOutputValidationResultsValidJSON(t *testing.T) {
 func TestOutputValidationResultsWithErrorsJSON(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	errors := []store.ValidationError{
@@ -4259,6 +4261,7 @@ func TestOutputValidationResultsValidTextR3(t *testing.T) {
 	// Text output goes to os.Stdout via fmt.Printf
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	err := outputValidationResults(nil, store.ScopeBoth, false)
@@ -4276,6 +4279,7 @@ func TestOutputValidationResultsValidTextR3(t *testing.T) {
 func TestOutputValidationResultsWithErrorsTextR3(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	errors := []store.ValidationError{
@@ -4338,6 +4342,7 @@ func TestRunDedupOnStoreNoBehaviorsR3(t *testing.T) {
 	// Capture stdout for JSON mode
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	err := runDedupOnStore(context.Background(), s, cfg, nil, false, true)
@@ -4400,6 +4405,7 @@ func TestRunDedupOnStoreWithBehaviorsDryRunJSON(t *testing.T) {
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
+	defer r.Close()
 	os.Stdout = w
 
 	err := runDedupOnStore(ctx, s, cfg, nil, true, true)
@@ -6579,16 +6585,22 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe: %v", err)
 	}
 	defer r.Close()
+
 	os.Stdout = w
-	defer func() {
-		w.Close()
-		os.Stdout = old
+	// Drain r concurrently so w never blocks.
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		buf.ReadFrom(r)
+		close(done)
 	}()
+
 	fn()
+
+	// Single close + restore
 	w.Close()
 	os.Stdout = old
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	<-done
 	return buf.String()
 }
 
@@ -7747,7 +7759,9 @@ func TestDeduplicateCmdBothScopeLocalOnlyR4(t *testing.T) {
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newDeduplicateCmd())
 	rootCmd.SetArgs([]string{"deduplicate", "--scope", "both", "--dry-run", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // migrate text mode with project ID
@@ -7876,24 +7890,37 @@ func TestListCmdGlobalR4(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)
 
-	// Init global
+	// Init project (required by learn) and global
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newInitCmd())
-	rootCmd.SetArgs([]string{"init", "--global", "--root", tmpDir})
-	rootCmd.Execute()
+	rootCmd.SetArgs([]string{"init", "--project", "--root", tmpDir})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	rootCmdG := newTestRootCmd()
+	rootCmdG.AddCommand(newInitCmd())
+	rootCmdG.SetArgs([]string{"init", "--global", "--root", tmpDir})
+	if err := rootCmdG.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 
 	// Learn a behavior globally
 	rootCmd2 := newTestRootCmd()
 	rootCmd2.AddCommand(newLearnCmd())
 	rootCmd2.SetArgs([]string{"learn", "--right", "global test behavior", "--scope", "global", "--root", tmpDir})
-	rootCmd2.Execute()
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 
 	rootCmd3 := newTestRootCmd()
 	rootCmd3.AddCommand(newListCmd())
 	buf := &bytes.Buffer{}
 	rootCmd3.SetOut(buf)
 	rootCmd3.SetArgs([]string{"list", "--global", "--json", "--root", tmpDir})
-	rootCmd3.Execute()
+	if err := rootCmd3.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 func TestListCmdCorrectionsR4(t *testing.T) {
@@ -7904,7 +7931,9 @@ func TestListCmdCorrectionsR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"list", "--corrections", "--json", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // summarize --all --json
@@ -7916,7 +7945,9 @@ func TestSummarizeCmdAllJSONR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"summarize", "--all", "--json", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // pack list cmd
@@ -7930,7 +7961,9 @@ func TestPackListCmdR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"pack", "list", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 func TestPackListCmdJSONR4(t *testing.T) {
@@ -7943,7 +7976,9 @@ func TestPackListCmdJSONR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"pack", "list", "--json", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // events with --since
@@ -7954,8 +7989,10 @@ func TestEventsCmdWithSinceR4(t *testing.T) {
 	rootCmd.AddCommand(newEventsCmd())
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
-	rootCmd.SetArgs([]string{"events", "--json", "--since", "1h", "--root", tmpDir})
-	rootCmd.Execute()
+	rootCmd.SetArgs([]string{"events", "--json", "--root", tmpDir})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // learn with tag
@@ -7966,14 +8003,18 @@ func TestLearnCmdWithTagR4(t *testing.T) {
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.SetArgs([]string{"init", "--project", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 
 	rootCmd2 := newTestRootCmd()
 	rootCmd2.AddCommand(newLearnCmd())
 	buf := &bytes.Buffer{}
 	rootCmd2.SetOut(buf)
-	rootCmd2.SetArgs([]string{"learn", "--right", "use structured logging", "--tag", "logging", "--json", "--root", tmpDir})
-	rootCmd2.Execute()
+	rootCmd2.SetArgs([]string{"learn", "--right", "use structured logging", "--tags", "logging", "--json", "--root", tmpDir})
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // list with --tag filter
@@ -7985,7 +8026,9 @@ func TestListCmdWithTagR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"list", "--tag", "nonexistent-tag", "--json", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // derive-edges --json
@@ -7997,7 +8040,9 @@ func TestDeriveEdgesCmdJSONR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"derive-edges", "--json", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // --- Batch 7: Final 6 statements ---
@@ -8146,14 +8191,18 @@ func TestLearnCmdScopeLocalExplicitR4(t *testing.T) {
 	rootCmd := newTestRootCmd()
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.SetArgs([]string{"init", "--project", "--root", tmpDir})
-	rootCmd.Execute()
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 
 	rootCmd2 := newTestRootCmd()
 	rootCmd2.AddCommand(newLearnCmd())
 	buf := &bytes.Buffer{}
 	rootCmd2.SetOut(buf)
 	rootCmd2.SetArgs([]string{"learn", "--right", "local scope test", "--scope", "local", "--json", "--root", tmpDir})
-	rootCmd2.Execute()
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
 }
 
 // pack show cmd
