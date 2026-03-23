@@ -7329,9 +7329,7 @@ func TestHookActivateTextModeR4(t *testing.T) {
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"hook", "activate", "--file", "main.go", "--root", tmpDir})
-	if err := rootCmd.Execute(); err != nil {
-		t.Logf("hook activate error (may be expected): %v", err)
-	}
+	rootCmd.Execute() // error expected: hook file pattern not registered in test store
 }
 
 // --- summarize specific behavior ---
@@ -7502,7 +7500,7 @@ func TestActiveCmdWithEnvR4(t *testing.T) {
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"active", "--env", "CI=true", "--json", "--root", tmpDir})
 	if err := rootCmd.Execute(); err != nil {
-		t.Logf("active --env error (may be expected): %v", err)
+		t.Errorf("active --env: %v", err)
 	}
 }
 
@@ -7604,7 +7602,7 @@ func TestLearnCmdScopeGlobalR4(t *testing.T) {
 	rootCmd2.Execute()
 }
 
-// deprecate cmd with --json not found
+// deprecate cmd: --reason flag is required; omitting it returns a flag error before any lookup
 func TestDeprecateCmdMissingReasonFlagJSON(t *testing.T) {
 	tmpDir, _ := setupQueryTest(t)
 
