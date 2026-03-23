@@ -276,6 +276,216 @@ func TestInMemoryGraphStore_Traverse(t *testing.T) {
 	}
 }
 
+func TestInMemoryGraphStore_Embedding(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// Add a behavior node
+	mustAddNode(t, s, ctx, Node{ID: "b1", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "b2", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "c1", Kind: NodeKindCorrection}) // not a behavior
+
+	// StoreEmbedding for existing node
+	err := s.StoreEmbedding(ctx, "b1", []float32{0.1, 0.2, 0.3}, "test-model")
+	if err != nil {
+		t.Fatalf("StoreEmbedding() error = %v", err)
+	}
+
+	// StoreEmbedding for non-existent node should fail
+	err = s.StoreEmbedding(ctx, "nonexistent", []float32{0.1}, "test-model")
+	if err == nil {
+		t.Error("StoreEmbedding() should error for non-existent node")
+	}
+
+	// GetAllEmbeddings should return the one we stored
+	embeddings, err := s.GetAllEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetAllEmbeddings() error = %v", err)
+	}
+	if len(embeddings) != 1 {
+		t.Errorf("GetAllEmbeddings() got %d, want 1", len(embeddings))
+	}
+	if len(embeddings) > 0 && embeddings[0].BehaviorID != "b1" {
+		t.Errorf("GetAllEmbeddings() got ID = %s, want b1", embeddings[0].BehaviorID)
+	}
+
+	// GetBehaviorIDsWithoutEmbeddings should return b2 (has no embedding) but not c1 (not a behavior)
+	ids, err := s.GetBehaviorIDsWithoutEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("GetBehaviorIDsWithoutEmbeddings() error = %v", err)
+	}
+	if len(ids) != 1 {
+		t.Errorf("GetBehaviorIDsWithoutEmbeddings() got %d, want 1", len(ids))
+	}
+	if len(ids) > 0 && ids[0] != "b2" {
+		t.Errorf("GetBehaviorIDsWithoutEmbeddings() got %s, want b2", ids[0])
+	}
+}
+
+func TestInMemoryGraphStore_SyncClose(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// Sync is a no-op, should not error
+	if err := s.Sync(ctx); err != nil {
+		t.Errorf("Sync() error = %v", err)
+	}
+
+	// Close is a no-op, should not error
+	if err := s.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
+func TestInMemoryGraphStore_AddEdge_Validation(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// Invalid weight (zero)
+	err := s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 0, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should reject zero weight")
+	}
+
+	// Invalid weight (negative)
+	err = s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: -0.5, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should reject negative weight")
+	}
+
+	// Invalid weight (>1.0)
+	err = s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.5, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should reject weight > 1.0")
+	}
+
+	// Missing CreatedAt
+	err = s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 0.5})
+	if err == nil {
+		t.Error("AddEdge() should reject zero CreatedAt")
+	}
+
+	// Valid edge
+	err = s.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	if err != nil {
+		t.Errorf("AddEdge() with valid data error = %v", err)
+	}
+}
+
+func TestInMemoryGraphStore_Traverse_Both(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// Build graph: a -> b, c -> b (b has both inbound and outbound)
+	mustAddNode(t, s, ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "c", Kind: NodeKindBehavior})
+	mustAddEdge(t, s, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Traverse both from b - should reach all 3
+	results, err := s.Traverse(ctx, "b", nil, DirectionBoth, 5)
+	if err != nil {
+		t.Fatalf("Traverse(both) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(both) got %d, want 3", len(results))
+	}
+}
+
+func TestInMemoryGraphStore_DeleteNode_NonExistent(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// InMemoryGraphStore.DeleteNode on non-existent is a no-op
+	err := s.DeleteNode(ctx, "nonexistent")
+	_ = err // implementation-dependent behavior
+}
+
+func TestInMemoryGraphStore_QueryByID(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	mustAddNode(t, s, ctx, Node{ID: "b1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "one"}})
+	mustAddNode(t, s, ctx, Node{ID: "b2", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "two"}})
+
+	// Query by ID
+	results, err := s.QueryNodes(ctx, map[string]interface{}{"id": "b1"})
+	if err != nil {
+		t.Fatalf("QueryNodes() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(id=b1) got %d results, want 1", len(results))
+	}
+
+	// Query by metadata
+	mustAddNode(t, s, ctx, Node{ID: "b3", Kind: NodeKindBehavior, Metadata: map[string]interface{}{"scope": "local"}})
+	results, err = s.QueryNodes(ctx, map[string]interface{}{"scope": "local"})
+	if err != nil {
+		t.Fatalf("QueryNodes() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(scope=local) got %d results, want 1", len(results))
+	}
+}
+
+func TestInMemoryGraphStore_TraverseNonExistent(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	// InMemoryGraphStore returns empty results for non-existent start (no error)
+	results, err := s.Traverse(ctx, "nonexistent", nil, DirectionOutbound, 5)
+	if err != nil {
+		t.Errorf("Traverse() unexpected error = %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("Traverse() got %d results for non-existent node, want 0", len(results))
+	}
+}
+
+func TestInMemoryGraphStore_GetEdges_Both(t *testing.T) {
+	s := NewInMemoryGraphStore()
+	ctx := context.Background()
+
+	mustAddNode(t, s, ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	mustAddNode(t, s, ctx, Node{ID: "c", Kind: NodeKindBehavior})
+
+	mustAddEdge(t, s, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, s, ctx, Edge{Source: "c", Target: "a", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Get both directions
+	edges, err := s.GetEdges(ctx, "a", DirectionBoth, "")
+	if err != nil {
+		t.Fatalf("GetEdges(both) error = %v", err)
+	}
+	if len(edges) != 2 {
+		t.Errorf("GetEdges(both) got %d, want 2", len(edges))
+	}
+}
+
+func TestEdgeKindMatches(t *testing.T) {
+	tests := []struct {
+		name    string
+		kind    EdgeKind
+		allowed []EdgeKind
+		want    bool
+	}{
+		{"empty allowed matches all", EdgeKindRequires, nil, true},
+		{"match found", EdgeKindRequires, []EdgeKind{EdgeKindRequires, EdgeKindOverrides}, true},
+		{"no match", EdgeKindConflicts, []EdgeKind{EdgeKindRequires, EdgeKindOverrides}, false},
+		{"single match", EdgeKindOverrides, []EdgeKind{EdgeKindOverrides}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := edgeKindMatches(tt.kind, tt.allowed)
+			if got != tt.want {
+				t.Errorf("edgeKindMatches(%v, %v) = %v, want %v", tt.kind, tt.allowed, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestInMemoryGraphStore_Concurrency(t *testing.T) {
 	s := NewInMemoryGraphStore()
 	ctx := context.Background()
