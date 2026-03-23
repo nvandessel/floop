@@ -352,3 +352,236 @@ func TestFileGraphStore_GetNodeNotFound(t *testing.T) {
 		t.Errorf("GetNode() = %v, want nil for nonexistent", got)
 	}
 }
+
+func TestFileGraphStore_Traverse_InboundAndBoth(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Build graph: a -> b -> c
+	mustAddNode(t, store, ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	mustAddNode(t, store, ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	mustAddNode(t, store, ctx, Node{ID: "c", Kind: NodeKindBehavior})
+	mustAddEdge(t, store, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, store, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Traverse inbound from c
+	results, err := store.Traverse(ctx, "c", []EdgeKind{EdgeKindRequires}, DirectionInbound, 5)
+	if err != nil {
+		t.Fatalf("Traverse(inbound) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(inbound) got %d nodes, want 3", len(results))
+	}
+
+	// Traverse both from b (should reach a and c)
+	results, err = store.Traverse(ctx, "b", []EdgeKind{EdgeKindRequires}, DirectionBoth, 5)
+	if err != nil {
+		t.Fatalf("Traverse(both) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(both) got %d nodes, want 3", len(results))
+	}
+}
+
+func TestFileGraphStore_AddEdge_Validation(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Invalid weight
+	err = store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 0, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should reject zero weight")
+	}
+
+	err = store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.5, CreatedAt: time.Now()})
+	if err == nil {
+		t.Error("AddEdge() should reject weight > 1.0")
+	}
+
+	// Missing CreatedAt
+	err = store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 0.5})
+	if err == nil {
+		t.Error("AddEdge() should reject zero CreatedAt")
+	}
+}
+
+func TestFileGraphStore_LoadFromExistingFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create store, add data, close (writes to files)
+	s1, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+	ctx := context.Background()
+	s1.AddNode(ctx, Node{ID: "persist-a", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "a"}})
+	s1.AddNode(ctx, Node{ID: "persist-b", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "b"}})
+	s1.AddEdge(ctx, Edge{Source: "persist-a", Target: "persist-b", Kind: EdgeKindRequires, Weight: 0.8, CreatedAt: time.Now()})
+	s1.Close()
+
+	// Reopen — should load from existing files
+	s2, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() reopen error = %v", err)
+	}
+	defer s2.Close()
+
+	got, _ := s2.GetNode(ctx, "persist-a")
+	if got == nil {
+		t.Error("node persist-a should exist after reload")
+	}
+
+	edges, _ := s2.GetEdges(ctx, "persist-a", DirectionOutbound, "")
+	if len(edges) != 1 {
+		t.Errorf("edges after reload = %d, want 1", len(edges))
+	}
+}
+
+func TestFileGraphStore_WriteEdges(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+
+	ctx := context.Background()
+	mustAddNode(t, store, ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	mustAddNode(t, store, ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	mustAddEdge(t, store, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Sync to persist
+	if err := store.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Verify edges file exists
+	edgesFile := filepath.Join(tmpDir, ".floop", "edges.jsonl")
+	if _, err := os.Stat(edgesFile); os.IsNotExist(err) {
+		t.Error("edges.jsonl should exist after sync")
+	}
+
+	store.Close()
+}
+
+func TestTruncateForError(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"short string", "hello", "hello"},
+		{"exactly 100", string(make([]byte, 100)), string(make([]byte, 100))},
+		{"over 100", string(make([]byte, 150)), string(make([]byte, 100)) + "..."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Fill with 'a' for readability
+			input := tt.input
+			if tt.name == "exactly 100" {
+				input = ""
+				for i := 0; i < 100; i++ {
+					input += "a"
+				}
+			}
+			if tt.name == "over 100" {
+				input = ""
+				for i := 0; i < 150; i++ {
+					input += "a"
+				}
+			}
+
+			got := truncateForError(input)
+			if tt.name == "short string" && got != "hello" {
+				t.Errorf("truncateForError(%q) = %q, want %q", input, got, "hello")
+			}
+			if tt.name == "over 100" && len(got) != 103 { // 100 + "..."
+				t.Errorf("truncateForError() len = %d, want 103", len(got))
+			}
+		})
+	}
+}
+
+func TestFileGraphStore_GetEdges_BothDirection(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	mustAddNode(t, store, ctx, Node{ID: "a", Kind: NodeKindBehavior})
+	mustAddNode(t, store, ctx, Node{ID: "b", Kind: NodeKindBehavior})
+	mustAddNode(t, store, ctx, Node{ID: "c", Kind: NodeKindBehavior})
+	mustAddEdge(t, store, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, store, ctx, Edge{Source: "c", Target: "a", Kind: EdgeKindOverrides, Weight: 1.0, CreatedAt: time.Now()})
+
+	edges, err := store.GetEdges(ctx, "a", DirectionBoth, "")
+	if err != nil {
+		t.Fatalf("GetEdges(both) error = %v", err)
+	}
+	if len(edges) != 2 {
+		t.Errorf("GetEdges(both) got %d, want 2", len(edges))
+	}
+}
+
+func TestFileGraphStore_LoadMalformedJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write malformed nodes JSONL
+	nodesContent := `{"id":"good","kind":"behavior","content":{"name":"ok"}}
+not-valid-json
+{"id":"good2","kind":"behavior","content":{"name":"ok2"}}
+`
+	if err := os.WriteFile(filepath.Join(floopDir, "nodes.jsonl"), []byte(nodesContent), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write malformed edges JSONL
+	edgesContent := `{"source":"a","target":"b","kind":"requires","weight":0.5}
+{bad-edge-json
+{"source":"c","target":"d","kind":"requires","weight":0.5}
+`
+	if err := os.WriteFile(filepath.Join(floopDir, "edges.jsonl"), []byte(edgesContent), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewFileGraphStore() error = %v", err)
+	}
+	defer store.Close()
+
+	// Should have loaded the good nodes and edges
+	ctx := context.Background()
+	node, err := store.GetNode(ctx, "good")
+	if err != nil || node == nil {
+		t.Error("expected good node to be loaded")
+	}
+	node2, err := store.GetNode(ctx, "good2")
+	if err != nil || node2 == nil {
+		t.Error("expected good2 node to be loaded")
+	}
+
+	// Should have recorded load errors for bad lines
+	if len(store.LoadErrors) != 2 {
+		t.Errorf("expected 2 load errors, got %d", len(store.LoadErrors))
+	}
+}

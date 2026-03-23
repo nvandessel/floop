@@ -2800,3 +2800,727 @@ func TestReadNodesFromJSONL_MalformedLines(t *testing.T) {
 		t.Errorf("expected warning on stderr for malformed line, got: %q", stderr)
 	}
 }
+
+func TestSQLiteStore_UpdateConfidence(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add a behavior
+	store.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "do this thing",
+		},
+	})
+
+	// Update confidence
+	err := store.UpdateConfidence(ctx, "b1", 0.95)
+	if err != nil {
+		t.Fatalf("UpdateConfidence() error = %v", err)
+	}
+
+	// Verify updated (read node and check confidence)
+	node, err := store.GetNode(ctx, "b1")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if node == nil {
+		t.Fatal("node should exist after UpdateConfidence")
+	}
+	if conf, ok := node.Content["confidence"].(float64); ok {
+		if conf != 0.95 {
+			t.Errorf("confidence = %v, want 0.95", conf)
+		}
+	}
+
+	// Update confidence for non-existent behavior
+	err = store.UpdateConfidence(ctx, "nonexistent", 0.5)
+	if err == nil {
+		t.Error("UpdateConfidence() should error for non-existent behavior")
+	}
+}
+
+func TestSQLiteStore_DB(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	db := store.DB()
+	if db == nil {
+		t.Error("DB() returned nil")
+	}
+}
+
+func TestSerializeWhenValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    interface{}
+		wantType string
+		wantErr  bool
+	}{
+		{
+			name:     "string value",
+			value:    "hello",
+			wantType: "string",
+		},
+		{
+			name:     "interface array",
+			value:    []interface{}{"a", "b"},
+			wantType: "array",
+		},
+		{
+			name:     "string array",
+			value:    []string{"x", "y"},
+			wantType: "array",
+		},
+		{
+			name:     "number value",
+			value:    42,
+			wantType: "json",
+		},
+		{
+			name:     "bool value",
+			value:    true,
+			wantType: "json",
+		},
+		{
+			name:     "map value",
+			value:    map[string]interface{}{"key": "val"},
+			wantType: "json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, valType, err := serializeWhenValue(tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("serializeWhenValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if valType != tt.wantType {
+				t.Errorf("serializeWhenValue() type = %v, want %v", valType, tt.wantType)
+			}
+			if val == "" && !tt.wantErr {
+				t.Error("serializeWhenValue() returned empty value")
+			}
+		})
+	}
+}
+
+func TestDeserializeWhenValue(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		valueType string
+		wantErr   bool
+	}{
+		{
+			name:      "string type",
+			value:     "hello",
+			valueType: "string",
+		},
+		{
+			name:      "array type",
+			value:     `["a","b"]`,
+			valueType: "array",
+		},
+		{
+			name:      "glob type",
+			value:     "*.go",
+			valueType: "glob",
+		},
+		{
+			name:      "json number",
+			value:     "42",
+			valueType: "json",
+		},
+		{
+			name:      "json object",
+			value:     `{"key":"val"}`,
+			valueType: "",
+		},
+		{
+			name:      "invalid array",
+			value:     "not-json",
+			valueType: "array",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid json",
+			value:     "not-json{",
+			valueType: "unknown",
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := deserializeWhenValue(tt.value, tt.valueType)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("deserializeWhenValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && result == nil {
+				t.Error("deserializeWhenValue() returned nil for valid input")
+			}
+		})
+	}
+}
+
+func TestSerializeDeserializeWhenValue_RoundTrip(t *testing.T) {
+	tests := []struct {
+		name  string
+		value interface{}
+	}{
+		{"string", "hello world"},
+		{"interface_array", []interface{}{"a", "b", "c"}},
+		{"string_array", []string{"x", "y"}},
+		{"number", float64(3.14)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serialized, valType, err := serializeWhenValue(tt.value)
+			if err != nil {
+				t.Fatalf("serialize error: %v", err)
+			}
+			_, err = deserializeWhenValue(serialized, valType)
+			if err != nil {
+				t.Fatalf("deserialize error: %v", err)
+			}
+		})
+	}
+}
+
+func TestJoinStrings(t *testing.T) {
+	tests := []struct {
+		name string
+		strs []string
+		sep  string
+		want string
+	}{
+		{"empty", nil, ",", ""},
+		{"single", []string{"a"}, ",", "a"},
+		{"multiple", []string{"a", "b", "c"}, ",", "a,b,c"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := joinStrings(tt.strs, tt.sep)
+			if got != tt.want {
+				t.Errorf("joinStrings() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSQLiteGraphStore_AddBehavior_AllFields(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add a behavior with all possible content fields
+	node := Node{
+		ID:   "full-behavior",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "full behavior",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical":  "always use proper error handling in Go",
+				"summary":    "use error handling",
+				"structured": map[string]interface{}{"rule": "wrap errors with context"},
+				"tags":       []string{"go", "error-handling"},
+			},
+			"provenance": map[string]interface{}{
+				"source_type":   "correction",
+				"correction_id": "corr-123",
+				"created_at":    "2024-01-15T10:00:00Z",
+			},
+			"requires":  []string{"b-dep-1"},
+			"overrides": []string{"b-old-1"},
+			"conflicts": []string{"b-conflict-1"},
+			"when": map[string]interface{}{
+				"file":     "*.go",
+				"task":     []interface{}{"code-review", "writing"},
+				"language": "go",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence":   0.85,
+			"priority":     float64(1),
+			"scope":        "local",
+			"custom_field": "extra-value",
+			"stats": map[string]interface{}{
+				"times_activated":  float64(5),
+				"times_followed":   float64(3),
+				"times_overridden": float64(1),
+				"times_confirmed":  float64(2),
+				"last_activated":   "2024-06-01T12:00:00Z",
+				"last_confirmed":   "2024-06-01T11:00:00Z",
+			},
+		},
+	}
+
+	id, err := store.AddNode(ctx, node)
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+	if id != "full-behavior" {
+		t.Errorf("AddNode() id = %v, want full-behavior", id)
+	}
+
+	// Verify the node round-trips correctly
+	got, err := store.GetNode(ctx, "full-behavior")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("GetNode() returned nil")
+	}
+
+	// Verify content fields
+	if got.Content["name"] != "full behavior" {
+		t.Errorf("name = %v, want 'full behavior'", got.Content["name"])
+	}
+
+	// Verify when conditions are stored
+	content, _ := got.Content["content"].(map[string]interface{})
+	if content != nil {
+		if content["canonical"] != "always use proper error handling in Go" {
+			t.Errorf("canonical = %v", content["canonical"])
+		}
+	}
+
+	// Verify provenance
+	prov, _ := got.Content["provenance"].(map[string]interface{})
+	if prov == nil {
+		t.Error("provenance should not be nil")
+	} else if prov["source_type"] != "correction" {
+		t.Errorf("source_type = %v", prov["source_type"])
+	}
+}
+
+func TestSQLiteGraphStore_QueryNodes_MultipleKinds(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add different node types
+	store.AddNode(ctx, Node{ID: "b1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "b1", "kind": "directive", "content": map[string]interface{}{"canonical": "beh1"}}})
+	store.AddNode(ctx, Node{ID: "b2", Kind: NodeKindForgotten, Content: map[string]interface{}{"name": "b2", "kind": "directive", "content": map[string]interface{}{"canonical": "forgotten1"}}})
+	store.AddNode(ctx, Node{ID: "c1", Kind: NodeKindCorrection, Content: map[string]interface{}{"name": "c1", "description": "corr"}})
+
+	// Query with nil predicate (all nodes)
+	results, err := store.QueryNodes(ctx, nil)
+	if err != nil {
+		t.Fatalf("QueryNodes(nil) error = %v", err)
+	}
+	if len(results) < 2 {
+		t.Errorf("QueryNodes(nil) got %d, want at least 2", len(results))
+	}
+
+	// Query by forgotten kind
+	results, err = store.QueryNodes(ctx, map[string]interface{}{"kind": string(NodeKindForgotten)})
+	if err != nil {
+		t.Fatalf("QueryNodes(forgotten) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(forgotten) got %d, want 1", len(results))
+	}
+}
+
+func TestSQLiteGraphStore_Traverse_InboundAndBoth(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Build graph: a -> b -> c (each with unique canonical content)
+	for _, id := range []string{"a", "b", "c"} {
+		mustAddNode(t, store, ctx, Node{
+			ID:   id,
+			Kind: NodeKindBehavior,
+			Content: map[string]interface{}{
+				"name": id,
+				"kind": "directive",
+				"content": map[string]interface{}{
+					"canonical": "traverse-test-" + id,
+				},
+			},
+		})
+	}
+	mustAddEdge(t, store, ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+	mustAddEdge(t, store, ctx, Edge{Source: "b", Target: "c", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Traverse inbound from c should reach all 3
+	results, err := store.Traverse(ctx, "c", []EdgeKind{EdgeKindRequires}, DirectionInbound, 5)
+	if err != nil {
+		t.Fatalf("Traverse(inbound) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(inbound from c) got %d nodes, want 3", len(results))
+	}
+
+	// Traverse both from b should reach all 3
+	results, err = store.Traverse(ctx, "b", []EdgeKind{EdgeKindRequires}, DirectionBoth, 5)
+	if err != nil {
+		t.Fatalf("Traverse(both) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(both from b) got %d nodes, want 3", len(results))
+	}
+
+	// Traverse with nil edge kinds (matches all)
+	results, err = store.Traverse(ctx, "a", nil, DirectionOutbound, 5)
+	if err != nil {
+		t.Fatalf("Traverse(nil kinds) error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("Traverse(nil kinds) got %d nodes, want 3", len(results))
+	}
+}
+
+func TestResetSchema(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Add some data
+	store.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "test behavior",
+		},
+	})
+
+	db := store.DB()
+
+	// Reset schema (drops and recreates)
+	err = ResetSchema(ctx, db)
+	if err != nil {
+		t.Fatalf("ResetSchema() error = %v", err)
+	}
+
+	// Verify data is gone (tables are recreated empty)
+	var count int
+	err = db.QueryRow("SELECT count(*) FROM behaviors").Scan(&count)
+	if err != nil {
+		t.Fatalf("query error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("ResetSchema() should clear data, got %d behaviors", count)
+	}
+
+	store.Close()
+}
+
+func TestSQLiteGraphStore_QueryNodes_ByKind(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Add a behavior and a correction
+	store.AddNode(ctx, Node{
+		ID:   "b1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"right": "be nice",
+		},
+	})
+	store.AddNode(ctx, Node{
+		ID:   "c1",
+		Kind: NodeKindCorrection,
+		Content: map[string]interface{}{
+			"name": "some correction",
+		},
+	})
+
+	// Query by correction kind
+	results, err := store.QueryNodes(ctx, map[string]interface{}{"kind": string(NodeKindCorrection)})
+	if err != nil {
+		t.Fatalf("QueryNodes() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(kind=correction) got %d, want 1", len(results))
+	}
+}
+
+func TestSQLiteGraphStore_QueryNodes_ByScope(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	store.AddNode(ctx, Node{
+		ID:   "local-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "local node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "a local scoped behavior",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"scope": "local",
+		},
+	})
+	store.AddNode(ctx, Node{
+		ID:   "global-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "global node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "a global scoped behavior",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"scope": "universal",
+		},
+	})
+
+	// Query by scope
+	results, err := store.QueryNodes(ctx, map[string]interface{}{"scope": "local"})
+	if err != nil {
+		t.Fatalf("QueryNodes(scope=local) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(scope=local) got %d, want 1", len(results))
+	}
+
+	// Query by ID
+	results, err = store.QueryNodes(ctx, map[string]interface{}{"id": "global-1"})
+	if err != nil {
+		t.Fatalf("QueryNodes(id) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("QueryNodes(id=global-1) got %d, want 1", len(results))
+	}
+}
+
+func TestSQLiteGraphStore_AddBehavior_StructProvenance(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Test with struct-style content (non-map types that need JSON round-trip)
+	type provenanceStruct struct {
+		SourceType   string `json:"source_type"`
+		CorrectionID string `json:"correction_id"`
+	}
+	type contentStruct struct {
+		Canonical string `json:"canonical"`
+	}
+
+	node := Node{
+		ID:   "struct-prov",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "struct provenance test",
+			"kind": "constraint",
+			"content": contentStruct{
+				Canonical: "test struct-type content conversion",
+			},
+			"provenance": provenanceStruct{
+				SourceType:   "manual",
+				CorrectionID: "corr-456",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.9,
+		},
+	}
+
+	id, err := store.AddNode(ctx, node)
+	if err != nil {
+		t.Fatalf("AddNode() error = %v", err)
+	}
+	if id != "struct-prov" {
+		t.Errorf("AddNode() id = %v, want struct-prov", id)
+	}
+
+	// Verify round-trip
+	got, _ := store.GetNode(ctx, "struct-prov")
+	if got == nil {
+		t.Fatal("node not found after add")
+	}
+}
+
+func TestSQLiteGraphStore_SyncAndClose(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	_ = cleanup // we'll close manually
+
+	ctx := context.Background()
+
+	// Add data
+	store.AddNode(ctx, Node{
+		ID:   "sync-close-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "sync close test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "test sync then close",
+			},
+		},
+	})
+
+	// Sync first
+	err := store.Sync(ctx)
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+
+	// Close (which syncs again)
+	err = store.Close()
+	if err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestSQLiteGraphStore_AddEdge_WithMetadataAndLastActivated(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	store.AddNode(ctx, Node{ID: "ea", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "ea", "kind": "directive", "content": map[string]interface{}{"canonical": "edge-meta-a"}}})
+	store.AddNode(ctx, Node{ID: "eb", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "eb", "kind": "directive", "content": map[string]interface{}{"canonical": "edge-meta-b"}}})
+
+	now := time.Now()
+	err := store.AddEdge(ctx, Edge{
+		Source:        "ea",
+		Target:        "eb",
+		Kind:          EdgeKindRequires,
+		Weight:        0.75,
+		CreatedAt:     now,
+		LastActivated: &now,
+		Metadata:      map[string]interface{}{"reason": "test edge metadata", "count": float64(3)},
+	})
+	if err != nil {
+		t.Fatalf("AddEdge() error = %v", err)
+	}
+
+	edges, err := store.GetEdges(ctx, "ea", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("GetEdges() got %d, want 1", len(edges))
+	}
+	if edges[0].Weight != 0.75 {
+		t.Errorf("edge weight = %v, want 0.75", edges[0].Weight)
+	}
+	if edges[0].LastActivated == nil {
+		t.Error("edge LastActivated should not be nil")
+	}
+	if edges[0].Metadata == nil {
+		t.Error("edge Metadata should not be nil")
+	} else if edges[0].Metadata["reason"] != "test edge metadata" {
+		t.Errorf("metadata reason = %v", edges[0].Metadata["reason"])
+	}
+}
+
+func TestSQLiteGraphStore_RemoveEdge_NonExistent(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Removing non-existent edge should not error
+	err := store.RemoveEdge(ctx, "x", "y", EdgeKindRequires)
+	if err != nil {
+		t.Errorf("RemoveEdge() for non-existent edge error = %v", err)
+	}
+}
+
+func TestSQLiteGraphStore_UpdateNode_Behavior(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	store.AddNode(ctx, Node{
+		ID:   "update-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "original",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "original content",
+			},
+		},
+	})
+
+	// Update the behavior
+	err := store.UpdateNode(ctx, Node{
+		ID:   "update-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "updated",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "updated content",
+			},
+			"when": map[string]interface{}{
+				"file": "*.go",
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.9,
+			"stats": map[string]interface{}{
+				"times_activated": float64(10),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateNode() error = %v", err)
+	}
+
+	got, _ := store.GetNode(ctx, "update-1")
+	if got == nil {
+		t.Fatal("node not found after update")
+	}
+	if got.Content["name"] != "updated" {
+		t.Errorf("name after update = %v, want updated", got.Content["name"])
+	}
+}
+
+func TestSQLiteGraphStore_DeleteNode_WithEdges(t *testing.T) {
+	store, cleanup := setupTestSQLiteStore(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	store.AddNode(ctx, Node{ID: "a", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "a", "kind": "directive", "content": map[string]interface{}{"canonical": "del-edge-a"}}})
+	store.AddNode(ctx, Node{ID: "b", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "b", "kind": "directive", "content": map[string]interface{}{"canonical": "del-edge-b"}}})
+	store.AddEdge(ctx, Edge{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 1.0, CreatedAt: time.Now()})
+
+	// Delete node a, edges should also be removed
+	err := store.DeleteNode(ctx, "a")
+	if err != nil {
+		t.Fatalf("DeleteNode() error = %v", err)
+	}
+
+	// Verify edges are gone
+	edges, err := store.GetEdges(ctx, "b", DirectionInbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(edges) != 0 {
+		t.Errorf("edges should be removed after DeleteNode, got %d", len(edges))
+	}
+}

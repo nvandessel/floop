@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestExportImportPreservesEmbeddings(t *testing.T) {
@@ -247,4 +248,386 @@ func TestExportEmbedding_Base64Format(t *testing.T) {
 	}
 
 	s.Close()
+}
+
+func TestImportEdgesFromJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Create store first to get schema
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+
+	// Write an edges JSONL file with various formats
+	edgesFile := filepath.Join(floopDir, "edges.jsonl")
+	now := time.Now()
+
+	edges := []Edge{
+		{Source: "a", Target: "b", Kind: EdgeKindRequires, Weight: 0.8, CreatedAt: now},
+		{Source: "b", Target: "c", Kind: EdgeKindOverrides, Weight: 0, CreatedAt: time.Time{}}, // old format: zero weight and zero time
+		{Source: "c", Target: "d", Kind: EdgeKindConflicts, Weight: 0.5, CreatedAt: now, LastActivated: &now, Metadata: map[string]interface{}{"note": "test"}},
+	}
+
+	f, err := os.Create(edgesFile)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	enc := json.NewEncoder(f)
+	for _, e := range edges {
+		enc.Encode(e)
+	}
+	f.Close()
+
+	// Import edges
+	err = s.ImportEdgesFromJSONL(ctx, edgesFile)
+	if err != nil {
+		t.Fatalf("ImportEdgesFromJSONL() error = %v", err)
+	}
+
+	// Verify edges were imported
+	got, err := s.GetEdges(ctx, "a", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("GetEdges(a) got %d, want 1", len(got))
+	}
+
+	// Verify old-format edge got default weight of 1.0
+	got2, err := s.GetEdges(ctx, "b", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges(b) error = %v", err)
+	}
+	if len(got2) == 1 && got2[0].Weight != 1.0 {
+		t.Errorf("backfilled weight = %v, want 1.0", got2[0].Weight)
+	}
+
+	// Verify edge with metadata
+	got3, err := s.GetEdges(ctx, "c", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges(c) error = %v", err)
+	}
+	if len(got3) == 1 {
+		if got3[0].Metadata == nil || got3[0].Metadata["note"] != "test" {
+			t.Errorf("edge metadata not preserved: %v", got3[0].Metadata)
+		}
+	}
+
+	s.Close()
+}
+
+func TestImportNodesFromJSONL_NonExistentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Import from non-existent file should be a no-op
+	err = s.ImportNodesFromJSONL(ctx, "/nonexistent/path/nodes.jsonl")
+	if err != nil {
+		t.Errorf("ImportNodesFromJSONL() for missing file should return nil, got %v", err)
+	}
+}
+
+func TestImportEdgesFromJSONL_NonExistentFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Import from non-existent file should be a no-op
+	err = s.ImportEdgesFromJSONL(ctx, "/nonexistent/path/edges.jsonl")
+	if err != nil {
+		t.Errorf("ImportEdgesFromJSONL() for missing file should return nil, got %v", err)
+	}
+}
+
+func TestImportNodesFromJSONL_GenericNode(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	// Write JSONL with a non-behavior node (correction type)
+	nodesFile := filepath.Join(floopDir, "nodes.jsonl")
+	node := Node{
+		ID:   "corr-1",
+		Kind: NodeKindCorrection,
+		Content: map[string]interface{}{
+			"name":        "some correction",
+			"description": "a correction node",
+		},
+	}
+	f, err := os.Create(nodesFile)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	json.NewEncoder(f).Encode(node)
+	f.Close()
+
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	got, err := s.GetNode(ctx, "corr-1")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("generic node not imported")
+	}
+	if got.Kind != NodeKindCorrection {
+		t.Errorf("node kind = %v, want correction", got.Kind)
+	}
+}
+
+func TestImportNodesFromJSONL_WithMalformedAndEmptyLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	// Write JSONL with empty lines and malformed JSON
+	nodesFile := filepath.Join(floopDir, "nodes.jsonl")
+	f, err := os.Create(nodesFile)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	f.WriteString("\n") // empty line
+	f.WriteString(`{"id":"good-node","kind":"behavior","content":{"name":"Good","kind":"directive","content":{"canonical":"a good behavior"}}}` + "\n")
+	f.WriteString("this is not valid json\n") // malformed
+	f.WriteString("\n")                       // another empty line
+	f.Close()
+
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	got, err := s.GetNode(ctx, "good-node")
+	if err != nil {
+		t.Fatalf("GetNode() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("valid node should be imported despite malformed lines")
+	}
+}
+
+func TestGetDirtyBehaviorIDs(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Initially should be empty
+	ids, err := s.GetDirtyBehaviorIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetDirtyBehaviorIDs() error = %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("initial dirty IDs = %d, want 0", len(ids))
+	}
+
+	// Add a behavior — should trigger dirty flag
+	s.AddNode(ctx, Node{
+		ID:   "dirty-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "dirty test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "a dirty behavior",
+			},
+		},
+	})
+
+	ids, err = s.GetDirtyBehaviorIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetDirtyBehaviorIDs() after add error = %v", err)
+	}
+	if len(ids) != 1 {
+		t.Errorf("dirty IDs after add = %d, want 1", len(ids))
+	}
+
+	// IsDirty should return true
+	dirty, err := s.IsDirty(ctx)
+	if err != nil {
+		t.Fatalf("IsDirty() error = %v", err)
+	}
+	if !dirty {
+		t.Error("IsDirty() = false, want true")
+	}
+}
+
+func TestSQLiteGraphStore_AutoImport_NewerJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create store, add data, sync, close
+	s1, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	ctx := context.Background()
+	s1.AddNode(ctx, Node{
+		ID:   "auto-import-1",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "auto import test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "test auto import with newer jsonl",
+			},
+		},
+	})
+	if err := s1.Sync(ctx); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	s1.Close()
+
+	// Touch the JSONL file to make it newer than the DB
+	nodesFile := filepath.Join(tmpDir, ".floop", "nodes.jsonl")
+	futureTime := time.Now().Add(2 * time.Second)
+	os.Chtimes(nodesFile, futureTime, futureTime)
+
+	// Also add a new node to the JSONL
+	f, err := os.OpenFile(nodesFile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("OpenFile() error = %v", err)
+	}
+	newNode := Node{
+		ID:   "auto-import-2",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "second node",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "added via jsonl",
+			},
+		},
+	}
+	json.NewEncoder(f).Encode(newNode)
+	f.Close()
+	os.Chtimes(nodesFile, futureTime, futureTime)
+
+	// Reopen store — should reimport from JSONL since it's newer
+	s2, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() reopen error = %v", err)
+	}
+	defer s2.Close()
+
+	// Verify both nodes exist
+	got1, _ := s2.GetNode(ctx, "auto-import-1")
+	if got1 == nil {
+		t.Error("original node should exist after reimport")
+	}
+	got2, _ := s2.GetNode(ctx, "auto-import-2")
+	if got2 == nil {
+		t.Error("new node from JSONL should exist after reimport")
+	}
+}
+
+func TestSQLiteGraphStore_AutoImport_WithEdgesJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	if err := os.MkdirAll(floopDir, 0700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Write nodes and edges JSONL files
+	nodesFile := filepath.Join(floopDir, "nodes.jsonl")
+	edgesFile := filepath.Join(floopDir, "edges.jsonl")
+
+	nf, _ := os.Create(nodesFile)
+	json.NewEncoder(nf).Encode(Node{ID: "n1", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "n1", "kind": "directive", "content": map[string]interface{}{"canonical": "node n1"}}})
+	json.NewEncoder(nf).Encode(Node{ID: "n2", Kind: NodeKindBehavior, Content: map[string]interface{}{"name": "n2", "kind": "directive", "content": map[string]interface{}{"canonical": "node n2"}}})
+	nf.Close()
+
+	ef, _ := os.Create(edgesFile)
+	json.NewEncoder(ef).Encode(Edge{Source: "n1", Target: "n2", Kind: EdgeKindRequires, Weight: 0.9, CreatedAt: time.Now()})
+	ef.Close()
+
+	// Open store — should auto-import both
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	edges, err := s.GetEdges(ctx, "n1", DirectionOutbound, "")
+	if err != nil {
+		t.Fatalf("GetEdges() error = %v", err)
+	}
+	if len(edges) != 1 {
+		t.Errorf("GetEdges() got %d, want 1", len(edges))
+	}
+}
+
+func TestSQLiteGraphStore_SyncCreatesJSONLWhenMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	s, err := NewSQLiteGraphStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewSQLiteGraphStore() error = %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add and sync to create JSONL files
+	s.AddNode(ctx, Node{
+		ID:   "sync-test",
+		Kind: NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "sync test",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "test sync creates jsonl",
+			},
+		},
+	})
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("first Sync() error = %v", err)
+	}
+
+	// Remove the JSONL files
+	nodesFile := filepath.Join(tmpDir, ".floop", "nodes.jsonl")
+	os.Remove(nodesFile)
+
+	// Sync again — should recreate the file even with no dirty behaviors
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("second Sync() error = %v", err)
+	}
+
+	// Verify file was recreated
+	if _, err := os.Stat(nodesFile); os.IsNotExist(err) {
+		t.Error("Sync() should recreate missing nodes.jsonl")
+	}
 }
