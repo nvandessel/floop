@@ -347,3 +347,117 @@ func TestRunActivateNoFloop(t *testing.T) {
 		t.Errorf("expected nil error for no .floop, got: %v", err)
 	}
 }
+
+func TestActivateCmdIntegration(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActivateCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"activate", "--file", "main.go", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("activate failed: %v", err)
+	}
+}
+
+func TestActivateCmdJSON(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActivateCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"activate", "--file", "main.go", "--json", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("activate --json failed: %v", err)
+	}
+}
+
+func TestActivateCmdWithTask(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActivateCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"activate", "--task", "coding", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("activate --task failed: %v", err)
+	}
+}
+
+func TestActivateCmdWithLanguage(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActivateCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"activate", "--language", "go", "--file", "main.go", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("activate --language failed: %v", err)
+	}
+}
+
+func TestActivateCmdWithTokenBudget(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActivateCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"activate", "--file", "main.go", "--token-budget", "100", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("activate --token-budget failed: %v", err)
+	}
+}
+
+func TestActiveCmdIntegration(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActiveCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"active", "--file", "main.go", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("active failed: %v", err)
+	}
+}
+
+func TestActiveCmdJSON(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActiveCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"active", "--json", "--file", "main.go", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("active --json failed: %v", err)
+	}
+}
+
+func TestActiveCmdNotInitialized(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newActiveCmd())
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"active", "--file", "main.go", "--root", tmpDir})
+
+	// Should not error — prints not initialized message
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("active not initialized failed: %v", err)
+	}
+}

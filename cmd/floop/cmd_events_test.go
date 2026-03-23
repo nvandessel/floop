@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +179,238 @@ func TestEventsCmdPrune(t *testing.T) {
 	count, ok := result["count"].(float64)
 	if !ok || count != 1 {
 		t.Errorf("pruned count = %v, want 1", result["count"])
+	}
+}
+
+func TestEventsCmdListEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events", "--json"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events list failed: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(outBuf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	count, ok := result["count"].(float64)
+	if !ok || count != 0 {
+		t.Errorf("count = %v, want 0", result["count"])
+	}
+}
+
+func TestEventsCmdListWithEvents(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	dbPath := filepath.Join(globalDir, "floop.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	es := events.NewSQLiteEventStore(db)
+	ctx := context.Background()
+	if err := es.InitSchema(ctx); err != nil {
+		t.Fatalf("failed to init schema: %v", err)
+	}
+	now := time.Now()
+	if err := es.Add(ctx, events.Event{
+		ID: "evt-list-1", SessionID: "sess-1", Timestamp: now,
+		Source: "test", Actor: events.ActorUser, Kind: events.KindMessage,
+		Content: "test event for listing", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("failed to add event: %v", err)
+	}
+	db.Close()
+
+	// JSON list
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events", "--json"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events list --json failed: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(outBuf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if count, ok := result["count"].(float64); !ok || count != 1 {
+		t.Errorf("count = %v, want 1", result["count"])
+	}
+}
+
+func TestEventsCmdListText(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	dbPath := filepath.Join(globalDir, "floop.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	es := events.NewSQLiteEventStore(db)
+	ctx := context.Background()
+	if err := es.InitSchema(ctx); err != nil {
+		t.Fatalf("failed to init schema: %v", err)
+	}
+	now := time.Now()
+	if err := es.Add(ctx, events.Event{
+		ID: "evt-text-1", SessionID: "sess-text", Timestamp: now,
+		Source: "test", Actor: events.ActorUser, Kind: events.KindMessage,
+		Content: "test event for text output", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("failed to add event: %v", err)
+	}
+	db.Close()
+
+	// Text list (no --json)
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events list text failed: %v", err)
+	}
+	output := outBuf.String()
+	if !strings.Contains(output, "Events (1)") {
+		t.Errorf("expected 'Events (1)' in output, got: %s", output)
+	}
+}
+
+func TestEventsCmdListEmptyText(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events list text failed: %v", err)
+	}
+	if !strings.Contains(outBuf.String(), "No events found") {
+		t.Errorf("expected 'No events found' in output, got: %s", outBuf.String())
+	}
+}
+
+func TestEventsCmdCountText(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events", "--count"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events --count text failed: %v", err)
+	}
+	if !strings.Contains(outBuf.String(), "Event count:") {
+		t.Errorf("expected 'Event count:' in output, got: %s", outBuf.String())
+	}
+}
+
+func TestEventsCmdPruneText(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events", "--prune", "90d"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events --prune text failed: %v", err)
+	}
+	if !strings.Contains(outBuf.String(), "Pruned") {
+		t.Errorf("expected 'Pruned' in output, got: %s", outBuf.String())
+	}
+}
+
+func TestEventsCmdSessionFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	globalDir := filepath.Join(tmpDir, "home", ".floop")
+	if err := os.MkdirAll(globalDir, 0700); err != nil {
+		t.Fatalf("failed to create global dir: %v", err)
+	}
+
+	dbPath := filepath.Join(globalDir, "floop.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatalf("failed to open db: %v", err)
+	}
+	es := events.NewSQLiteEventStore(db)
+	ctx := context.Background()
+	if err := es.InitSchema(ctx); err != nil {
+		t.Fatalf("failed to init schema: %v", err)
+	}
+	now := time.Now()
+	if err := es.Add(ctx, events.Event{
+		ID: "evt-sess-1", SessionID: "target-session", Timestamp: now,
+		Source: "test", Actor: events.ActorUser, Kind: events.KindMessage,
+		Content: "session filtered event", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("failed to add event: %v", err)
+	}
+	db.Close()
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newEventsCmd())
+	rootCmd.SetArgs([]string{"events", "--session", "target-session", "--json"})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("events --session failed: %v", err)
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(outBuf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if count, ok := result["count"].(float64); !ok || count < 1 {
+		t.Errorf("count = %v, want >= 1", result["count"])
 	}
 }
 

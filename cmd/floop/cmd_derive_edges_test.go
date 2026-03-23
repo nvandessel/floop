@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -441,5 +442,72 @@ func TestDeriveEdgesTagOverlap(t *testing.T) {
 			(pe.Source == "b-python-typing" || pe.Target == "b-python-typing") {
 			t.Errorf("unexpected similar-to edge involving python-typing: %+v", pe)
 		}
+	}
+}
+
+func TestDeriveEdgesCmdIntegration(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDeriveEdgesCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"derive-edges", "--scope", "local", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("derive-edges failed: %v", err)
+	}
+}
+
+func TestDeriveEdgesCmdDryRun(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDeriveEdgesCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"derive-edges", "--dry-run", "--scope", "local", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("derive-edges --dry-run failed: %v", err)
+	}
+}
+
+func TestDeriveEdgesCmdJSON(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDeriveEdgesCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"derive-edges", "--json", "--scope", "local", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("derive-edges --json failed: %v", err)
+	}
+}
+
+func TestDeriveEdgesCmdClear(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDeriveEdgesCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"derive-edges", "--clear", "--scope", "local", "--root", tmpDir})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("derive-edges --clear failed: %v", err)
+	}
+}
+
+func TestDeriveEdgesCmdInvalidScope(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDeriveEdgesCmd())
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"derive-edges", "--scope", "invalid", "--root", tmpDir})
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error for invalid scope")
 	}
 }

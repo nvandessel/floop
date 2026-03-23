@@ -71,6 +71,29 @@ func TestGraphServeImpliesHTMLFormat(t *testing.T) {
 	pr.Close()
 }
 
+func TestGraphCmdJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.SetArgs([]string{"init", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+
+	rootCmd2 := newTestRootCmd()
+	rootCmd2.AddCommand(newGraphCmd())
+	var out bytes.Buffer
+	rootCmd2.SetOut(&out)
+	rootCmd2.SetArgs([]string{"graph", "--format", "json", "--root", tmpDir})
+
+	if err := rootCmd2.Execute(); err != nil {
+		t.Fatalf("graph --format json failed: %v", err)
+	}
+}
+
 func TestGraphDefaultFormatIsDOT(t *testing.T) {
 	tmpDir := t.TempDir()
 	isolateHome(t, tmpDir)

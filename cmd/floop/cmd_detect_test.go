@@ -61,3 +61,80 @@ func TestDetectCorrectionCmdNonCorrectionPrompt(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestDetectCorrectionCmdCorrectionPrompt(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	// A prompt that matches correction patterns
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDetectCorrectionCmd())
+	rootCmd.SetArgs([]string{
+		"detect-correction",
+		"--prompt", "No, don't use fmt.Println, use slog instead",
+		"--json",
+		"--root", tmpDir,
+	})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("detect-correction failed: %v", err)
+	}
+}
+
+func TestDetectCorrectionCmdDryRun(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDetectCorrectionCmd())
+	rootCmd.SetArgs([]string{
+		"detect-correction",
+		"--prompt", "No, don't use fmt.Println, use slog instead",
+		"--dry-run",
+		"--json",
+		"--root", tmpDir,
+	})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("detect-correction --dry-run failed: %v", err)
+	}
+}
+
+func TestDetectCorrectionCmdWithLongPrompt(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDetectCorrectionCmd())
+	rootCmd.SetArgs([]string{
+		"detect-correction",
+		"--prompt", "No, don't use os.path, use pathlib.Path instead. Always prefer pathlib for file operations.",
+		"--json",
+		"--root", tmpDir,
+	})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("detect-correction with long prompt failed: %v", err)
+	}
+}
+
+func TestDetectCorrectionCmdText(t *testing.T) {
+	tmpDir, _ := setupQueryTest(t)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newDetectCorrectionCmd())
+	rootCmd.SetArgs([]string{
+		"detect-correction",
+		"--prompt", "No, don't use fmt.Println, use slog instead",
+		"--root", tmpDir,
+	})
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("detect-correction text failed: %v", err)
+	}
+}
