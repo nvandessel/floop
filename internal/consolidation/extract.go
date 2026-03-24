@@ -238,18 +238,19 @@ func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.E
 		return nil, fmt.Errorf("extract from chunk: %w", err)
 	}
 
-	// Log successful LLM call for training data
+	var resp extractResponse
+	if err := json.Unmarshal([]byte(llm.ExtractJSON(response)), &resp); err != nil {
+		return nil, fmt.Errorf("parse extract response: %w", err)
+	}
+
+	// Log successful LLM call for training data (after parse so parsed is populated)
 	c.logDecision(map[string]any{
 		"stage":    "extract",
 		"pass":     "extract",
 		"prompt":   messagesToStrings(messages),
 		"response": response,
+		"parsed":   resp,
 	})
-
-	var resp extractResponse
-	if err := json.Unmarshal([]byte(llm.ExtractJSON(response)), &resp); err != nil {
-		return nil, fmt.Errorf("parse extract response: %w", err)
-	}
 
 	var candidates []Candidate
 	for _, ec := range resp.Candidates {
