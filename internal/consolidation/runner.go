@@ -65,9 +65,60 @@ func (r *Runner) model() string {
 	return "unknown"
 }
 
-// Run executes the full consolidation pipeline: Extract, Classify, Relate, Promote.
+// Run executes the consolidation pipeline per session. Events are grouped by
+// SessionID so that Extract/Classify/Relate/Promote run on coherent,
+// single-session batches rather than mixing unrelated sessions.
 // If DryRun is true or the store is nil, it stops after Classify.
 func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStore, opts RunOptions) (*RunResult, error) {
+	start := time.Now()
+
+	groups := groupBySession(evts)
+
+	// Aggregate results across all sessions.
+	aggregated := &RunResult{}
+	for _, sessionEvts := range groups {
+		if ctx.Err() != nil {
+			return aggregated, ctx.Err()
+		}
+
+		result, err := r.runSession(ctx, sessionEvts, s, opts)
+		if err != nil {
+			return nil, err
+		}
+		aggregated.Candidates = append(aggregated.Candidates, result.Candidates...)
+		aggregated.Classified = append(aggregated.Classified, result.Classified...)
+		aggregated.Edges = append(aggregated.Edges, result.Edges...)
+		aggregated.Merges = append(aggregated.Merges, result.Merges...)
+		aggregated.Promoted += result.Promoted
+		aggregated.SourceEventIDs = append(aggregated.SourceEventIDs, result.SourceEventIDs...)
+		// Keep the last run ID for the aggregated result.
+		aggregated.RunID = result.RunID
+	}
+	aggregated.Duration = time.Since(start)
+	return aggregated, nil
+}
+
+// groupBySession partitions events by SessionID, preserving order within each
+// group. Events with an empty SessionID are grouped under a single "" key.
+func groupBySession(evts []events.Event) [][]events.Event {
+	order := make([]string, 0)
+	groups := make(map[string][]events.Event)
+	for _, evt := range evts {
+		if _, seen := groups[evt.SessionID]; !seen {
+			order = append(order, evt.SessionID)
+		}
+		groups[evt.SessionID] = append(groups[evt.SessionID], evt)
+	}
+	result := make([][]events.Event, len(order))
+	for i, sid := range order {
+		result[i] = groups[sid]
+	}
+	return result
+}
+
+// runSession executes the full consolidation pipeline for a single session's
+// events: Extract, Classify, Relate, Promote.
+func (r *Runner) runSession(ctx context.Context, evts []events.Event, s store.GraphStore, opts RunOptions) (*RunResult, error) {
 	start := time.Now()
 	runID := fmt.Sprintf("run-%d", start.UnixNano())
 	result := &RunResult{RunID: runID}
@@ -140,11 +191,6 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 	result.Duration = time.Since(start)
 
 	// Persist run record with all stage counts (best-effort).
-	// NOTE: TokensUsed is always 0 because the SubagentClient (llm.Client)
-	// does not currently report token counts. When token reporting is added
-	// to llm.Client (e.g. via a CompletionResult return type), accumulate
-	// tokens across all LLM calls in Extract/Classify/Relate and pass the
-	// total here via ConsolidationRunRecord.TokensUsed.
 	{
 		model := r.model()
 		var projectID, sessionID string
