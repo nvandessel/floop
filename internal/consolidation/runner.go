@@ -93,9 +93,14 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 		aggregated.Classified = append(aggregated.Classified, result.Classified...)
 		aggregated.Edges = append(aggregated.Edges, result.Edges...)
 		aggregated.Merges = append(aggregated.Merges, result.Merges...)
+		// Note: Skips indices are relative to each session's Classified slice,
+		// not the aggregated one. This is acceptable because Skips are consumed
+		// during Promote (inside runSession), not after aggregation.
 		aggregated.Skips = append(aggregated.Skips, result.Skips...)
 		aggregated.Promoted += result.Promoted
 		aggregated.SourceEventIDs = append(aggregated.SourceEventIDs, result.SourceEventIDs...)
+		// Each session gets its own RunID for decision log correlation.
+		// The aggregated RunID uses the first session's ID as a stable reference.
 		if aggregated.RunID == "" {
 			aggregated.RunID = result.RunID
 		}
