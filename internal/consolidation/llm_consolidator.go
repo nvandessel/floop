@@ -123,6 +123,15 @@ func (c *LLMConsolidator) SetRunID(id string) {
 	c.runID = id
 }
 
+// messagesToStrings converts LLM messages to a serializable format for decision logging.
+func messagesToStrings(msgs []llm.Message) []map[string]string {
+	out := make([]map[string]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = map[string]string{"role": m.Role, "content": m.Content}
+	}
+	return out
+}
+
 // logDecision writes a decision log entry with the current run_id and model
 // automatically injected. All stages should use this instead of c.decisions.Log
 // directly so that every JSONL entry is correlated with its run.

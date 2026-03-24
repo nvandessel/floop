@@ -109,7 +109,7 @@ func (c *LLMConsolidator) Extract(ctx context.Context, evts []events.Event) ([]C
 	// Pass 3: Extract candidates from each chunk
 	var candidates []Candidate
 	for i, chunk := range chunks {
-		extracted, err := c.extractFromChunk(ctx, chunk, arc, existingBehaviors)
+		extracted, err := c.extractFromChunk(ctx, chunk, i, arc, existingBehaviors)
 		if err != nil {
 			slog.Warn("extract pass 3 failed for chunk, falling back to heuristic",
 				"chunk", i, "error", err)
@@ -178,9 +178,19 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 			continue
 		}
 
-		// Enrich with chunk metadata
+		// Enrich with chunk metadata before logging
 		summary.ChunkIndex = i
 		summary.EventIDs = eventIDs(chunk)
+
+		// Log successful LLM call for training data
+		c.logDecision(map[string]any{
+			"stage":    "extract",
+			"pass":     "summarize",
+			"chunk":    i,
+			"prompt":   messagesToStrings(messages),
+			"response": response,
+			"parsed":   summary,
+		})
 
 		summaries = append(summaries, summary)
 	}
@@ -209,17 +219,18 @@ func (c *LLMConsolidator) synthesizeArc(ctx context.Context, summaries []extract
 	}
 
 	c.logDecision(map[string]any{
-		"stage":           "extract",
-		"pass":            "arc",
-		"session_outcome": arc.SessionOutcome,
-		"themes":          arc.Themes,
+		"stage":    "extract",
+		"pass":     "arc",
+		"prompt":   messagesToStrings(messages),
+		"response": response,
+		"parsed":   arc,
 	})
 
 	return &arc, nil
 }
 
 // extractFromChunk runs Pass 3 for a single chunk: LLM extraction with arc context.
-func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.Event, arc *extractArcSummary, behaviors []models.Behavior) ([]Candidate, error) {
+func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.Event, chunkIndex int, arc *extractArcSummary, behaviors []models.Behavior) ([]Candidate, error) {
 	messages := extractCandidatesPrompt(chunk, arc, behaviors)
 	response, err := c.client.Complete(ctx, messages)
 	if err != nil {
@@ -230,6 +241,16 @@ func (c *LLMConsolidator) extractFromChunk(ctx context.Context, chunk []events.E
 	if err := json.Unmarshal([]byte(llm.ExtractJSON(response)), &resp); err != nil {
 		return nil, fmt.Errorf("parse extract response: %w", err)
 	}
+
+	// Log successful LLM call for training data (after parse so parsed is populated)
+	c.logDecision(map[string]any{
+		"stage":    "extract",
+		"pass":     "extract",
+		"chunk":    chunkIndex,
+		"prompt":   messagesToStrings(messages),
+		"response": response,
+		"parsed":   resp,
+	})
 
 	var candidates []Candidate
 	for _, ec := range resp.Candidates {

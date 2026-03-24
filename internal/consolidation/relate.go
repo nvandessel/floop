@@ -93,6 +93,9 @@ func (c *LLMConsolidator) Relate(ctx context.Context, memories []ClassifiedMemor
 					"merges":    len(merges),
 					"skips":     len(skips),
 					"proposals": len(proposals),
+					"prompt":    messagesToStrings(msgs),
+					"response":  response,
+					"parsed":    proposals,
 				})
 			}
 		}
