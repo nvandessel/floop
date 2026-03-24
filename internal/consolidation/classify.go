@@ -189,6 +189,9 @@ func (c *LLMConsolidator) classifyBatch(ctx context.Context, batch []Candidate, 
 				"count":      len(classified2),
 				"llm_driven": true,
 				"retried":    true,
+				"prompt":     messagesToStrings(msgs),
+				"response":   response2,
+				"parsed":     classified2,
 			})
 			return classified2, nil
 		}

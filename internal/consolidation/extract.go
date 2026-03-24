@@ -178,6 +178,10 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 			continue
 		}
 
+		// Enrich with chunk metadata before logging
+		summary.ChunkIndex = i
+		summary.EventIDs = eventIDs(chunk)
+
 		// Log successful LLM call for training data
 		c.logDecision(map[string]any{
 			"stage":    "extract",
@@ -187,10 +191,6 @@ func (c *LLMConsolidator) summarizeChunks(ctx context.Context, chunks [][]events
 			"response": response,
 			"parsed":   summary,
 		})
-
-		// Enrich with chunk metadata
-		summary.ChunkIndex = i
-		summary.EventIDs = eventIDs(chunk)
 
 		summaries = append(summaries, summary)
 	}
