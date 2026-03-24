@@ -83,16 +83,22 @@ func (r *Runner) Run(ctx context.Context, evts []events.Event, s store.GraphStor
 
 		result, err := r.runSession(ctx, sessionEvts, s, opts)
 		if err != nil {
-			return nil, err
+			// Return aggregated results so far — SourceEventIDs from
+			// successfully-processed sessions are preserved, preventing
+			// those events from being re-processed on the next run.
+			aggregated.Duration = time.Since(start)
+			return aggregated, err
 		}
 		aggregated.Candidates = append(aggregated.Candidates, result.Candidates...)
 		aggregated.Classified = append(aggregated.Classified, result.Classified...)
 		aggregated.Edges = append(aggregated.Edges, result.Edges...)
 		aggregated.Merges = append(aggregated.Merges, result.Merges...)
+		aggregated.Skips = append(aggregated.Skips, result.Skips...)
 		aggregated.Promoted += result.Promoted
 		aggregated.SourceEventIDs = append(aggregated.SourceEventIDs, result.SourceEventIDs...)
-		// Keep the last run ID for the aggregated result.
-		aggregated.RunID = result.RunID
+		if aggregated.RunID == "" {
+			aggregated.RunID = result.RunID
+		}
 	}
 	aggregated.Duration = time.Since(start)
 	return aggregated, nil
