@@ -44,6 +44,26 @@ func TestCorrectionCapture_MightBeCorrection(t *testing.T) {
 		{"uppercase NO", "NO, stop doing that", true},
 		{"mixed case Actually", "ACTUALLY, here's the thing", true},
 
+		// New patterns that should be detected
+		{"contains stop", "Stop doing that", true},
+		{"contains is wrong", "That is wrong", true},
+		{"contains went wrong", "Something went wrong with your approach", true},
+		{"contains never", "Never do that again", true},
+		{"contains always", "Always use interfaces here", true},
+		{"contains fix this", "Fix this, it's broken", true},
+		{"contains broke", "That broke the build", true},
+		{"contains remember", "Remember to run tests first", true},
+		{"contains make sure", "Make sure to validate inputs", true},
+		{"contains i told you", "I told you to use snake_case", true},
+		{"contains i said", "I said not to commit to main", true},
+		{"contains why did you", "Why did you delete that file?", true},
+		{"contains that's not", "That's not how it works", true},
+		{"contains do not", "Do not use global state", true},
+		{"contains quit", "Quit adding unnecessary abstractions", true},
+		{"contains not what i", "That's not what I asked for", true},
+		// Pre-filter accepts some false positives — LLM extraction handles precision
+		{"question about stopping matches", "How do I stop the server?", true},
+
 		// Negative cases - should not detect corrections
 		{"neutral statement", "The weather is nice today", false},
 		{"question", "How do I use this function?", false},

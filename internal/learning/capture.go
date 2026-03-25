@@ -38,10 +38,20 @@ type correctionCapture struct {
 func NewCorrectionCapture() CorrectionCapture {
 	return &correctionCapture{
 		correctionSignals: []string{
+			// Original patterns
 			"no,", "don't", "instead", "actually,", "not like that",
 			"that's wrong", "that's not right", "shouldn't",
 			"prefer", "better to", "rather than", "use this instead",
 			"that's incorrect", "please use", "you should",
+			// Imperative correction patterns
+			"stop ", "do not ", "never ", "always ",
+			// Frustration / repeated correction patterns
+			"i told you", "i said ", "remember to", "make sure",
+			// Error indication patterns
+			"broke", "fix this", "that's not ",
+			"is wrong", "went wrong",
+			// Implicit correction patterns
+			"why did you", "not what i", "quit ",
 		},
 	}
 }
