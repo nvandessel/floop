@@ -476,6 +476,17 @@ func TestHookDetectCorrection_LogsSuccess(t *testing.T) {
 	}
 }
 
+// TestHookDetectCorrection_SuccessMessageFormat verifies the correction captured message format.
+func TestHookDetectCorrection_SuccessMessageFormat(t *testing.T) {
+	msg := formatCorrectionCapturedMessage("c-12345")
+	if !strings.Contains(msg, "c-12345") {
+		t.Errorf("message should contain correction ID, got: %s", msg)
+	}
+	if !strings.HasPrefix(msg, "### ") {
+		t.Errorf("message should be markdown header format, got: %s", msg)
+	}
+}
+
 // TestHookDetectCorrection_TimeoutValue verifies the timeout is 15s.
 func TestHookDetectCorrection_TimeoutValue(t *testing.T) {
 	if hookDetectCorrectionTimeout != 15*time.Second {

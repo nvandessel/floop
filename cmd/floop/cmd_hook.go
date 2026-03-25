@@ -160,6 +160,12 @@ func newHookDynamicContextCmd() *cobra.Command {
 	}
 }
 
+// formatCorrectionCapturedMessage formats a brief markdown confirmation
+// for stdout when the detect-correction hook successfully captures a correction.
+func formatCorrectionCapturedMessage(correctionID string) string {
+	return fmt.Sprintf("### Correction Captured\nfloop auto-detected a correction from your message (id: %s)", correctionID)
+}
+
 // hookLog appends a structured JSON log entry to .floop/hook-debug.log.
 // Silently no-ops if the .floop directory doesn't exist (pre-init state).
 func hookLog(root, stage, outcome string, extra map[string]interface{}) {
@@ -293,6 +299,7 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 			}
 
 			hookLog(root, "complete", "correction_captured", map[string]interface{}{"correction_id": correction.ID})
+			fmt.Fprint(cmd.OutOrStdout(), formatCorrectionCapturedMessage(correction.ID))
 			return nil
 		},
 	}
