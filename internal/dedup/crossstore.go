@@ -184,8 +184,7 @@ func (d *CrossStoreDeduplicator) findIntraStoreDuplicates(ctx context.Context, b
 						mergedNode.ID = behaviors[i].ID
 						if err := s.UpdateNode(ctx, mergedNode); err != nil {
 							result.Error = fmt.Sprintf("update failed: %v", err)
-						}
-						if err := s.DeleteNode(ctx, behaviors[j].ID); err != nil {
+						} else if err := s.DeleteNode(ctx, behaviors[j].ID); err != nil {
 							result.Error = fmt.Sprintf("delete failed: %v", err)
 						}
 					}
