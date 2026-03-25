@@ -157,6 +157,11 @@ func (d *CrossStoreDeduplicator) findIntraStoreDuplicates(ctx context.Context, b
 				continue
 			}
 
+			// Known limitation: without LLM/embeddings, the Jaccard fallback
+			// may miss near-duplicates with minor word variations (e.g.
+			// "use logging" vs "using logging") because the score falls
+			// below the default 0.9 threshold. Identical content is still
+			// caught. Enable LLM for better semantic matching.
 			sim := d.computeSimilarity(&behaviors[i], &behaviors[j])
 			if sim >= d.config.SimilarityThreshold {
 				result := DeduplicationResult{
