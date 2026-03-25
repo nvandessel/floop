@@ -89,14 +89,15 @@ func NewCrossStoreDeduplicatorWithLLM(localStore, globalStore store.GraphStore, 
 	}
 }
 
-// DeduplicateAcrossStores performs deduplication of behaviors between the local
+// DeduplicateAcrossStores performs deduplication across and within the local
 // and global stores.
 //
 // Logic:
+//   - Cross-store: compare each local behavior against global behaviors
+//   - Intra-store: compare behaviors within each store (local-vs-local, global-vs-global)
 //   - Same ID in both stores: Local wins (skip, no action needed)
 //   - Semantic duplicates with different IDs: Use merger to merge, update edges
 //     to point to survivor
-//   - Compare behaviors from local store against global store
 func (d *CrossStoreDeduplicator) DeduplicateAcrossStores(ctx context.Context) ([]DeduplicationResult, error) {
 	// Get all behaviors from the local store
 	localBehaviors, err := d.getBehaviorsFromStore(ctx, d.localStore)
@@ -116,16 +117,83 @@ func (d *CrossStoreDeduplicator) DeduplicateAcrossStores(ctx context.Context) ([
 		globalByID[globalBehaviors[i].ID] = &globalBehaviors[i]
 	}
 
-	results := make([]DeduplicationResult, 0, len(localBehaviors))
+	results := make([]DeduplicationResult, 0, len(localBehaviors)+len(globalBehaviors))
 
-	// Process each local behavior
+	// Phase 1: Cross-store — compare each local behavior against global behaviors
 	for i := range localBehaviors {
 		local := &localBehaviors[i]
 		result := d.deduplicateBehavior(ctx, local, globalBehaviors, globalByID)
 		results = append(results, result)
 	}
 
+	// Phase 2: Intra-store — find duplicates within each store
+	localIntra := d.findIntraStoreDuplicates(ctx, localBehaviors, d.localStore)
+	results = append(results, localIntra...)
+
+	globalIntra := d.findIntraStoreDuplicates(ctx, globalBehaviors, d.globalStore)
+	results = append(results, globalIntra...)
+
 	return results, nil
+}
+
+// findIntraStoreDuplicates detects duplicate pairs within a single store's
+// behaviors. It returns results with Action "merge" for pairs that exceed the
+// similarity threshold. Each behavior appears in at most one pair (the first
+// match wins) to avoid cascading merges.
+func (d *CrossStoreDeduplicator) findIntraStoreDuplicates(ctx context.Context, behaviors []models.Behavior, s store.GraphStore) []DeduplicationResult {
+	if len(behaviors) < 2 {
+		return nil
+	}
+
+	var results []DeduplicationResult
+	consumed := make(map[string]bool)
+
+	for i := 0; i < len(behaviors); i++ {
+		if consumed[behaviors[i].ID] {
+			continue
+		}
+		for j := i + 1; j < len(behaviors); j++ {
+			if consumed[behaviors[j].ID] {
+				continue
+			}
+
+			sim := d.computeSimilarity(&behaviors[i], &behaviors[j])
+			if sim >= d.config.SimilarityThreshold {
+				result := DeduplicationResult{
+					LocalBehavior: &behaviors[i],
+					Action:        "merge",
+					GlobalMatch:   &behaviors[j],
+					Similarity:    sim,
+				}
+
+				// Perform merge if auto-merge is enabled
+				if d.config.AutoMerge && d.merger != nil {
+					merged, err := d.merger.Merge(ctx, []*models.Behavior{&behaviors[i], &behaviors[j]})
+					if err != nil {
+						result.Error = fmt.Sprintf("merge failed: %v", err)
+					} else {
+						result.MergedBehavior = merged
+
+						// Update the survivor in the store and delete the duplicate
+						mergedNode := models.BehaviorToNode(merged)
+						mergedNode.ID = behaviors[i].ID
+						if err := s.UpdateNode(ctx, mergedNode); err != nil {
+							result.Error = fmt.Sprintf("update failed: %v", err)
+						}
+						if err := s.DeleteNode(ctx, behaviors[j].ID); err != nil {
+							result.Error = fmt.Sprintf("delete failed: %v", err)
+						}
+					}
+				}
+
+				results = append(results, result)
+				consumed[behaviors[j].ID] = true
+				break // move to next i — this behavior already has a match
+			}
+		}
+	}
+
+	return results
 }
 
 // deduplicateBehavior handles deduplication for a single local behavior.

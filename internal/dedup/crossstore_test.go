@@ -1,6 +1,7 @@
 package dedup
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -8,6 +9,82 @@ import (
 	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/store"
 )
+
+func addBehaviorNode(t *testing.T, s store.GraphStore, id, name, canonical string, tags []string) {
+	t.Helper()
+	node := store.Node{
+		ID:   id,
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"kind": "preference",
+			"name": name,
+			"content": map[string]interface{}{
+				"canonical": canonical,
+				"tags":      tags,
+			},
+		},
+		Metadata: map[string]interface{}{
+			"confidence": 0.6,
+			"scope":      "global",
+		},
+	}
+	if _, err := s.AddNode(context.Background(), node); err != nil {
+		t.Fatalf("failed to add node %s: %v", id, err)
+	}
+}
+
+func TestCrossStoreDeduplicator_IntraStoreDuplicates(t *testing.T) {
+	// Regression test: scope=both must detect duplicates within the same store,
+	// not just across stores. These 5 "use logging" behaviors are all in the
+	// global store with identical content and tags — they must be flagged.
+	localStore := store.NewInMemoryGraphStore()
+	globalStore := store.NewInMemoryGraphStore()
+
+	// Add near-identical logging behaviors to the global store (mirrors real data)
+	addBehaviorNode(t, globalStore, "b-log-1", "learned/use-logging-instead-of-print-statements",
+		"Use logging instead of print statements", []string{"logging"})
+	addBehaviorNode(t, globalStore, "b-log-2", "learned/use-logging-instead-of-print",
+		"Use logging instead of print", []string{"logging"})
+	addBehaviorNode(t, globalStore, "b-log-3", "learned/use-logging-library-instead-of-print",
+		"Use logging library instead of print", []string{"logging"})
+	addBehaviorNode(t, globalStore, "b-log-4", "learned/using-logging-instead-of-print",
+		"Using logging instead of print", []string{"logging"})
+	addBehaviorNode(t, globalStore, "b-log-5", "learned/use-logging-not-print",
+		"Use logging instead of print statements", []string{"logging"})
+
+	// Add one unrelated local behavior so the local store is non-empty
+	addBehaviorNode(t, localStore, "b-local-1", "learned/use-gofmt",
+		"Always run gofmt before committing", []string{"go", "formatting"})
+
+	merger := NewBehaviorMerger(MergerConfig{})
+	config := DeduplicatorConfig{
+		SimilarityThreshold: 0.9,
+		AutoMerge:           false, // dry-run equivalent
+	}
+
+	deduplicator := NewCrossStoreDeduplicatorWithConfig(localStore, globalStore, merger, config)
+	results, err := deduplicator.DeduplicateAcrossStores(context.Background())
+	if err != nil {
+		t.Fatalf("DeduplicateAcrossStores failed: %v", err)
+	}
+
+	// Count intra-store duplicates found (global-vs-global)
+	intraStoreDups := 0
+	for _, r := range results {
+		if r.Action == "merge" {
+			intraStoreDups++
+		}
+	}
+
+	// At minimum, b-log-1 and b-log-5 have identical content — must be found
+	if intraStoreDups == 0 {
+		t.Errorf("expected intra-store duplicates to be detected in global store, got 0")
+		t.Log("Results:")
+		for _, r := range results {
+			t.Logf("  %s: action=%s", r.LocalBehavior.ID, r.Action)
+		}
+	}
+}
 
 func TestDeduplicationResult_Instantiation(t *testing.T) {
 	result := DeduplicationResult{

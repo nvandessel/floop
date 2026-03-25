@@ -399,7 +399,7 @@ func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.Deduplicator
 		} else {
 			fmt.Printf("Cross-store deduplication complete\n\n")
 		}
-		fmt.Printf("Total local behaviors compared: %d\n", len(results))
+		fmt.Printf("Total comparisons:              %d\n", len(results))
 		fmt.Printf("  Skipped (same ID in global):  %d\n", skipped)
 		fmt.Printf("  Semantic duplicates found:    %d\n", mergedCount)
 		fmt.Printf("  No duplicate found:           %d\n", none)
@@ -409,7 +409,7 @@ func runCrossStoreDedup(ctx context.Context, root string, cfg dedup.Deduplicator
 			fmt.Println("\nDuplicate details:")
 			for _, r := range results {
 				if r.Action == "merge" {
-					fmt.Printf("  - Local: %s (%.2f similar to global: %s)\n",
+					fmt.Printf("  - %s (%.2f similar to: %s)\n",
 						r.LocalBehavior.Name, r.Similarity, r.GlobalMatch.Name)
 				}
 			}
