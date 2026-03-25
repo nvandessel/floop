@@ -305,6 +305,20 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 	}
 }
 
+// floopLearnDirective returns a markdown directive instructing Claude to use
+// floop_learn for corrections rather than alternative memory systems.
+func floopLearnDirective() string {
+	return `
+**IMPORTANT — Capturing Corrections:**
+When the user corrects you, IMMEDIATELY call floop_learn:
+` + "```" + `
+mcp__floop__floop_learn(right="what to do instead", wrong="what you did")
+` + "```" + `
+Do NOT use auto-memory or Write to save corrections — use floop_learn.
+This applies to: explicit corrections, preferences, "don't do X", repeated feedback.
+`
+}
+
 // runHookPrompt generates a markdown prompt with all active behaviors.
 // Used by session-start and first-prompt hooks.
 func runHookPrompt(cmd *cobra.Command, root string) error {
@@ -328,6 +342,8 @@ func runHookPrompt(cmd *cobra.Command, root string) error {
 	}
 
 	if len(behaviors) == 0 {
+		// No behaviors to inject, but still output the learn directive
+		fmt.Fprint(cmd.OutOrStdout(), floopLearnDirective())
 		return nil
 	}
 
@@ -349,6 +365,8 @@ func runHookPrompt(cmd *cobra.Command, root string) error {
 	resolved := resolver.Resolve(matches)
 
 	if len(resolved.Active) == 0 {
+		// No active behaviors, but still output the learn directive
+		fmt.Fprint(cmd.OutOrStdout(), floopLearnDirective())
 		return nil
 	}
 
@@ -361,11 +379,8 @@ func runHookPrompt(cmd *cobra.Command, root string) error {
 		WithFormat(assembly.FormatMarkdown)
 	compiled := compiler.CompileTiered(plan)
 
-	if compiled.Text == "" {
-		return nil
-	}
-
-	fmt.Fprint(cmd.OutOrStdout(), compiled.Text)
+	output := compiled.Text + floopLearnDirective()
+	fmt.Fprint(cmd.OutOrStdout(), output)
 	return nil
 }
 

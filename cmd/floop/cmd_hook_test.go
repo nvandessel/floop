@@ -476,6 +476,33 @@ func TestHookDetectCorrection_LogsSuccess(t *testing.T) {
 	}
 }
 
+// TestHookSessionStart_IncludesLearnDirective verifies session-start output includes floop_learn directive.
+func TestHookSessionStart_IncludesLearnDirective(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	// Initialize to get behaviors
+	initCmd := newTestRootCmd()
+	initCmd.AddCommand(newInitCmd())
+	initCmd.SetArgs([]string{"init", "--root", tmpDir})
+	initCmd.SetOut(&bytes.Buffer{})
+	initCmd.Execute()
+
+	// Run session-start
+	var out bytes.Buffer
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newHookCmd())
+	rootCmd.SetArgs([]string{"hook", "session-start", "--root", tmpDir})
+	rootCmd.SetOut(&out)
+	rootCmd.SetIn(strings.NewReader("{}"))
+	rootCmd.Execute()
+
+	output := out.String()
+	if !strings.Contains(output, "floop_learn") {
+		t.Errorf("session-start output should mention floop_learn, got:\n%s", output)
+	}
+}
+
 // TestHookDetectCorrection_SuccessMessageFormat verifies the correction captured message format.
 func TestHookDetectCorrection_SuccessMessageFormat(t *testing.T) {
 	msg := formatCorrectionCapturedMessage("c-12345")
