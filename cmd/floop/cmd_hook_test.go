@@ -476,6 +476,13 @@ func TestHookDetectCorrection_LogsSuccess(t *testing.T) {
 	}
 }
 
+// TestHookDetectCorrection_TimeoutValue verifies the timeout is 15s.
+func TestHookDetectCorrection_TimeoutValue(t *testing.T) {
+	if hookDetectCorrectionTimeout != 15*time.Second {
+		t.Errorf("hookDetectCorrectionTimeout = %v, want 15s", hookDetectCorrectionTimeout)
+	}
+}
+
 // TestProjectTypeToLanguage verifies the mapping from project type to language.
 func TestProjectTypeToLanguage(t *testing.T) {
 	tests := []struct {

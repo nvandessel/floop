@@ -24,6 +24,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// hookDetectCorrectionTimeout is the maximum time allowed for LLM-based
+// correction extraction. Set to 15s to accommodate SubagentClient cold
+// starts (subprocess spawn + auth + API call). The SubagentClient default
+// is 30s; 15s balances responsiveness with reliability.
+var hookDetectCorrectionTimeout = 15 * time.Second
+
 // newHookCmd creates the parent 'hook' command with subcommands for each
 // Claude Code hook event. These replace the previously extracted .sh scripts.
 func newHookCmd() *cobra.Command {
@@ -212,7 +218,7 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 			hookLog(root, "pattern_check", "pattern_match", nil)
 
 			// Try LLM extraction with timeout
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), hookDetectCorrectionTimeout)
 			defer cancel()
 
 			client := llm.DetectAndCreate()
