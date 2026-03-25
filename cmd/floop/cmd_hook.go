@@ -154,6 +154,32 @@ func newHookDynamicContextCmd() *cobra.Command {
 	}
 }
 
+// hookLog appends a structured JSON log entry to .floop/hook-debug.log.
+// Silently no-ops if the .floop directory doesn't exist (pre-init state).
+func hookLog(root, stage, outcome string, extra map[string]interface{}) {
+	floopDir := filepath.Join(root, ".floop")
+	if _, err := os.Stat(floopDir); os.IsNotExist(err) {
+		return
+	}
+	logPath := filepath.Join(floopDir, "hook-debug.log")
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	entry := map[string]interface{}{
+		"timestamp": time.Now().Format(time.RFC3339),
+		"hook":      "detect-correction",
+		"stage":     stage,
+		"outcome":   outcome,
+	}
+	for k, v := range extra {
+		entry[k] = v
+	}
+	json.NewEncoder(f).Encode(entry)
+}
+
 // newHookDetectCorrectionCmd creates the 'hook detect-correction' subcommand.
 // It reads the user prompt from stdin and runs correction detection with a timeout.
 func newHookDetectCorrectionCmd() *cobra.Command {
@@ -168,18 +194,22 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 				Prompt string `json:"prompt"`
 			}
 			if err := json.NewDecoder(cmd.InOrStdin()).Decode(&input); err != nil {
+				hookLog(root, "stdin_decode", "json_error", map[string]interface{}{"error": err.Error()})
 				return nil
 			}
 
 			if input.Prompt == "" {
+				hookLog(root, "stdin_decode", "empty_prompt", nil)
 				return nil
 			}
 
 			// Fast pattern check
 			capture := learning.NewCorrectionCapture()
 			if !capture.MightBeCorrection(input.Prompt) {
+				hookLog(root, "pattern_check", "pattern_miss", nil)
 				return nil
 			}
+			hookLog(root, "pattern_check", "pattern_match", nil)
 
 			// Try LLM extraction with timeout
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -187,20 +217,24 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 
 			client := llm.DetectAndCreate()
 			if client == nil {
+				hookLog(root, "llm_client", "client_unavailable", nil)
 				return nil
 			}
 
 			prompt := learning.CorrectionExtractionPrompt(input.Prompt)
 			response, err := client.Complete(ctx, []llm.Message{{Role: "user", Content: prompt}})
 			if err != nil {
+				hookLog(root, "llm_extract", "llm_error", map[string]interface{}{"error": err.Error()})
 				return nil
 			}
 			result, err := learning.ParseCorrectionExtractionResponse(response)
 			if err != nil || !result.IsCorrection || result.Wrong == "" || result.Right == "" {
+				hookLog(root, "llm_parse", "parse_error", nil)
 				return nil
 			}
 
 			if result.Confidence < 0.6 {
+				hookLog(root, "confidence", "below_threshold", map[string]interface{}{"confidence": result.Confidence})
 				return nil
 			}
 
@@ -211,12 +245,14 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 			// Ensure .floop exists
 			floopDir := filepath.Join(root, ".floop")
 			if _, err := os.Stat(floopDir); os.IsNotExist(err) {
+				hookLog(root, "store", "floop_dir_missing", nil)
 				return nil
 			}
 
 			// Open graph store and process
 			graphStore, err := store.NewMultiGraphStore(root)
 			if err != nil {
+				hookLog(root, "store", "store_open_error", map[string]interface{}{"error": err.Error()})
 				return nil
 			}
 			defer graphStore.Close()
@@ -234,6 +270,7 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 			loop := learning.NewLearningLoop(graphStore, nil)
 			_, processErr := loop.ProcessCorrection(ctx, correction)
 			if processErr != nil {
+				hookLog(root, "process", "process_error", map[string]interface{}{"error": processErr.Error()})
 				return nil
 			}
 
@@ -249,6 +286,7 @@ func newHookDetectCorrectionCmd() *cobra.Command {
 				f.Close()
 			}
 
+			hookLog(root, "complete", "correction_captured", map[string]interface{}{"correction_id": correction.ID})
 			return nil
 		},
 	}

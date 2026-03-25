@@ -419,6 +419,63 @@ func TestHookDynamicContextNoFilePath(t *testing.T) {
 	}
 }
 
+// TestHookDetectCorrection_LogsPatternMiss verifies the hook logs when MightBeCorrection returns false.
+func TestHookDetectCorrection_LogsPatternMiss(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	cmd := newHookCmd()
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(cmd)
+
+	input := `{"prompt": "how do I use this function?"}`
+	rootCmd.SetIn(strings.NewReader(input))
+	rootCmd.SetArgs([]string{"hook", "detect-correction", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.Execute()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "pattern_miss") {
+		t.Errorf("expected log to contain 'pattern_miss', got: %s", string(data))
+	}
+}
+
+// TestHookDetectCorrection_LogsSuccess verifies logging on the success path.
+func TestHookDetectCorrection_LogsSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	cmd := newHookCmd()
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(cmd)
+
+	// "don't" triggers MightBeCorrection, but LLM client will be nil in test
+	input := `{"prompt": "no, don't do that, use interfaces instead"}`
+	rootCmd.SetIn(strings.NewReader(input))
+	rootCmd.SetArgs([]string{"hook", "detect-correction", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.Execute()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+	logStr := string(data)
+	if !strings.Contains(logStr, "pattern_match") {
+		t.Errorf("expected log to contain 'pattern_match', got: %s", logStr)
+	}
+	if !strings.Contains(logStr, "client_unavailable") && !strings.Contains(logStr, "llm_error") {
+		t.Errorf("expected log to contain 'client_unavailable' or 'llm_error', got: %s", logStr)
+	}
+}
+
 // TestProjectTypeToLanguage verifies the mapping from project type to language.
 func TestProjectTypeToLanguage(t *testing.T) {
 	tests := []struct {
