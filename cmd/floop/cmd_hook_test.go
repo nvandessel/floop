@@ -521,6 +521,176 @@ func TestHookDetectCorrection_TimeoutValue(t *testing.T) {
 	}
 }
 
+// TestHookLog_NoFloopDir verifies hookLog is a silent no-op when .floop dir doesn't exist.
+func TestHookLog_NoFloopDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	// No .floop dir created — should not panic or create files
+	hookLog(tmpDir, "detect-correction", "test_stage", "test_outcome", nil)
+
+	// Verify no hook-debug.log was created
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	if _, err := os.Stat(logPath); err == nil {
+		t.Error("hookLog should not create files when .floop dir doesn't exist")
+	}
+}
+
+// TestHookLog_WithExtraFields verifies extra fields appear in log output.
+func TestHookLog_WithExtraFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	extra := map[string]interface{}{
+		"error":      "something broke",
+		"confidence": 0.42,
+	}
+	hookLog(tmpDir, "detect-correction", "test_stage", "test_outcome", extra)
+
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+	logStr := string(data)
+	if !strings.Contains(logStr, "something broke") {
+		t.Errorf("expected log to contain extra error field, got: %s", logStr)
+	}
+	if !strings.Contains(logStr, "0.42") {
+		t.Errorf("expected log to contain extra confidence field, got: %s", logStr)
+	}
+	if !strings.Contains(logStr, `"hook":"detect-correction"`) {
+		t.Errorf("expected log to contain hook name, got: %s", logStr)
+	}
+}
+
+// TestHookLog_CantOpenFile verifies hookLog is silent when log file can't be opened.
+func TestHookLog_CantOpenFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	floopDir := filepath.Join(tmpDir, ".floop")
+	os.MkdirAll(floopDir, 0700)
+
+	// Create hook-debug.log as a directory to make OpenFile fail
+	logPath := filepath.Join(floopDir, "hook-debug.log")
+	os.MkdirAll(logPath, 0700)
+
+	// Should not panic
+	hookLog(tmpDir, "detect-correction", "test_stage", "test_outcome", nil)
+}
+
+// TestHookLog_HookNameInOutput verifies the hookName parameter appears in log output.
+func TestHookLog_HookNameInOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	hookLog(tmpDir, "custom-hook", "stage1", "outcome1", nil)
+
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+
+	var entry map[string]interface{}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
+	if entry["hook"] != "custom-hook" {
+		t.Errorf("hook = %v, want %q", entry["hook"], "custom-hook")
+	}
+	if entry["stage"] != "stage1" {
+		t.Errorf("stage = %v, want %q", entry["stage"], "stage1")
+	}
+	if entry["outcome"] != "outcome1" {
+		t.Errorf("outcome = %v, want %q", entry["outcome"], "outcome1")
+	}
+}
+
+// TestFloopLearnDirective verifies the learn directive contains expected content.
+func TestFloopLearnDirective(t *testing.T) {
+	directive := floopLearnDirective()
+	if !strings.Contains(directive, "floop_learn") {
+		t.Error("directive should mention floop_learn")
+	}
+	if !strings.Contains(directive, "IMPORTANT") {
+		t.Error("directive should contain IMPORTANT heading")
+	}
+	if !strings.Contains(directive, "mcp__floop__floop_learn") {
+		t.Error("directive should contain the MCP tool call example")
+	}
+	if !strings.Contains(directive, "Do NOT use auto-memory") {
+		t.Error("directive should warn against auto-memory")
+	}
+}
+
+// TestFormatCorrectionCapturedMessage_Variations verifies message format edge cases.
+func TestFormatCorrectionCapturedMessage_Variations(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		want string
+	}{
+		{"normal_id", "c-12345", "c-12345"},
+		{"empty_id", "", "(id: )"},
+		{"long_id", "c-999999999999999999", "c-999999999999999999"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := formatCorrectionCapturedMessage(tt.id)
+			if !strings.Contains(msg, tt.want) {
+				t.Errorf("message should contain %q, got: %s", tt.want, msg)
+			}
+			if !strings.Contains(msg, "Correction Captured") {
+				t.Errorf("message should contain 'Correction Captured', got: %s", msg)
+			}
+		})
+	}
+}
+
+// TestHookDetectCorrection_LogsEmptyPrompt verifies empty prompt is logged with correct outcome.
+func TestHookDetectCorrection_LogsEmptyPrompt(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newHookCmd())
+	rootCmd.SetIn(strings.NewReader(`{"prompt":""}`))
+	rootCmd.SetArgs([]string{"hook", "detect-correction", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.Execute()
+
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "empty_prompt") {
+		t.Errorf("expected log to contain 'empty_prompt', got: %s", string(data))
+	}
+}
+
+// TestHookDetectCorrection_LogsJsonError verifies invalid JSON is logged correctly.
+func TestHookDetectCorrection_LogsJsonError(t *testing.T) {
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	rootCmd := newTestRootCmd()
+	rootCmd.AddCommand(newHookCmd())
+	rootCmd.SetIn(strings.NewReader(`not json`))
+	rootCmd.SetArgs([]string{"hook", "detect-correction", "--root", tmpDir})
+	rootCmd.SetOut(&bytes.Buffer{})
+	rootCmd.Execute()
+
+	logPath := filepath.Join(tmpDir, ".floop", "hook-debug.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("expected hook-debug.log to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "json_error") {
+		t.Errorf("expected log to contain 'json_error', got: %s", string(data))
+	}
+}
+
 // TestProjectTypeToLanguage verifies the mapping from project type to language.
 func TestProjectTypeToLanguage(t *testing.T) {
 	tests := []struct {
