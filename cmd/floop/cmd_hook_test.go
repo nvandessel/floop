@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,8 +12,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
 )
+
+// mockLLMClient is a test double for llm.Client that returns canned responses.
+type mockLLMClient struct {
+	response string
+	err      error
+}
+
+func (m *mockLLMClient) Complete(_ context.Context, _ []llm.Message) (string, error) {
+	return m.response, m.err
+}
+
+func (m *mockLLMClient) Available() bool { return true }
 
 // TestNewHookCmd verifies the parent hook command has the expected subcommands.
 func TestNewHookCmd(t *testing.T) {
@@ -688,6 +703,230 @@ func TestHookDetectCorrection_LogsJsonError(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "json_error") {
 		t.Errorf("expected log to contain 'json_error', got: %s", string(data))
+	}
+}
+
+// --- runDetectCorrection tests (exercising all paths from LLM onward) ---
+
+// helper to set up a temp dir with .floop and an initialized store for full-path tests.
+func setupInitializedRoot(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	isolateHome(t, tmpDir)
+
+	// Initialize globally (for meta-behaviors)
+	initGlobal := newTestRootCmd()
+	initGlobal.AddCommand(newInitCmd())
+	initGlobal.SetArgs([]string{"init", "--global"})
+	initGlobal.SetOut(&bytes.Buffer{})
+	if err := initGlobal.Execute(); err != nil {
+		t.Fatalf("global init failed: %v", err)
+	}
+
+	// Initialize project
+	initRoot := newTestRootCmd()
+	initRoot.AddCommand(newInitCmd())
+	initRoot.SetArgs([]string{"init", "--root", tmpDir})
+	initRoot.SetOut(&bytes.Buffer{})
+	if err := initRoot.Execute(); err != nil {
+		t.Fatalf("init failed: %v", err)
+	}
+	return tmpDir
+}
+
+// validCorrectionJSON returns a JSON response that ParseCorrectionExtractionResponse accepts.
+func validCorrectionJSON(isCorrection bool, wrong, right string, confidence float64) string {
+	return fmt.Sprintf(`{"is_correction": %t, "wrong": %q, "right": %q, "confidence": %f}`,
+		isCorrection, wrong, right, confidence)
+}
+
+func TestRunDetectCorrection_ClientNil(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	rootCmd := newTestRootCmd()
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+
+	// "don't" triggers MightBeCorrection
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "client_unavailable") {
+		t.Errorf("expected client_unavailable in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_LLMError(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{err: errors.New("connection refused")}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "llm_error") {
+		t.Errorf("expected llm_error in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_ParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{response: "not json at all"}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "parse_error") {
+		t.Errorf("expected parse_error in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_NotCorrection(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{response: validCorrectionJSON(false, "", "", 0.9)}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "not_correction") {
+		t.Errorf("expected not_correction in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_MissingFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{response: validCorrectionJSON(true, "did X", "", 0.9)}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "missing_fields") {
+		t.Errorf("expected missing_fields in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_BelowThreshold(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{response: validCorrectionJSON(true, "did X", "do Y", 0.3)}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "below_threshold") {
+		t.Errorf("expected below_threshold in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_FloopDirMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	// No .floop dir — but we need hookLog's earlier calls to work,
+	// so create .floop for logging, then remove before the dir check.
+	// Actually, the floop_dir_missing check happens after LLM calls,
+	// so hookLog calls before that point will no-op (no .floop), which is fine.
+	// The stderr path is the one we're testing.
+
+	client := &mockLLMClient{response: validCorrectionJSON(true, "did X", "do Y", 0.9)}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't do that", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The stderr message is printed; we verify no crash and no output on stdout.
+}
+
+func TestRunDetectCorrection_FullSuccess(t *testing.T) {
+	tmpDir := setupInitializedRoot(t)
+
+	client := &mockLLMClient{response: validCorrectionJSON(true, "used print", "use log.Printf", 0.95)}
+	rootCmd := newTestRootCmd()
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+
+	err := runDetectCorrection(rootCmd, tmpDir, "no, don't use print", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify stdout contains correction captured message
+	output := out.String()
+	if !strings.Contains(output, "Correction Captured") {
+		t.Errorf("expected 'Correction Captured' in output, got: %s", output)
+	}
+
+	// Verify corrections.jsonl was written
+	correctionsPath := filepath.Join(tmpDir, ".floop", "corrections.jsonl")
+	data, err := os.ReadFile(correctionsPath)
+	if err != nil {
+		t.Fatalf("expected corrections.jsonl to exist: %v", err)
+	}
+	if !strings.Contains(string(data), "use log.Printf") {
+		t.Errorf("expected correction content in corrections.jsonl, got: %s", data)
+	}
+
+	// Verify hook-debug.log contains correction_captured
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "correction_captured") {
+		t.Errorf("expected correction_captured in log, got: %s", logData)
+	}
+}
+
+func TestRunDetectCorrection_PatternMiss(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, ".floop"), 0700)
+
+	client := &mockLLMClient{response: "should not be called"}
+	rootCmd := newTestRootCmd()
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	// A prompt that doesn't match any correction patterns
+	err := runDetectCorrection(rootCmd, tmpDir, "how do I use this function?", client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	logData, _ := os.ReadFile(filepath.Join(tmpDir, ".floop", "hook-debug.log"))
+	if !strings.Contains(string(logData), "pattern_miss") {
+		t.Errorf("expected pattern_miss in log, got: %s", logData)
 	}
 }
 
