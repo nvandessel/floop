@@ -108,12 +108,11 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 
 		node := c.buildPromoteNode(mem, c.runID, baseTS, i)
 		if _, err := s.AddNode(ctx, node); err != nil {
-			if errors.Is(err, store.ErrDuplicateContent) {
+			var dupErr *store.DuplicateContentError
+			if errors.As(err, &dupErr) {
 				// Map pending ID to the existing node so co-occurrence edges
 				// referencing this memory are preserved instead of silently dropped.
-				if existingID := extractDuplicateNodeID(err); existingID != "" {
-					pendingToActual[pendingID] = existingID
-				}
+				pendingToActual[pendingID] = dupErr.ExistingID
 				slog.Info("skipping duplicate content", "node_id", node.ID, "error", err)
 				cl.LogPromote("skip", 0, map[string]any{
 					"reason":      "duplicate_content",
@@ -174,13 +173,11 @@ func (c *LLMConsolidator) executeMerge(ctx context.Context, merge MergeProposal,
 // executeAbsorb updates an existing node with merged content, bumps confidence,
 // and appends source events to provenance.
 func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal, s store.GraphStore) error {
-	existing, err := s.GetNode(ctx, merge.TargetID)
+	node, err := getTargetNode(ctx, s, merge.TargetID)
 	if err != nil {
-		return fmt.Errorf("fetching target node %s: %w", merge.TargetID, err)
+		return err
 	}
-	if existing == nil {
-		return fmt.Errorf("target node not found: %s", merge.TargetID)
-	}
+	existing := &node
 
 	// Update content: prefer new canonical if it is longer/richer
 	if existing.Content == nil {
@@ -229,19 +226,7 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 
 	// Merge source events with deduplication
 	existingEvents, _ := prov["source_events"].([]interface{})
-	seen := make(map[string]bool, len(existingEvents))
-	for _, e := range existingEvents {
-		if str, ok := e.(string); ok {
-			seen[str] = true
-		}
-	}
-	for _, evtID := range merge.Memory.SourceEvents {
-		if !seen[evtID] {
-			existingEvents = append(existingEvents, evtID)
-			seen[evtID] = true
-		}
-	}
-	prov["source_events"] = existingEvents
+	prov["source_events"] = mergeSourceEvents(existingEvents, merge.Memory.SourceEvents)
 	existing.Metadata["provenance"] = prov
 
 	return s.UpdateNode(ctx, *existing)
@@ -252,31 +237,21 @@ func (c *LLMConsolidator) executeAbsorb(ctx context.Context, merge MergeProposal
 // The new node is created first; the old node is only soft-deleted once the
 // new node and edge are safely written (atomic w.r.t. partial failure).
 func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergeProposal, s store.GraphStore, runID string) error {
-	existing, err := s.GetNode(ctx, merge.TargetID)
+	existing, err := getTargetNode(ctx, s, merge.TargetID)
 	if err != nil {
-		return fmt.Errorf("fetching target node %s: %w", merge.TargetID, err)
-	}
-	if existing == nil {
-		return fmt.Errorf("target node not found: %s", merge.TargetID)
+		return err
 	}
 
 	// Combine lineage: gather source events from old + new with deduplication
-	var combinedEvents []string
-	seen := make(map[string]bool)
+	var oldEvents []interface{}
 	if oldProv, ok := existing.Metadata["provenance"].(map[string]interface{}); ok {
-		if oldEvents, ok := oldProv["source_events"].([]interface{}); ok {
-			for _, e := range oldEvents {
-				if str, ok := e.(string); ok && !seen[str] {
-					combinedEvents = append(combinedEvents, str)
-					seen[str] = true
-				}
-			}
-		}
+		oldEvents, _ = oldProv["source_events"].([]interface{})
 	}
-	for _, evtID := range merge.Memory.SourceEvents {
-		if !seen[evtID] {
-			combinedEvents = append(combinedEvents, evtID)
-			seen[evtID] = true
+	combinedIface := mergeSourceEvents(oldEvents, merge.Memory.SourceEvents)
+	combinedEvents := make([]string, 0, len(combinedIface))
+	for _, e := range combinedIface {
+		if str, ok := e.(string); ok {
+			combinedEvents = append(combinedEvents, str)
 		}
 	}
 
@@ -327,7 +302,7 @@ func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergePropo
 	}
 	existing.Metadata["merged_at"] = time.Now().UTC().Format(time.RFC3339)
 	existing.Metadata["merged_reason"] = "superseded"
-	if err := s.UpdateNode(ctx, *existing); err != nil {
+	if err := s.UpdateNode(ctx, existing); err != nil {
 		// Rollback: remove the edge and orphaned new node
 		if rbErr := s.RemoveEdge(ctx, newID, merge.TargetID, EdgeKindSupersedes); rbErr != nil {
 			slog.Warn("supersede rollback: failed to remove edge", "new_id", newID, "target", merge.TargetID, "error", rbErr)
@@ -344,13 +319,8 @@ func (c *LLMConsolidator) executeSupersede(ctx context.Context, merge MergePropo
 // executeSupplement keeps the existing behavior unchanged and creates a new node
 // with a supplements edge pointing to the existing behavior.
 func (c *LLMConsolidator) executeSupplement(ctx context.Context, merge MergeProposal, s store.GraphStore, runID string) error {
-	// Verify target exists
-	existing, err := s.GetNode(ctx, merge.TargetID)
-	if err != nil {
-		return fmt.Errorf("fetching target node %s: %w", merge.TargetID, err)
-	}
-	if existing == nil {
-		return fmt.Errorf("target node not found: %s", merge.TargetID)
+	if _, err := getTargetNode(ctx, s, merge.TargetID); err != nil {
+		return err
 	}
 
 	// Create supplementary node
@@ -478,24 +448,31 @@ func persistRun(ctx context.Context, s store.GraphStore, model string, rec Conso
 	}
 }
 
-// extractDuplicateNodeID parses the existing node ID from an ErrDuplicateContent
-// error. The store returns errors in the format:
-//
-//	"duplicate content: behavior <ID> has identical canonical content: ..."
-//
-// Returns the empty string if the ID cannot be extracted.
-func extractDuplicateNodeID(err error) string {
-	msg := err.Error()
-	const prefix = "duplicate content: behavior "
-	const suffix = " has identical canonical content"
-	start := strings.Index(msg, prefix)
-	if start < 0 {
-		return ""
+// getTargetNode fetches a node by ID and returns an error if it doesn't exist.
+func getTargetNode(ctx context.Context, s store.GraphStore, targetID string) (store.Node, error) {
+	existing, err := s.GetNode(ctx, targetID)
+	if err != nil {
+		return store.Node{}, fmt.Errorf("fetching target node %s: %w", targetID, err)
 	}
-	rest := msg[start+len(prefix):]
-	end := strings.Index(rest, suffix)
-	if end < 0 {
-		return ""
+	if existing == nil {
+		return store.Node{}, fmt.Errorf("target node not found: %s", targetID)
 	}
-	return rest[:end]
+	return *existing, nil
+}
+
+// mergeSourceEvents appends new event IDs to an existing event list with deduplication.
+func mergeSourceEvents(existing []interface{}, new []string) []interface{} {
+	seen := make(map[string]bool, len(existing))
+	for _, e := range existing {
+		if str, ok := e.(string); ok {
+			seen[str] = true
+		}
+	}
+	for _, evtID := range new {
+		if !seen[evtID] {
+			existing = append(existing, evtID)
+			seen[evtID] = true
+		}
+	}
+	return existing
 }

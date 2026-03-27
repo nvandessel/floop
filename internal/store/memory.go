@@ -52,7 +52,7 @@ func (s *InMemoryGraphStore) AddNode(ctx context.Context, node Node) (string, er
 	if canonical := canonicalContent(node); canonical != "" {
 		for id, existing := range s.nodes {
 			if id != node.ID && canonicalContent(existing) == canonical {
-				return "", fmt.Errorf("duplicate content: behavior %s has identical canonical content: %w", id, ErrDuplicateContent)
+				return "", &DuplicateContentError{ExistingID: id}
 			}
 		}
 	}

@@ -5,12 +5,28 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
 // ErrDuplicateContent is returned by AddNode when a node with identical
 // canonical content already exists in the store under a different ID.
 var ErrDuplicateContent = errors.New("duplicate content")
+
+// DuplicateContentError is a structured error returned by AddNode when a node
+// with identical canonical content already exists. It carries the ID of the
+// existing node so callers can use errors.As instead of string-parsing.
+type DuplicateContentError struct {
+	ExistingID string
+}
+
+func (e *DuplicateContentError) Error() string {
+	return fmt.Sprintf("duplicate content: behavior %s has identical canonical content", e.ExistingID)
+}
+
+func (e *DuplicateContentError) Is(target error) bool {
+	return target == ErrDuplicateContent
+}
 
 // Node represents a node in the behavior graph.
 type Node struct {
