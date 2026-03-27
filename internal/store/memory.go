@@ -6,6 +6,16 @@ import (
 	"sync"
 )
 
+// canonicalContent extracts the canonical string from a node's nested content map.
+func canonicalContent(node Node) string {
+	contentMap, _ := node.Content["content"].(map[string]interface{})
+	if contentMap == nil {
+		return ""
+	}
+	canonical, _ := contentMap["canonical"].(string)
+	return canonical
+}
+
 // embeddingEntry stores an embedding and the model that produced it.
 type embeddingEntry struct {
 	embedding []float32
@@ -36,6 +46,15 @@ func (s *InMemoryGraphStore) AddNode(ctx context.Context, node Node) (string, er
 
 	if node.ID == "" {
 		return "", fmt.Errorf("node ID is required")
+	}
+
+	// Check for duplicate canonical content (matching sqlite.go behavior).
+	if canonical := canonicalContent(node); canonical != "" {
+		for id, existing := range s.nodes {
+			if id != node.ID && canonicalContent(existing) == canonical {
+				return "", fmt.Errorf("duplicate content: behavior %s has identical canonical content: %w", id, ErrDuplicateContent)
+			}
+		}
 	}
 
 	s.nodes[node.ID] = node

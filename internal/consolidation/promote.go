@@ -3,6 +3,7 @@ package consolidation
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -107,6 +108,15 @@ func (c *LLMConsolidator) Promote(ctx context.Context, memories []ClassifiedMemo
 
 		node := c.buildPromoteNode(mem, c.runID, baseTS, i)
 		if _, err := s.AddNode(ctx, node); err != nil {
+			if errors.Is(err, store.ErrDuplicateContent) {
+				slog.Info("skipping duplicate content", "node_id", node.ID, "error", err)
+				cl.LogPromote("skip", 0, map[string]any{
+					"reason":      "duplicate_content",
+					"memory_kind": string(mem.Kind),
+					"node_id":     node.ID,
+				})
+				continue
+			}
 			return PromoteResult{}, fmt.Errorf("adding consolidated node: %w", err)
 		}
 		pendingToActual[pendingID] = node.ID

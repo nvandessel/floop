@@ -4,8 +4,13 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrDuplicateContent is returned by AddNode when a node with identical
+// canonical content already exists in the store under a different ID.
+var ErrDuplicateContent = errors.New("duplicate content")
 
 // Node represents a node in the behavior graph.
 type Node struct {

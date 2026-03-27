@@ -357,7 +357,7 @@ func (s *SQLiteGraphStore) addBehaviorWith(ctx context.Context, q dbQuerier, nod
 		contentHash, node.ID).Scan(&existingID)
 	if err == nil {
 		// Found existing behavior with same content
-		return "", fmt.Errorf("duplicate content: behavior %s has identical canonical content", existingID)
+		return "", fmt.Errorf("duplicate content: behavior %s has identical canonical content: %w", existingID, ErrDuplicateContent)
 	} else if err != sql.ErrNoRows {
 		// Unexpected error
 		return "", fmt.Errorf("check for duplicate content: %w", err)

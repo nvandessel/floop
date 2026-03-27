@@ -584,9 +584,9 @@ func TestLLMPromote_SameTextDifferentIndex(t *testing.T) {
 		t.Fatalf("AddNode: %v", err)
 	}
 
-	// Two memories with identical text but different kinds
-	mem1 := testMemory("Shared text", models.BehaviorKindDirective)
-	mem2 := testMemory("Shared text", models.BehaviorKindPreference)
+	// Two memories with different text but only one targeted by merge
+	mem1 := testMemory("Shared text directive version", models.BehaviorKindDirective)
+	mem2 := testMemory("Shared text preference version", models.BehaviorKindPreference)
 
 	// Only mem1 (index 0) is in a merge proposal
 	merges := []MergeProposal{{
@@ -606,6 +606,54 @@ func TestLLMPromote_SameTextDifferentIndex(t *testing.T) {
 	nodes, _ := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
 	if len(nodes) != 2 {
 		t.Fatalf("expected 2 behavior nodes (1 existing + 1 new for mem2), got %d", len(nodes))
+	}
+}
+
+func TestLLMPromote_DuplicateContentSkipped(t *testing.T) {
+	// When a memory's canonical content already exists in the store (different
+	// node ID, same text), Promote should skip it gracefully instead of
+	// crashing with a fatal "duplicate content" error.
+	c := newTestPromoteConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+
+	// Pre-populate a behavior with canonical content identical to what
+	// Promote will try to add.
+	existing := store.Node{
+		ID:   "bhv-already-exists",
+		Kind: store.NodeKindBehavior,
+		Content: map[string]interface{}{
+			"name": "Use fmt.Errorf to wrap errors",
+			"kind": "directive",
+			"content": map[string]interface{}{
+				"canonical": "Use fmt.Errorf to wrap errors",
+			},
+		},
+		Metadata: map[string]interface{}{"confidence": 0.9},
+	}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+
+	// Promote a memory with the same canonical text — should NOT crash.
+	mem := testMemory("Use fmt.Errorf to wrap errors", models.BehaviorKindDirective)
+	result, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, nil, nil, s)
+	if err != nil {
+		t.Fatalf("Promote should skip duplicates, got error: %v", err)
+	}
+
+	// The duplicate should be skipped, so promoted count is 0.
+	if result.Promoted != 0 {
+		t.Errorf("expected promoted=0 (duplicate skipped), got %d", result.Promoted)
+	}
+
+	// Store should still have exactly 1 behavior node (the original).
+	nodes, err := s.QueryNodes(ctx, map[string]interface{}{"kind": string(store.NodeKindBehavior)})
+	if err != nil {
+		t.Fatalf("QueryNodes: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Errorf("expected 1 node (original only), got %d", len(nodes))
 	}
 }
 
@@ -630,8 +678,8 @@ func TestLLMPromote_MergeMatchesByIndexNotText(t *testing.T) {
 		t.Fatalf("AddNode: %v", err)
 	}
 
-	mem1 := testMemory("Identical text", models.BehaviorKindDirective)
-	mem2 := testMemory("Identical text", models.BehaviorKindPreference)
+	mem1 := testMemory("Identical text directive version", models.BehaviorKindDirective)
+	mem2 := testMemory("Identical text preference version", models.BehaviorKindPreference)
 
 	// Merge targets mem2 (index 1), not mem1 (index 0)
 	merges := []MergeProposal{{
