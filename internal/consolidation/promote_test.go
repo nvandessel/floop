@@ -2,12 +2,22 @@ package consolidation
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/nvandessel/floop/internal/logging"
 	"github.com/nvandessel/floop/internal/models"
 	"github.com/nvandessel/floop/internal/store"
 )
+
+// errorGetNodeStore wraps InMemoryGraphStore but returns an error from GetNode.
+type errorGetNodeStore struct {
+	store.InMemoryGraphStore
+}
+
+func (s *errorGetNodeStore) GetNode(ctx context.Context, id string) (*store.Node, error) {
+	return nil, fmt.Errorf("simulated store error")
+}
 
 func testMemory(canonical string, kind models.BehaviorKind) ClassifiedMemory {
 	return ClassifiedMemory{
@@ -732,6 +742,18 @@ func TestGetTargetNode_Found(t *testing.T) {
 	}
 	if got.ID != want.ID {
 		t.Errorf("ID = %q, want %q", got.ID, want.ID)
+	}
+}
+
+func TestGetTargetNode_StoreError(t *testing.T) {
+	ctx := context.Background()
+	s := &errorGetNodeStore{}
+	_, err := getTargetNode(ctx, s, "any-id")
+	if err == nil {
+		t.Fatal("expected error from store")
+	}
+	if got := err.Error(); got != "fetching target node any-id: simulated store error" {
+		t.Errorf("unexpected error message: %s", got)
 	}
 }
 
