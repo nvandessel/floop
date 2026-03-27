@@ -747,6 +747,83 @@ func TestSubagentClient_DetectAvailability_LogsDecision(t *testing.T) {
 	}
 }
 
+func TestSubagentClient_DetectAvailability_CLINotFound_LogsDecision(t *testing.T) {
+	// Save and restore env
+	envVars := []string{"CLAUDE_CODE", "CLAUDE_SESSION_ID", "ANTHROPIC_CLI"}
+	saved := make(map[string]string)
+	for _, v := range envVars {
+		saved[v] = os.Getenv(v)
+	}
+	defer func() {
+		for k, v := range saved {
+			if v == "" {
+				os.Unsetenv(k)
+			} else {
+				os.Setenv(k, v)
+			}
+		}
+	}()
+
+	// Clear all CLI env vars, then set one so inCLISession() returns true
+	for _, v := range envVars {
+		os.Unsetenv(v)
+	}
+	os.Setenv("CLAUDE_CODE", "1")
+
+	dir := t.TempDir()
+	dl := logging.NewDecisionLogger(dir, "debug")
+	defer dl.Close()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	// Use AllowedCLIDirs pointing to an empty directory so findCLI() returns ""
+	emptyDir := t.TempDir()
+	client := NewSubagentClient(SubagentConfig{
+		Logger:         logger,
+		DecisionLogger: dl,
+		AllowedCLIDirs: []string{emptyDir},
+	})
+
+	// Trigger availability detection — should hit "CLI not found" path
+	result := client.Available()
+	if result {
+		t.Error("expected Available() = false when no CLI in allowed dirs")
+	}
+
+	// Check decision log
+	dl.Close()
+	data, err := os.ReadFile(filepath.Join(dir, "decisions.jsonl"))
+	if err != nil {
+		t.Fatalf("failed to read decisions.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected at least 1 decision entry, got 0")
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("failed to parse decision entry: %v", err)
+	}
+
+	if entry["event"] != "llm_availability" {
+		t.Errorf("event = %v, want llm_availability", entry["event"])
+	}
+	if entry["available"] != false {
+		t.Errorf("available = %v, want false", entry["available"])
+	}
+	if entry["reason"] != "CLI executable not found" {
+		t.Errorf("reason = %v, want 'CLI executable not found'", entry["reason"])
+	}
+
+	// Check debug log
+	if !strings.Contains(buf.String(), "CLI not found") {
+		t.Errorf("expected debug log about CLI not found, got: %q", buf.String())
+	}
+}
+
 func TestSubagentClient_RunSubagent_LogsDecision(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses Unix shell scripts as mock CLIs")
