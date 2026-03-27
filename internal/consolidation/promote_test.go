@@ -709,3 +709,82 @@ func TestLLMPromote_MergeMatchesByIndexNotText(t *testing.T) {
 		t.Fatalf("expected 2 behavior nodes, got %d", len(nodes))
 	}
 }
+
+func TestGetTargetNode_NotFound(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+	_, err := getTargetNode(ctx, s, "nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for nonexistent node")
+	}
+}
+
+func TestGetTargetNode_Found(t *testing.T) {
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+	want := store.Node{ID: "bhv-found", Kind: store.NodeKindBehavior, Content: map[string]interface{}{"name": "test"}, Metadata: map[string]interface{}{"confidence": 0.9}}
+	if _, err := s.AddNode(ctx, want); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+	got, err := getTargetNode(ctx, s, "bhv-found")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("ID = %q, want %q", got.ID, want.ID)
+	}
+}
+
+func TestMergeSourceEvents_Dedup(t *testing.T) {
+	result := mergeSourceEvents([]interface{}{"evt-1", "evt-2"}, []string{"evt-2", "evt-3", "evt-4"})
+	if len(result) != 4 {
+		t.Fatalf("expected 4 events, got %d: %v", len(result), result)
+	}
+}
+
+func TestMergeSourceEvents_EmptyExisting(t *testing.T) {
+	result := mergeSourceEvents(nil, []string{"evt-1", "evt-2"})
+	if len(result) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(result))
+	}
+}
+
+func TestMergeSourceEvents_NonStringExisting(t *testing.T) {
+	result := mergeSourceEvents([]interface{}{42, "evt-1"}, []string{"evt-1", "evt-2"})
+	if len(result) != 3 {
+		t.Fatalf("expected 3 events, got %d: %v", len(result), result)
+	}
+}
+
+func TestLLMPromote_UnknownMergeStrategy(t *testing.T) {
+	c := newTestPromoteConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+	existing := store.Node{ID: "bhv-target", Kind: store.NodeKindBehavior, Content: map[string]interface{}{"name": "Target"}, Metadata: map[string]interface{}{"confidence": 0.7}}
+	if _, err := s.AddNode(ctx, existing); err != nil {
+		t.Fatalf("AddNode: %v", err)
+	}
+	mem := testMemory("Test memory", models.BehaviorKindDirective)
+	merges := []MergeProposal{{Memory: mem, MemoryIndex: 0, TargetID: "bhv-target", Similarity: 0.9, Strategy: "unknown-strategy"}}
+	result, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, merges, nil, s)
+	if err != nil {
+		t.Fatalf("Promote should not fail: %v", err)
+	}
+	if result.Promoted != 1 {
+		t.Errorf("expected promoted=1, got %d", result.Promoted)
+	}
+}
+
+func TestLLMPromote_SkipsMemory(t *testing.T) {
+	c := newTestPromoteConsolidator()
+	ctx := context.Background()
+	s := store.NewInMemoryGraphStore()
+	mem := testMemory("Should be skipped", models.BehaviorKindDirective)
+	result, err := c.Promote(ctx, []ClassifiedMemory{mem}, nil, nil, []int{0}, s)
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	if result.Promoted != 0 {
+		t.Errorf("expected promoted=0, got %d", result.Promoted)
+	}
+}
