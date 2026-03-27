@@ -90,6 +90,11 @@ func (dl *DecisionLogger) Log(event map[string]any) {
 		return
 	}
 
+	// Bounds check: prevent integer overflow in size computation (CodeQL go/allocation-size-overflow).
+	const maxFields = 10_000
+	if len(event) > maxFields {
+		return
+	}
 	// Copy to avoid mutating caller's map
 	entry := make(map[string]any, len(event)+1)
 	for k, v := range event {
