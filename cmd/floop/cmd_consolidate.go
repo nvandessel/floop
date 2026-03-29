@@ -149,18 +149,21 @@ func runConsolidate(cmd *cobra.Command, args []string) error {
 	consolidator := consolidation.NewConsolidator(executor, llmClient, decisions, model)
 	runner := consolidation.NewRunner(consolidator)
 
-	result, err := runner.Run(ctx, evts, graphStore, consolidation.RunOptions{
+	result, runErr := runner.Run(ctx, evts, graphStore, consolidation.RunOptions{
 		DryRun: dryRun,
 	})
-	if err != nil {
-		return fmt.Errorf("consolidation pipeline: %w", err)
-	}
 
-	// Mark processed events as consolidated (prevents re-processing)
-	if !dryRun && len(result.SourceEventIDs) > 0 {
-		if err := es.MarkConsolidated(ctx, result.SourceEventIDs); err != nil {
-			return fmt.Errorf("marking events consolidated: %w", err)
+	// Mark successfully-processed events as consolidated even if a later
+	// session errored. Without this, the pipeline re-processes the same
+	// events on every invocation, wasting rate limit on redundant work.
+	if !dryRun && result != nil && len(result.SourceEventIDs) > 0 {
+		if markErr := es.MarkConsolidated(ctx, result.SourceEventIDs); markErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: failed to mark %d events consolidated: %v\n",
+				len(result.SourceEventIDs), markErr)
 		}
+	}
+	if runErr != nil {
+		return fmt.Errorf("consolidation pipeline: %w", runErr)
 	}
 
 	if jsonOut {
