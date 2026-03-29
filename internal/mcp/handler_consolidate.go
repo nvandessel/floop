@@ -117,18 +117,20 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 		}
 	}
 	c := consolidation.NewConsolidator(executor, s.llmClient, decisions, model)
-	result, err := consolidation.NewRunner(c).
+	result, runErr := consolidation.NewRunner(c).
 		Run(ctx, evts, s.store, consolidation.RunOptions{DryRun: args.DryRun})
-	if err != nil {
-		return nil, FloopConsolidateOutput{}, fmt.Errorf("consolidation pipeline failed: %w", err)
-	}
 
-	// Mark processed events as consolidated — fail the call if this errors,
-	// since leaving events unmarked will cause duplicate promotion on next run.
-	if !args.DryRun && len(result.SourceEventIDs) > 0 {
-		if err := s.eventStore.MarkConsolidated(ctx, result.SourceEventIDs); err != nil {
-			return nil, FloopConsolidateOutput{}, fmt.Errorf("marking events consolidated: %w", err)
+	// Mark successfully-processed events as consolidated even if a later
+	// session errored. Without this, the pipeline re-processes the same
+	// events on every invocation, wasting rate limit on redundant work.
+	if !args.DryRun && result != nil && len(result.SourceEventIDs) > 0 {
+		if markErr := s.eventStore.MarkConsolidated(ctx, result.SourceEventIDs); markErr != nil {
+			s.logger.Warn("failed to mark events consolidated",
+				"count", len(result.SourceEventIDs), "error", markErr)
 		}
+	}
+	if runErr != nil {
+		return nil, FloopConsolidateOutput{}, fmt.Errorf("consolidation pipeline failed: %w", runErr)
 	}
 
 	// Build candidate summaries
