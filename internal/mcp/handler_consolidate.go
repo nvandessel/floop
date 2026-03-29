@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -126,7 +125,7 @@ func (s *Server) handleFloopConsolidate(ctx context.Context, req *sdk.CallToolRe
 	// events on every invocation, wasting rate limit on redundant work.
 	if !args.DryRun && result != nil && len(result.SourceEventIDs) > 0 {
 		if markErr := s.eventStore.MarkConsolidated(ctx, result.SourceEventIDs); markErr != nil {
-			slog.Warn("failed to mark events consolidated",
+			s.logger.Warn("failed to mark events consolidated",
 				"count", len(result.SourceEventIDs), "error", markErr)
 		}
 	}
