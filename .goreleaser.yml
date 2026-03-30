@@ -1,27 +1,17 @@
 # GoReleaser configuration for floop
 # Documentation: https://goreleaser.com
 #
-# Builds use CGO_ENABLED=0 (BruteForce vector search fallback).
-# For LanceDB support, build from source with CGO enabled.
-# See docs/EMBEDDINGS.md for build-from-source instructions.
+# Builds are pre-built by auto-release.yml (native CGO builds on each platform).
+# goreleaser runs in pre-built binary mode: packaging, checksums, changelog, homebrew.
 
 version: 2
 
-before:
-  hooks:
-    - go mod tidy
-
 builds:
   - id: floop
-    main: ./cmd/floop
+    builder: prebuilt
+    prebuilt:
+      path: "dist/floop_{{ .Os }}_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}/floop{{ .Ext }}"
     binary: floop
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
     goos:
       - linux
       - darwin
@@ -29,7 +19,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    ignore: []
 
 archives:
   - id: default
@@ -88,14 +77,11 @@ release:
     brew install nvandessel/tap/floop
     ```
 
-    ### Go install
-    ```
-    go install github.com/nvandessel/floop/cmd/floop@latest
-    ```
-    Note: `go install` builds without CGO, using BruteForce vector search. For LanceDB persistence, see [building from source](https://github.com/nvandessel/floop/blob/main/docs/EMBEDDINGS.md#building-from-source).
-
     ### Manual
     Download the appropriate archive for your platform below, extract it, and move the `floop` binary to your PATH.
+
+    ### Building from source
+    See [docs/EMBEDDINGS.md](https://github.com/nvandessel/floop/blob/main/docs/EMBEDDINGS.md#building-from-source) for instructions on building with LanceDB support.
 
     **Full changelog**: https://github.com/nvandessel/floop/compare/{{ .PreviousTag }}...{{ .Tag }}
 
