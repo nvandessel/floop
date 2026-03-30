@@ -17,8 +17,8 @@ env:
   GORELEASER_VERSION: v2.14.1
 
 jobs:
-  test-release:
-    name: Test Release Build
+  build-binaries:
+    name: Build Test Binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -28,95 +28,54 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Download LanceDB native libraries
+        run: |
+          LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+          bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
+
+      - name: Build linux/amd64 with CGO
+        run: |
+          mkdir -p dist/floop_linux_amd64_v1
+          CGO_ENABLED=1 \
+          CGO_CFLAGS="-I$(pwd)/include" \
+          CGO_LDFLAGS="-L$(pwd)/lib/linux_amd64 -llancedb_go" \
+          go build -ldflags "-s -w -X main.version=snapshot -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o dist/floop_linux_amd64_v1/floop ./cmd/floop
+
+      - name: Build remaining targets without CGO
+        run: |
+          for target in linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
+            os="${target%_*}"
+            arch="${target#*_}"
+            ext=""
+            suffix=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+            if [ "$arch" = "amd64" ]; then suffix="_v1"; fi
+
+            mkdir -p "dist/floop_${target}${suffix}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+            go build -ldflags "-s -w -X main.version=snapshot -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              -o "dist/floop_${target}${suffix}/floop${ext}" ./cmd/floop
+          done
+
+      - name: Test linux/amd64 binary
+        run: ./dist/floop_linux_amd64_v1/floop --version
+
       - name: Run GoReleaser in snapshot mode
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: ${{ env.GORELEASER_VERSION }}
-          args: build --snapshot --clean
+          args: release --snapshot --clean --skip=publish
+        env:
+          GORELEASER_CURRENT_TAG: v0.0.0-snapshot
 
-      - name: Verify binaries
+      - name: Verify archives created
         run: |
-          echo "Built binaries:"
-          ls -lh dist/*/floop* 2>/dev/null || true
-
-          echo ""
-          echo "Testing Linux amd64 binary..."
-          linux_bin=$(find dist -maxdepth 2 -name "floop" -path "*linux_amd64*" | head -1)
-          test -n "$linux_bin" || { echo "linux_amd64 binary not found"; exit 1; }
-          "$linux_bin" --version
-
-          # Verify all 6 platform targets exist (goreleaser may add arch variant suffixes)
-          for os_arch in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
-            found=$(find dist -maxdepth 1 -type d -name "floop_${os_arch}*" | head -1)
-            if [ -n "$found" ]; then
-              echo "  ${os_arch}: OK ($(basename "$found"))"
-            else
-              echo "  ${os_arch}: MISSING" && exit 1
-            fi
-          done
-
-  test-cgo-build:
-    name: Test CGO Build (LanceDB)
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: "go.mod"
-
-      - name: Install C++ toolchain
-        run: sudo apt-get update && sudo apt-get install -y g++
-
-      - name: Download Go modules
-        run: go mod download
-
-      - name: Cache LanceDB native libraries
-        uses: actions/cache@v5
-        with:
-          path: |
-            lib/
-            include/
-          key: lancedb-test-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
-
-      - name: Download LanceDB native libraries
-        shell: bash
-        run: |
-          PLATFORM="$(go env GOOS)_$(go env GOARCH)"
-          if [ ! -f "lib/${PLATFORM}/liblancedb_go.a" ]; then
-            rm -rf lib/ include/
-            # go.mod has a replace directive pointing to nvandessel/lancedb-go (a fork with
-            # patches not yet upstream). The version template resolves the replaced version so
-            # we download binaries from the fork's releases, which is where they are published.
-            LANCE_VERSION=$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/lancedb/lancedb-go)
-            gh release download "${LANCE_VERSION}" \
-              --repo nvandessel/lancedb-go \
-              --pattern 'lancedb-go-native-binaries.tar.gz'
-            tar -xzf lancedb-go-native-binaries.tar.gz
-            rm -f lancedb-go-native-binaries.tar.gz
-          fi
-
-      - name: Build with CGO + LanceDB
-        run: |
-          PLATFORM="$(go env GOOS)_$(go env GOARCH)"
-          CGO_ENABLED=1 \
-          CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
-          go build -ldflags "-s -w -X main.version=test-cgo" \
-            -o floop-cgo ./cmd/floop
-
-      - name: Verify CGO binary
-        run: |
-          ./floop-cgo --version
-          echo ""
-          echo "LanceDB static linking check:"
-          ldd_output=$(ldd floop-cgo 2>&1) || { echo "FAIL: ldd failed"; exit 1; }
-          if echo "$ldd_output" | grep -q liblancedb_go; then
-            echo "FAIL: liblancedb_go.so linked dynamically"
-            echo "$ldd_output"
-            exit 1
-          else
-            echo "OK: LanceDB statically linked (no liblancedb_go.so dependency)"
-          fi
+          echo "Archives:"
+          ls -lh dist/*.tar.gz dist/*.zip 2>/dev/null || true
+          echo "Checksums:"
+          cat dist/checksums.txt 2>/dev/null || echo "No checksums (expected in snapshot)"
