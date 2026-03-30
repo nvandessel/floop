@@ -8,6 +8,7 @@ on:
       - "docs/**"
       - ".beads/**"
       - ".floop/**"
+      - ".github/**"
       - "LICENSE"
 
 permissions:
@@ -63,51 +64,189 @@ jobs:
 
           echo "should_release=true" >> "$GITHUB_OUTPUT"
 
-  release:
-    name: Release
+  tag-version:
+    name: Tag Version
     needs: check-skip
     if: needs.check-skip.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      should_release: ${{ steps.tag.outputs.should_release }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-
       - name: Install svu
         run: go install github.com/caarlos0/svu/v3@latest
-
       - name: Tag next version
         id: tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           CURRENT=$(svu current || echo "v0.0.0")
           NEXT=$(svu next)
-
           if [ "$CURRENT" = "$NEXT" ]; then
             echo "No version bump needed ($CURRENT)"
             echo "should_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
           echo "$CURRENT → $NEXT"
           git tag -a "$NEXT" -m "Release $NEXT"
           git push origin "$NEXT"
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "should_release=true" >> "$GITHUB_OUTPUT"
 
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: tag-version
+    if: needs.tag-version.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            cgo: true
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+            cgo: true
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+            cgo: true
+          - goos: darwin
+            goarch: amd64
+            runner: macos-13
+            cgo: true
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+            cgo: true
+          - goos: windows
+            goarch: arm64
+            runner: windows-latest
+            cgo: false
+    runs-on: ${{ matrix.runner }}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Download LanceDB native libraries
+        if: matrix.cgo
+        shell: bash
+        run: |
+          LANCE_VERSION=$(go list -m -f '{{.Version}}' github.com/lancedb/lancedb-go)
+          bash "$(go env GOMODCACHE)/github.com/lancedb/lancedb-go@${LANCE_VERSION}/scripts/download-artifacts.sh" "${LANCE_VERSION}"
+
+      - name: Build with CGO (LanceDB)
+        if: matrix.cgo
+        id: cgo_build
+        shell: bash
+        continue-on-error: true
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+
+          PLATFORM="${{ matrix.goos }}_${{ matrix.goarch }}"
+          VERSION="${{ needs.tag-version.outputs.version }}"
+
+          CGO_ENABLED=1 \
+          CGO_CFLAGS="-I$(pwd)/include" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -llancedb_go" \
+          go build \
+            -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "floop${EXT}" \
+            ./cmd/floop
+
+          echo "cgo_success=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build without CGO (fallback)
+        if: matrix.cgo == false || steps.cgo_build.outcome == 'failure'
+        shell: bash
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+
+          VERSION="${{ needs.tag-version.outputs.version }}"
+
+          CGO_ENABLED=0 \
+          go build \
+            -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "floop${EXT}" \
+            ./cmd/floop
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: floop-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: floop${{ matrix.goos == 'windows' && '.exe' || '' }}
+          retention-days: 1
+
+  release:
+    name: Release
+    needs: [tag-version, build]
+    if: needs.tag-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Arrange binaries for goreleaser
+        shell: bash
+        run: |
+          mkdir -p dist
+          for dir in artifacts/floop-*; do
+            # Extract os-arch from artifact name (e.g., floop-linux-amd64)
+            name=$(basename "$dir")
+            os_arch="${name#floop-}"
+            os="${os_arch%-*}"
+            arch="${os_arch##*-}"
+
+            # goreleaser adds _v1 suffix for amd64 targets
+            suffix=""
+            if [ "$arch" = "amd64" ]; then suffix="_v1"; fi
+
+            target="dist/floop_${os}_${arch}${suffix}"
+            mkdir -p "$target"
+
+            # Move binary (handles .exe for windows)
+            if [ -f "$dir/floop.exe" ]; then
+              mv "$dir/floop.exe" "$target/floop.exe"
+            else
+              mv "$dir/floop" "$target/floop"
+            fi
+
+            echo "✅ ${os}/${arch} → ${target}"
+          done
+
+          echo "Final layout:"
+          find dist -type f
+
       - name: Run GoReleaser
-        if: steps.tag.outputs.should_release == 'true'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -116,3 +255,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.tag-version.outputs.version }}
