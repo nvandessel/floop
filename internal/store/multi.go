@@ -397,6 +397,29 @@ func (m *MultiGraphStore) forEachExtendedStore(scope string, fn func(ExtendedGra
 	return nil
 }
 
+// GetAllEdges delegates to the local store.
+// Sproink only operates on the local project graph.
+func (m *MultiGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if es, ok := m.localStore.(ExtendedGraphStore); ok {
+		return es.GetAllEdges(ctx)
+	}
+	return nil, fmt.Errorf("local store does not implement ExtendedGraphStore")
+}
+
+// Version delegates to the local store.
+func (m *MultiGraphStore) Version() uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if es, ok := m.localStore.(ExtendedGraphStore); ok {
+		return es.Version()
+	}
+	return 0
+}
+
 // UpdateConfidence updates the confidence for a behavior in whichever store contains it.
 func (m *MultiGraphStore) UpdateConfidence(ctx context.Context, behaviorID string, newConfidence float64) error {
 	m.mu.Lock()

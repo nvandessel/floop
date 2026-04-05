@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nvandessel/floop/internal/constants"
@@ -32,6 +33,7 @@ type SQLiteGraphStore struct {
 	dbPath    string
 	nodesFile string
 	edgesFile string
+	version   uint64
 }
 
 // DB returns the underlying *sql.DB for direct SQL access (e.g., persistRun).
@@ -167,12 +169,22 @@ func (s *SQLiteGraphStore) AddNode(ctx context.Context, node Node) (string, erro
 
 	// Use addBehavior for all behavior-related kinds
 	if isBehaviorKind(node.Kind) {
-		return s.addBehavior(ctx, node)
+		id, err := s.addBehavior(ctx, node)
+		if err != nil {
+			return "", err
+		}
+		s.bumpVersion()
+		return id, nil
 	}
 
 	// For non-behavior nodes, store in a generic way using the behaviors table
 	// with a different kind indicator
-	return s.addGenericNode(ctx, node)
+	id, err := s.addGenericNode(ctx, node)
+	if err != nil {
+		return "", err
+	}
+	s.bumpVersion()
+	return id, nil
 }
 
 // isBehaviorKind returns true if the kind represents a behavior (active or curated).
@@ -509,7 +521,11 @@ func (s *SQLiteGraphStore) UpdateNode(ctx context.Context, node Node) error {
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.bumpVersion()
+	return nil
 }
 
 // GetNode retrieves a node by ID. Returns nil if not found.
@@ -730,6 +746,7 @@ func (s *SQLiteGraphStore) DeleteNode(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete edges: %w", err)
 	}
 
+	s.bumpVersion()
 	return nil
 }
 
@@ -835,6 +852,7 @@ func (s *SQLiteGraphStore) AddEdge(ctx context.Context, edge Edge) error {
 		return fmt.Errorf("failed to add edge: %w", err)
 	}
 
+	s.bumpVersion()
 	return nil
 }
 
@@ -850,6 +868,7 @@ func (s *SQLiteGraphStore) RemoveEdge(ctx context.Context, source, target string
 		return fmt.Errorf("failed to remove edge: %w", err)
 	}
 
+	s.bumpVersion()
 	return nil
 }
 
@@ -932,6 +951,73 @@ func (s *SQLiteGraphStore) getEdgesUnlocked(ctx context.Context, nodeID string, 
 	}
 
 	return edges, nil
+}
+
+// GetAllEdges returns every edge in the store as a single directed record.
+func (s *SQLiteGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `SELECT source, target, kind, weight, created_at, last_activated, metadata FROM edges`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all edges: %w", err)
+	}
+	defer rows.Close()
+
+	var edges []Edge
+	for rows.Next() {
+		var source, target, edgeKindStr string
+		var weight sql.NullFloat64
+		var createdAtStr, lastActivatedStr, metadataJSON sql.NullString
+
+		if err := rows.Scan(&source, &target, &edgeKindStr, &weight, &createdAtStr, &lastActivatedStr, &metadataJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan edge: %w", err)
+		}
+
+		edge := Edge{
+			Source: source,
+			Target: target,
+			Kind:   EdgeKind(edgeKindStr),
+		}
+
+		if weight.Valid {
+			edge.Weight = weight.Float64
+		}
+
+		if createdAtStr.Valid {
+			if t, err := time.Parse(time.RFC3339, createdAtStr.String); err == nil {
+				edge.CreatedAt = t
+			}
+		}
+
+		if lastActivatedStr.Valid {
+			if t, err := time.Parse(time.RFC3339, lastActivatedStr.String); err == nil {
+				edge.LastActivated = &t
+			}
+		}
+
+		if metadataJSON.Valid {
+			var metadata map[string]interface{}
+			if err := json.Unmarshal([]byte(metadataJSON.String), &metadata); err == nil {
+				edge.Metadata = metadata
+			}
+		}
+
+		edges = append(edges, edge)
+	}
+
+	return edges, nil
+}
+
+// Version returns the current store version counter.
+// The counter is bumped atomically on each write operation.
+func (s *SQLiteGraphStore) Version() uint64 {
+	return atomic.LoadUint64(&s.version)
+}
+
+// bumpVersion atomically increments the version counter.
+func (s *SQLiteGraphStore) bumpVersion() {
+	atomic.AddUint64(&s.version, 1)
 }
 
 // Traverse returns all nodes reachable from start by following edges of the given kinds.
