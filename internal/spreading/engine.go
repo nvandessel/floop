@@ -78,6 +78,9 @@ type Result struct {
 	SeedSource string  // Which seed triggered this (nearest)
 }
 
+// Compile-time check: Engine implements Activator.
+var _ Activator = (*Engine)(nil)
+
 // Engine performs spreading activation over the behavior graph.
 // The engine is stateless: all mutable state lives in activation maps
 // created during each call to Activate.
