@@ -14,8 +14,14 @@ package spreading
 import "C"
 
 import (
+	"context"
 	"fmt"
+	"sort"
+	"sync"
 	"unsafe"
+
+	"github.com/nvandessel/floop/internal/constants"
+	"github.com/nvandessel/floop/internal/store"
 )
 
 // sproinkGraphBuild creates a CSR graph from parallel edge arrays.
@@ -202,4 +208,194 @@ func sproinkOjaUpdate(currentWeight, activationA, activationB, learningRate, min
 		C.double(minWeight),
 		C.double(maxWeight),
 	))
+}
+
+// Compile-time check: NativeEngine implements Activator.
+var _ Activator = (*NativeEngine)(nil)
+
+// NativeEngine performs spreading activation via the sproink FFI library.
+// It owns a CSR graph built from the store's edges and rebuilds it when
+// the store version changes.
+type NativeEngine struct {
+	graph   *C.SproinkGraph
+	idmap   *IDMap
+	config  Config
+	store   store.ExtendedGraphStore
+	mu      sync.RWMutex
+	version uint64
+}
+
+// NewNativeEngine creates a NativeEngine by loading the full graph from the store.
+func NewNativeEngine(s store.ExtendedGraphStore, config Config) (*NativeEngine, error) {
+	ctx := context.Background()
+	graph, idmap, err := loadGraph(ctx, s, config)
+	if err != nil {
+		return nil, fmt.Errorf("NewNativeEngine: %w", err)
+	}
+	return &NativeEngine{
+		graph:   graph,
+		idmap:   idmap,
+		config:  config,
+		store:   s,
+		version: s.Version(),
+	}, nil
+}
+
+// Activate runs spreading activation from the given seeds via the sproink FFI.
+func (e *NativeEngine) Activate(ctx context.Context, seeds []Seed) ([]Result, error) {
+	if len(seeds) == 0 {
+		return []Result{}, nil
+	}
+
+	// Version check before lock (atomic read on store side).
+	if e.store.Version() > e.version {
+		if err := e.Rebuild(ctx); err != nil {
+			return nil, fmt.Errorf("NativeEngine.Activate: rebuild: %w", err)
+		}
+	}
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Map seeds to parallel arrays, dropping unknown BehaviorIDs.
+	seedNodes := make([]uint32, 0, len(seeds))
+	seedActivations := make([]float64, 0, len(seeds))
+	seedSources := make(map[uint32]string, len(seeds))
+	for _, s := range seeds {
+		id, ok := e.idmap.ToU32(s.BehaviorID)
+		if !ok {
+			continue
+		}
+		seedNodes = append(seedNodes, id)
+		seedActivations = append(seedActivations, s.Activation)
+		seedSources[id] = s.Source
+	}
+
+	if len(seedNodes) == 0 {
+		return []Result{}, nil
+	}
+
+	// Resolve inhibition config.
+	inhEnabled := e.config.Inhibition != nil && e.config.Inhibition.Enabled
+	var inhStrength float64
+	var inhBreadth uint32
+	if e.config.Inhibition != nil {
+		inhStrength = e.config.Inhibition.Strength
+		inhBreadth = uint32(e.config.Inhibition.Breadth)
+	}
+
+	results, err := sproinkActivate(
+		e.graph,
+		seedNodes,
+		seedActivations,
+		uint32(e.config.MaxSteps),
+		e.config.DecayFactor,
+		e.config.SpreadFactor,
+		e.config.MinActivation,
+		constants.SigmoidGain,
+		constants.SigmoidCenter,
+		inhEnabled,
+		inhStrength,
+		inhBreadth,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("NativeEngine.Activate: %w", err)
+	}
+	defer sproinkResultsFree(results)
+
+	n := sproinkResultsLen(results)
+	if n == 0 {
+		return []Result{}, nil
+	}
+
+	nodes := sproinkResultsNodes(results)
+	activations := sproinkResultsActivations(results)
+	distances := sproinkResultsDistances(results)
+
+	// Build seed lookup for SeedSource attribution.
+	seedSet := make(map[uint32]bool, len(seedNodes))
+	for _, sn := range seedNodes {
+		seedSet[sn] = true
+	}
+
+	// Sort seeds by BehaviorID for deterministic alphabetical tiebreak.
+	type seedEntry struct {
+		behaviorID string
+		source     string
+	}
+	sortedSeeds := make([]seedEntry, 0, len(seedNodes))
+	for _, sn := range seedNodes {
+		sortedSeeds = append(sortedSeeds, seedEntry{
+			behaviorID: e.idmap.ToUUID(sn),
+			source:     seedSources[sn],
+		})
+	}
+	sort.Slice(sortedSeeds, func(i, j int) bool {
+		return sortedSeeds[i].behaviorID < sortedSeeds[j].behaviorID
+	})
+
+	// Build result slice with SeedSource attribution, MinActivation filter.
+	out := make([]Result, 0, n)
+	for i := uint32(0); i < n; i++ {
+		act := activations[i]
+		if act < e.config.MinActivation {
+			continue
+		}
+
+		nodeID := e.idmap.ToUUID(nodes[i])
+		dist := int(distances[i])
+
+		// Derive SeedSource: seeds use their own source; non-seeds use
+		// alphabetically first seed (tiebreak when per-seed distance is unavailable).
+		var source string
+		if dist == 0 && seedSet[nodes[i]] {
+			source = seedSources[nodes[i]]
+		} else {
+			source = sortedSeeds[0].source
+		}
+
+		out = append(out, Result{
+			BehaviorID: nodeID,
+			Activation: act,
+			Distance:   dist,
+			SeedSource: source,
+		})
+	}
+
+	// Sort by activation descending.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Activation > out[j].Activation
+	})
+
+	return out, nil
+}
+
+// Rebuild frees the current graph and builds a fresh one from the store.
+func (e *NativeEngine) Rebuild(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	sproinkGraphFree(e.graph)
+
+	graph, idmap, err := loadGraph(ctx, e.store, e.config)
+	if err != nil {
+		return fmt.Errorf("NativeEngine.Rebuild: %w", err)
+	}
+
+	e.graph = graph
+	e.idmap = idmap
+	e.version = e.store.Version()
+	return nil
+}
+
+// Close frees the owned graph. Safe to call multiple times.
+func (e *NativeEngine) Close() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.graph != nil {
+		sproinkGraphFree(e.graph)
+		e.graph = nil
+	}
+	return nil
 }
