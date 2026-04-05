@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -67,6 +68,9 @@ type Server struct {
 	confirmedSessionMu   sync.Mutex
 	confirmedThisSession map[string]struct{}
 
+	// Spreading activation engine (NativeEngine if available, else pure-Go Engine)
+	activator spreading.Activator
+
 	// Hebbian co-activation learning
 	coActivationTracker *coActivationTracker
 	hebbianConfig       spreading.HebbianConfig
@@ -107,6 +111,25 @@ func NewServer(cfg *Config) (*Server, error) {
 	graphStore, err := store.NewMultiGraphStore(cfg.Root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create graph store: %w", err)
+	}
+
+	// Build spreading activation engine (prefer native sproink FFI, fall back to pure-Go).
+	spreadConfig := spreading.DefaultConfig()
+	affinityConfig := spreading.DefaultAffinityConfig()
+	spreadConfig.Affinity = &affinityConfig
+	spreadConfig.TagProvider = spreading.NewStoreTagProvider(graphStore)
+
+	var activator spreading.Activator
+	if extStore, ok := store.GraphStore(graphStore).(store.ExtendedGraphStore); ok {
+		nativeEngine, nErr := spreading.NewNativeEngine(extStore, spreadConfig)
+		if nErr != nil {
+			slog.Warn("sproink unavailable, using pure-Go engine", "error", nErr)
+			activator = spreading.NewEngine(graphStore, spreadConfig)
+		} else {
+			activator = nativeEngine
+		}
+	} else {
+		activator = spreading.NewEngine(graphStore, spreadConfig)
 	}
 
 	// Create MCP server
@@ -175,6 +198,7 @@ func NewServer(cfg *Config) (*Server, error) {
 		retentionPolicy:      retPolicy,
 		workerPool:           make(chan struct{}, maxBackgroundWorkers),
 		confirmedThisSession: make(map[string]struct{}),
+		activator:            activator,
 		coActivationTracker:  initCoActivationTracker(graphStore),
 		hebbianConfig:        spreading.DefaultHebbianConfig(),
 		eventStore:           eventStore,
@@ -497,6 +521,12 @@ func (s *Server) Close() error {
 		s.pageRankDebounceMu.Unlock()
 
 		s.workerWg.Wait()
+
+		if closer, ok := s.activator.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				s.logger.Warn("failed to close activator", "error", err)
+			}
+		}
 
 		if s.auditLogger != nil {
 			s.auditLogger.Close()
