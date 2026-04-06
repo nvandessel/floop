@@ -384,6 +384,7 @@ func (e *NativeEngine) Rebuild(ctx context.Context) error {
 	}
 
 	sproinkGraphFree(e.graph)
+	e.graph = nil // prevent double-free if loadGraph fails
 
 	graph, idmap, err := loadGraph(ctx, e.store, e.config)
 	if err != nil {

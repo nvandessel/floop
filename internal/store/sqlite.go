@@ -1005,6 +1005,9 @@ func (s *SQLiteGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
 
 		edges = append(edges, edge)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate all edges: %w", err)
+	}
 
 	return edges, nil
 }
