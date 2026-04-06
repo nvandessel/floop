@@ -3,6 +3,7 @@
 package spreading
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestNewNativeEngine_NoCGO(t *testing.T) {
 
 func TestNativeEngine_Activate_NoCGO(t *testing.T) {
 	e := &NativeEngine{}
-	_, err := e.Activate(nil, nil)
+	_, err := e.Activate(context.TODO(), nil)
 	if err == nil {
 		t.Fatal("expected error for non-CGO build")
 	}
@@ -27,7 +28,7 @@ func TestNativeEngine_Activate_NoCGO(t *testing.T) {
 
 func TestNativeEngine_Rebuild_NoCGO(t *testing.T) {
 	e := &NativeEngine{}
-	err := e.Rebuild(nil)
+	err := e.Rebuild(context.TODO())
 	if err == nil {
 		t.Fatal("expected error for non-CGO build")
 	}

@@ -3,6 +3,7 @@
 package spreading
 
 /*
+#cgo CFLAGS: -I${SRCDIR}/../../third_party/sproink/include
 #include "sproink.h"
 */
 import "C"
