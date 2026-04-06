@@ -397,27 +397,52 @@ func (m *MultiGraphStore) forEachExtendedStore(scope string, fn func(ExtendedGra
 	return nil
 }
 
-// GetAllEdges delegates to the local store.
-// Sproink only operates on the local project graph.
+// GetAllEdges returns edges from both local and global stores, ensuring
+// NativeEngine sees the same graph as the pure-Go Engine.
 func (m *MultiGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	if es, ok := m.localStore.(ExtendedGraphStore); ok {
-		return es.GetAllEdges(ctx)
+	localES, ok := m.localStore.(ExtendedGraphStore)
+	if !ok {
+		return nil, fmt.Errorf("local store does not implement ExtendedGraphStore")
 	}
-	return nil, fmt.Errorf("local store does not implement ExtendedGraphStore")
+	localEdges, err := localES.GetAllEdges(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllEdges local: %w", err)
+	}
+
+	if m.globalStore == nil {
+		return localEdges, nil
+	}
+	globalES, ok := m.globalStore.(ExtendedGraphStore)
+	if !ok {
+		return localEdges, nil
+	}
+	globalEdges, err := globalES.GetAllEdges(ctx)
+	if err != nil {
+		return localEdges, nil // degrade gracefully: return local-only
+	}
+
+	return append(localEdges, globalEdges...), nil
 }
 
-// Version delegates to the local store.
+// Version returns the combined version from both stores so NativeEngine
+// detects staleness from either store's mutations.
 func (m *MultiGraphStore) Version() uint64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	var v uint64
 	if es, ok := m.localStore.(ExtendedGraphStore); ok {
-		return es.Version()
+		v += es.Version()
 	}
-	return 0
+	if m.globalStore != nil {
+		if es, ok := m.globalStore.(ExtendedGraphStore); ok {
+			v += es.Version()
+		}
+	}
+	return v
 }
 
 // UpdateConfidence updates the confidence for a behavior in whichever store contains it.

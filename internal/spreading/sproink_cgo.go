@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/nvandessel/floop/internal/constants"
@@ -237,7 +238,7 @@ func NewNativeEngine(s store.ExtendedGraphStore, config Config) (*NativeEngine, 
 		idmap:   idmap,
 		config:  config,
 		store:   s,
-		version: s.Version(),
+		version: s.Version(), // safe: no concurrent access yet
 	}, nil
 }
 
@@ -247,8 +248,8 @@ func (e *NativeEngine) Activate(ctx context.Context, seeds []Seed) ([]Result, er
 		return []Result{}, nil
 	}
 
-	// Version check before lock (atomic read on store side).
-	if e.store.Version() > e.version {
+	// Version check before lock — both reads must be atomic.
+	if e.store.Version() > atomic.LoadUint64(&e.version) {
 		if err := e.Rebuild(ctx); err != nil {
 			return nil, fmt.Errorf("NativeEngine.Activate: rebuild: %w", err)
 		}
@@ -371,9 +372,16 @@ func (e *NativeEngine) Activate(ctx context.Context, seeds []Seed) ([]Result, er
 }
 
 // Rebuild frees the current graph and builds a fresh one from the store.
+// Re-checks version after acquiring the lock to avoid thundering herd:
+// if N goroutines all observe staleness, only the first actually rebuilds.
 func (e *NativeEngine) Rebuild(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// Re-check: a concurrent Rebuild may have already updated.
+	if e.store.Version() <= atomic.LoadUint64(&e.version) {
+		return nil
+	}
 
 	sproinkGraphFree(e.graph)
 
@@ -384,7 +392,7 @@ func (e *NativeEngine) Rebuild(ctx context.Context) error {
 
 	e.graph = graph
 	e.idmap = idmap
-	e.version = e.store.Version()
+	atomic.StoreUint64(&e.version, e.store.Version())
 	return nil
 }
 
