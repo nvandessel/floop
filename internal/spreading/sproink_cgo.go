@@ -229,6 +229,7 @@ type NativeEngine struct {
 // NewNativeEngine creates a NativeEngine by loading the full graph from the store.
 func NewNativeEngine(s store.ExtendedGraphStore, config Config) (*NativeEngine, error) {
 	ctx := context.Background()
+	snapVersion := s.Version() // capture BEFORE reading edges (TOCTOU prevention)
 	graph, idmap, err := loadGraph(ctx, s, config)
 	if err != nil {
 		return nil, fmt.Errorf("NewNativeEngine: %w", err)
@@ -238,7 +239,7 @@ func NewNativeEngine(s store.ExtendedGraphStore, config Config) (*NativeEngine, 
 		idmap:   idmap,
 		config:  config,
 		store:   s,
-		version: s.Version(), // safe: no concurrent access yet
+		version: snapVersion,
 	}, nil
 }
 
