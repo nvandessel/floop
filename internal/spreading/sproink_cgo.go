@@ -378,8 +378,11 @@ func (e *NativeEngine) Rebuild(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Re-check: a concurrent Rebuild may have already updated.
-	if e.store.Version() <= atomic.LoadUint64(&e.version) {
+	// Snapshot version BEFORE reading edges so any racing write forces
+	// a follow-up rebuild (prevents TOCTOU where graph is built from
+	// pre-write data but version reflects post-write state).
+	snapVersion := e.store.Version()
+	if snapVersion <= atomic.LoadUint64(&e.version) {
 		return nil
 	}
 
@@ -393,7 +396,7 @@ func (e *NativeEngine) Rebuild(ctx context.Context) error {
 
 	e.graph = graph
 	e.idmap = idmap
-	atomic.StoreUint64(&e.version, e.store.Version())
+	atomic.StoreUint64(&e.version, snapVersion)
 	return nil
 }
 

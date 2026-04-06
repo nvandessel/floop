@@ -140,6 +140,7 @@ func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string)
 		return fmt.Errorf("failed to touch edges: %w", err)
 	}
 
+	s.bumpVersion()
 	return nil
 }
 
