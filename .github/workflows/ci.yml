@@ -125,12 +125,15 @@ jobs:
         include:
           - os: ubuntu-latest
             lib_dir: linux_amd64
+            sproink_dir: linux_amd64
             extra_ldflags: ""
           - os: macos-latest
             lib_dir: darwin_arm64
+            sproink_dir: darwin_arm64
             extra_ldflags: ""
           - os: windows-latest
             lib_dir: windows-gnu_amd64
+            sproink_dir: windows_amd64
             extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt"
     runs-on: ${{ matrix.os }}
     env:
@@ -165,6 +168,24 @@ jobs:
               --pattern 'lancedb-go-native-binaries.tar.gz'
             tar -xzf lancedb-go-native-binaries.tar.gz
             rm -f lancedb-go-native-binaries.tar.gz
+          fi
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache sproink build
+        uses: actions/cache@v5
+        with:
+          path: sproink-build/target
+          key: sproink-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/sproink/include/sproink.h') }}
+      - name: Build sproink native library
+        shell: bash
+        run: |
+          if [ ! -f "third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a" ]; then
+            git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
+            cd sproink-build
+            cargo build --release
+            cd ..
+            mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
+            cp sproink-build/target/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
           fi
       - name: Add library path (Windows)
         if: runner.os == 'Windows'
