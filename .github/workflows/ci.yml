@@ -185,7 +185,12 @@ jobs:
             cargo build --release
             cd ..
             mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
-            cp sproink-build/target/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
+            # Rust outputs libsproink.a on Unix, sproink.lib on Windows
+            if [ -f sproink-build/target/release/libsproink.a ]; then
+              cp sproink-build/target/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
+            elif [ -f sproink-build/target/release/sproink.lib ]; then
+              cp sproink-build/target/release/sproink.lib third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a
+            fi
           fi
       - name: Add library path (Windows)
         if: runner.os == 'Windows'

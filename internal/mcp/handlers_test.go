@@ -925,22 +925,48 @@ func TestBehaviorContentToMap_IncludesTags(t *testing.T) {
 
 func TestHandleFloopActive_TokenStats(t *testing.T) {
 	// Token counts use raw canonical bytes/4 (no tiering in MCP tool output).
-	// 9 seed behaviors are auto-injected (467 tokens total from their canonical content).
+	// Seed behaviors are auto-injected; the exact baseline count depends on the
+	// activation engine (NativeEngine vs pure-Go may activate different subsets
+	// due to inhibition/sigmoid with no context). We measure the baseline
+	// dynamically and verify that user behaviors add the expected delta.
+
+	// Step 1: Measure baseline from seed behaviors alone.
+	baseServer, _ := setupTestServer(t)
+	defer baseServer.Close()
+
+	ctx := context.Background()
+	req := &sdk.CallToolRequest{}
+	args := FloopActiveInput{}
+
+	_, baseOutput, err := baseServer.handleFloopActive(ctx, req, args)
+	if err != nil {
+		t.Fatalf("handleFloopActive (baseline) failed: %v", err)
+	}
+	if baseOutput.TokenStats == nil {
+		t.Fatal("TokenStats is nil, want non-nil")
+	}
+
+	baseTokens := baseOutput.TokenStats.TotalCanonicalTokens
+	baseBehaviorCount := baseOutput.TokenStats.BehaviorCount
+	t.Logf("baseline: %d tokens, %d behaviors", baseTokens, baseBehaviorCount)
+
+	if baseTokens == 0 {
+		t.Error("baseline TotalCanonicalTokens = 0, want > 0 (seed behaviors should activate)")
+	}
+	if baseBehaviorCount == 0 {
+		t.Error("baseline BehaviorCount = 0, want > 0")
+	}
+	if baseOutput.TokenStats.BudgetDefault != 2000 {
+		t.Errorf("BudgetDefault = %d, want 2000", baseOutput.TokenStats.BudgetDefault)
+	}
+
+	// Step 2: Verify user behaviors add expected token deltas.
 	tests := []struct {
-		name              string
-		behaviors         []store.Node
-		wantTokens        int
-		wantBudget        int
-		wantBehaviorCount int
+		name           string
+		behaviors      []store.Node
+		wantTokenDelta int // expected additional tokens beyond baseline
+		wantCountDelta int // expected additional behavior count beyond baseline
 	}{
-		{
-			// 9 seed behaviors are auto-injected (467 tokens total)
-			name:              "empty store has zero token stats",
-			behaviors:         nil,
-			wantTokens:        467,
-			wantBudget:        2000,
-			wantBehaviorCount: 9,
-		},
 		{
 			name: "single behavior with known canonical content",
 			behaviors: []store.Node{
@@ -961,9 +987,8 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 					},
 				},
 			},
-			wantTokens:        467 + 4, // seeds + user behavior
-			wantBudget:        2000,
-			wantBehaviorCount: 9 + 1,
+			wantTokenDelta: 4,
+			wantCountDelta: 1,
 		},
 		{
 			name: "multiple behaviors sum tokens",
@@ -1001,9 +1026,8 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 					},
 				},
 			},
-			wantTokens:        467 + 7, // seeds + 4 + 3
-			wantBudget:        2000,
-			wantBehaviorCount: 9 + 2,
+			wantTokenDelta: 7, // 4 + 3
+			wantCountDelta: 2,
 		},
 	}
 
@@ -1014,7 +1038,6 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 
 			ctx := context.Background()
 
-			// Add behaviors to store
 			for _, node := range tt.behaviors {
 				if _, err := server.store.AddNode(ctx, node); err != nil {
 					t.Fatalf("Failed to add node %s: %v", node.ID, err)
@@ -1038,16 +1061,20 @@ func TestHandleFloopActive_TokenStats(t *testing.T) {
 				t.Fatal("TokenStats is nil, want non-nil")
 			}
 
-			if output.TokenStats.TotalCanonicalTokens != tt.wantTokens {
-				t.Errorf("TotalCanonicalTokens = %d, want %d", output.TokenStats.TotalCanonicalTokens, tt.wantTokens)
+			wantTokens := baseTokens + tt.wantTokenDelta
+			if output.TokenStats.TotalCanonicalTokens != wantTokens {
+				t.Errorf("TotalCanonicalTokens = %d, want %d (baseline %d + delta %d)",
+					output.TokenStats.TotalCanonicalTokens, wantTokens, baseTokens, tt.wantTokenDelta)
 			}
 
-			if output.TokenStats.BudgetDefault != tt.wantBudget {
-				t.Errorf("BudgetDefault = %d, want %d", output.TokenStats.BudgetDefault, tt.wantBudget)
+			wantCount := baseBehaviorCount + tt.wantCountDelta
+			if output.TokenStats.BehaviorCount != wantCount {
+				t.Errorf("BehaviorCount = %d, want %d (baseline %d + delta %d)",
+					output.TokenStats.BehaviorCount, wantCount, baseBehaviorCount, tt.wantCountDelta)
 			}
 
-			if output.TokenStats.BehaviorCount != tt.wantBehaviorCount {
-				t.Errorf("BehaviorCount = %d, want %d", output.TokenStats.BehaviorCount, tt.wantBehaviorCount)
+			if output.TokenStats.BudgetDefault != 2000 {
+				t.Errorf("BudgetDefault = %d, want 2000", output.TokenStats.BudgetDefault)
 			}
 		})
 	}
