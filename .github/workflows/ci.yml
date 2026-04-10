@@ -182,14 +182,18 @@ jobs:
           if [ ! -f "third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a" ]; then
             git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
             cd sproink-build
-            cargo build --release
-            cd ..
-            mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
-            # Rust outputs libsproink.a on Unix, sproink.lib on Windows
-            if [ -f sproink-build/target/release/libsproink.a ]; then
+            # Windows CGO uses MinGW, so Rust must target gnu ABI (not MSVC)
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              rustup target add x86_64-pc-windows-gnu
+              cargo build --release --target x86_64-pc-windows-gnu
+              cd ..
+              mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
+              cp sproink-build/target/x86_64-pc-windows-gnu/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
+            else
+              cargo build --release
+              cd ..
+              mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
               cp sproink-build/target/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
-            elif [ -f sproink-build/target/release/sproink.lib ]; then
-              cp sproink-build/target/release/sproink.lib third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a
             fi
           fi
       - name: Add library path (Windows)
