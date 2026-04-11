@@ -55,7 +55,7 @@ shell scripts, eliminating bash/jq dependencies for Windows support.`,
 }
 
 // newHookSessionStartCmd creates the 'hook session-start' subcommand.
-// It generates a prompt with all active behaviors for session injection.
+// It emits the floop learn directive for session injection.
 func newHookSessionStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "session-start",
@@ -460,23 +460,6 @@ func detectTaskFromCommand(command string) string {
 	case strings.HasPrefix(command, "docker"),
 		strings.HasPrefix(command, "kubectl"):
 		return "deployment"
-	default:
-		return ""
-	}
-}
-
-// projectTypeToLanguage maps a ProjectType to its primary programming language.
-// Returns empty string for unknown project types.
-func projectTypeToLanguage(pt models.ProjectType) string {
-	switch pt {
-	case models.ProjectTypeGo:
-		return "go"
-	case models.ProjectTypePython:
-		return "python"
-	case models.ProjectTypeNode:
-		return "javascript"
-	case models.ProjectTypeRust:
-		return "rust"
 	default:
 		return ""
 	}

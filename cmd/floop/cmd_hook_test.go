@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/llm"
-	"github.com/nvandessel/floop/internal/models"
 )
 
 // mockLLMClient is a test double for llm.Client that returns canned responses.
@@ -930,25 +929,3 @@ func TestRunDetectCorrection_PatternMiss(t *testing.T) {
 	}
 }
 
-// TestProjectTypeToLanguage verifies the mapping from project type to language.
-func TestProjectTypeToLanguage(t *testing.T) {
-	tests := []struct {
-		pt   models.ProjectType
-		want string
-	}{
-		{models.ProjectTypeGo, "go"},
-		{models.ProjectTypePython, "python"},
-		{models.ProjectTypeNode, "javascript"},
-		{models.ProjectTypeRust, "rust"},
-		{models.ProjectTypeUnknown, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.pt), func(t *testing.T) {
-			got := projectTypeToLanguage(tt.pt)
-			if got != tt.want {
-				t.Errorf("projectTypeToLanguage(%v) = %q, want %q", tt.pt, got, tt.want)
-			}
-		})
-	}
-}
