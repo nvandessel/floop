@@ -134,7 +134,7 @@ jobs:
           - os: windows-latest
             lib_dir: windows-gnu_amd64
             sproink_dir: windows_amd64
-            extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt"
+            extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt -Wl,--allow-multiple-definition"
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "1"
@@ -179,8 +179,9 @@ jobs:
       - name: Build sproink native library
         shell: bash
         run: |
-          # Clone only if directory doesn't exist (cache restores target/ into it)
-          if [ ! -d "sproink-build" ]; then
+          # Clone if not a git repo (cache restores target/ but not .git)
+          if [ ! -d "sproink-build/.git" ]; then
+            rm -rf sproink-build
             git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
           fi
           # Build only if lib doesn't exist yet
