@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/nvandessel/floop/internal/activation"
-	"github.com/nvandessel/floop/internal/assembly"
 	"github.com/nvandessel/floop/internal/config"
-	"github.com/nvandessel/floop/internal/constants"
 	"github.com/nvandessel/floop/internal/learning"
 	"github.com/nvandessel/floop/internal/llm"
 	"github.com/nvandessel/floop/internal/models"
@@ -20,7 +18,6 @@ import (
 	"github.com/nvandessel/floop/internal/session"
 	"github.com/nvandessel/floop/internal/spreading"
 	"github.com/nvandessel/floop/internal/store"
-	"github.com/nvandessel/floop/internal/tiering"
 	"github.com/spf13/cobra"
 )
 
@@ -341,67 +338,17 @@ This applies to: explicit corrections, preferences, "don't do X", repeated feedb
 `
 }
 
-// runHookPrompt generates a markdown prompt with all active behaviors.
-// Used by session-start and first-prompt hooks.
+// runHookPrompt emits the floop learn directive at session start.
+// Behavior injection is handled entirely by the dynamic-context PreToolUse hook,
+// which uses spreading activation to surface relevant behaviors as the agent works.
+// This keeps the upfront token cost near zero.
 func runHookPrompt(cmd *cobra.Command, root string) error {
 	// Check initialization silently
 	if !floopDirExists(root) {
 		return nil
 	}
 
-	// Load config for token budget
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.Default()
-	}
-	tokenBudget := cfg.TokenBudget.Default
-
-	// Load all behaviors from both scopes
-	behaviors, err := loadBehaviorsWithScope(root, constants.ScopeBoth)
-	if err != nil {
-		return nil // silent in hook context
-	}
-
-	if len(behaviors) == 0 {
-		// No behaviors to inject, but still output the learn directive
-		fmt.Fprint(cmd.OutOrStdout(), floopLearnDirective())
-		return nil
-	}
-
-	// Evaluate which behaviors are active (no specific context for session start)
-	ctxBuilder := activation.NewContextBuilder().
-		WithRepoRoot(root)
-
-	// Auto-infer language from project type at session start
-	if lang := projectTypeToLanguage(models.InferProjectType(root)); lang != "" {
-		ctxBuilder.WithLanguage(lang)
-	}
-
-	ctx := ctxBuilder.Build()
-
-	evaluator := activation.NewEvaluator()
-	matches := evaluator.Evaluate(ctx, behaviors)
-
-	resolver := activation.NewResolver()
-	resolved := resolver.Resolve(matches)
-
-	if len(resolved.Active) == 0 {
-		// No active behaviors, but still output the learn directive
-		fmt.Fprint(cmd.OutOrStdout(), floopLearnDirective())
-		return nil
-	}
-
-	// Use tiered injection with markdown format
-	results, behaviorMap := tiering.BehaviorsToResults(resolved.Active)
-	mapper := tiering.NewActivationTierMapper(tiering.DefaultActivationTierConfig())
-	plan := mapper.MapResults(results, behaviorMap, tokenBudget)
-
-	compiler := assembly.NewCompiler().
-		WithFormat(assembly.FormatMarkdown)
-	compiled := compiler.CompileTiered(plan)
-
-	output := compiled.Text + floopLearnDirective()
-	fmt.Fprint(cmd.OutOrStdout(), output)
+	fmt.Fprint(cmd.OutOrStdout(), floopLearnDirective())
 	return nil
 }
 
