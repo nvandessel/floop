@@ -179,9 +179,8 @@ jobs:
       - name: Build sproink native library
         shell: bash
         run: |
-          # Clone if not a git repo (cache restores target/ but not .git)
-          if [ ! -d "sproink-build/.git" ]; then
-            rm -rf sproink-build
+          # Clone if source is missing (cache only restores target/, not source)
+          if [ ! -f "sproink-build/Cargo.toml" ]; then
             git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
           fi
           # Determine platform-specific artifact path
