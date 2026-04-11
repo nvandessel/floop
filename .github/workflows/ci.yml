@@ -179,8 +179,12 @@ jobs:
       - name: Build sproink native library
         shell: bash
         run: |
-          if [ ! -f "third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a" ]; then
+          # Clone only if directory doesn't exist (cache restores target/ into it)
+          if [ ! -d "sproink-build" ]; then
             git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
+          fi
+          # Build only if lib doesn't exist yet
+          if [ ! -f "third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a" ]; then
             cd sproink-build
             # Windows CGO uses MinGW, so Rust must target gnu ABI (not MSVC)
             if [ "$RUNNER_OS" = "Windows" ]; then
