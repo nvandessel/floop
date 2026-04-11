@@ -1,8 +1,6 @@
 module github.com/nvandessel/floop
 
-go 1.26
-
-toolchain go1.26.1
+go 1.26.2
 
 require (
 	github.com/apache/arrow/go/v17 v17.0.0
