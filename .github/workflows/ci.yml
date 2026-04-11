@@ -184,23 +184,26 @@ jobs:
             rm -rf sproink-build
             git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-build
           fi
-          # Build only if lib doesn't exist yet
-          if [ ! -f "third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a" ]; then
+          # Determine platform-specific artifact path
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BUILT_LIB="sproink-build/target/x86_64-pc-windows-gnu/release/libsproink.a"
+          else
+            BUILT_LIB="sproink-build/target/release/libsproink.a"
+          fi
+          # Build only if cached artifact is absent
+          if [ ! -f "$BUILT_LIB" ]; then
             cd sproink-build
-            # Windows CGO uses MinGW, so Rust must target gnu ABI (not MSVC)
             if [ "$RUNNER_OS" = "Windows" ]; then
               rustup target add x86_64-pc-windows-gnu
               cargo build --release --target x86_64-pc-windows-gnu
-              cd ..
-              mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
-              cp sproink-build/target/x86_64-pc-windows-gnu/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
             else
               cargo build --release
-              cd ..
-              mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
-              cp sproink-build/target/release/libsproink.a third_party/sproink/lib/${{ matrix.sproink_dir }}/
             fi
+            cd ..
           fi
+          # Always copy to third_party (not cached)
+          mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
+          cp "$BUILT_LIB" third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a
       - name: Add library path (Windows)
         if: runner.os == 'Windows'
         shell: bash
