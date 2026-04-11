@@ -928,4 +928,3 @@ func TestRunDetectCorrection_PatternMiss(t *testing.T) {
 		t.Errorf("expected pattern_miss in log, got: %s", logData)
 	}
 }
-
