@@ -421,7 +421,7 @@ func (m *MultiGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
 	}
 	globalEdges, err := globalES.GetAllEdges(ctx)
 	if err != nil {
-		return localEdges, nil // degrade gracefully: return local-only
+		return nil, fmt.Errorf("GetAllEdges global: %w", err)
 	}
 
 	return append(localEdges, globalEdges...), nil
