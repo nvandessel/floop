@@ -397,6 +397,54 @@ func (m *MultiGraphStore) forEachExtendedStore(scope string, fn func(ExtendedGra
 	return nil
 }
 
+// GetAllEdges returns edges from both local and global stores, ensuring
+// NativeEngine sees the same graph as the pure-Go Engine.
+func (m *MultiGraphStore) GetAllEdges(ctx context.Context) ([]Edge, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	localES, ok := m.localStore.(ExtendedGraphStore)
+	if !ok {
+		return nil, fmt.Errorf("local store does not implement ExtendedGraphStore")
+	}
+	localEdges, err := localES.GetAllEdges(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllEdges local: %w", err)
+	}
+
+	if m.globalStore == nil {
+		return localEdges, nil
+	}
+	globalES, ok := m.globalStore.(ExtendedGraphStore)
+	if !ok {
+		return localEdges, nil
+	}
+	globalEdges, err := globalES.GetAllEdges(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllEdges global: %w", err)
+	}
+
+	return append(localEdges, globalEdges...), nil
+}
+
+// Version returns the combined version from both stores so NativeEngine
+// detects staleness from either store's mutations.
+func (m *MultiGraphStore) Version() uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var v uint64
+	if es, ok := m.localStore.(ExtendedGraphStore); ok {
+		v += es.Version()
+	}
+	if m.globalStore != nil {
+		if es, ok := m.globalStore.(ExtendedGraphStore); ok {
+			v += es.Version()
+		}
+	}
+	return v
+}
+
 // UpdateConfidence updates the confidence for a behavior in whichever store contains it.
 func (m *MultiGraphStore) UpdateConfidence(ctx context.Context, behaviorID string, newConfidence float64) error {
 	m.mu.Lock()

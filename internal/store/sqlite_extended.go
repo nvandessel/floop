@@ -140,6 +140,7 @@ func (s *SQLiteGraphStore) TouchEdges(ctx context.Context, behaviorIDs []string)
 		return fmt.Errorf("failed to touch edges: %w", err)
 	}
 
+	s.bumpVersion()
 	return nil
 }
 
@@ -173,7 +174,11 @@ func (s *SQLiteGraphStore) BatchUpdateEdgeWeights(ctx context.Context, updates [
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.bumpVersion()
+	return nil
 }
 
 // PruneWeakEdges removes all edges of the given kind whose weight is at or below the threshold.
@@ -192,5 +197,6 @@ func (s *SQLiteGraphStore) PruneWeakEdges(ctx context.Context, kind EdgeKind, th
 	if err != nil {
 		return 0, fmt.Errorf("prune weak edges rows affected: %w", err)
 	}
+	s.bumpVersion()
 	return int(n), nil
 }

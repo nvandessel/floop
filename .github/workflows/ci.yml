@@ -125,13 +125,16 @@ jobs:
         include:
           - os: ubuntu-latest
             lib_dir: linux_amd64
+            sproink_dir: linux_amd64
             extra_ldflags: ""
           - os: macos-latest
             lib_dir: darwin_arm64
+            sproink_dir: darwin_arm64
             extra_ldflags: ""
           - os: windows-latest
             lib_dir: windows-gnu_amd64
-            extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt"
+            sproink_dir: windows_amd64
+            extra_ldflags: "-lws2_32 -lntdll -luserenv -lbcrypt -Wl,--allow-multiple-definition"
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "1"
@@ -166,6 +169,47 @@ jobs:
             tar -xzf lancedb-go-native-binaries.tar.gz
             rm -f lancedb-go-native-binaries.tar.gz
           fi
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache sproink build
+        uses: actions/cache@v5
+        with:
+          path: sproink-build/target
+          key: sproink-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/sproink/include/sproink.h') }}
+      - name: Build sproink native library
+        shell: bash
+        run: |
+          # Clone source if missing (cache only restores target/, not source).
+          # Clone to temp dir first since sproink-build/ may exist from cache.
+          if [ ! -f "sproink-build/Cargo.toml" ]; then
+            git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-src-tmp
+            # Preserve cached target/ if it exists
+            if [ -d "sproink-build/target" ]; then
+              mv sproink-build/target sproink-src-tmp/target
+            fi
+            rm -rf sproink-build
+            mv sproink-src-tmp sproink-build
+          fi
+          # Determine platform-specific artifact path
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BUILT_LIB="sproink-build/target/x86_64-pc-windows-gnu/release/libsproink.a"
+          else
+            BUILT_LIB="sproink-build/target/release/libsproink.a"
+          fi
+          # Build only if cached artifact is absent
+          if [ ! -f "$BUILT_LIB" ]; then
+            cd sproink-build
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              rustup target add x86_64-pc-windows-gnu
+              cargo build --release --target x86_64-pc-windows-gnu
+            else
+              cargo build --release
+            fi
+            cd ..
+          fi
+          # Always copy to third_party (not cached)
+          mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
+          cp "$BUILT_LIB" third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a
       - name: Add library path (Windows)
         if: runner.os == 'Windows'
         shell: bash

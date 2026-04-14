@@ -95,13 +95,7 @@ func (s *Server) handleFloopActive(ctx context.Context, req *sdk.CallToolRequest
 
 	var spreadResults []spreading.Result
 	if len(seeds) > 0 {
-		spreadConfig := spreading.DefaultConfig()
-		affinityConfig := spreading.DefaultAffinityConfig()
-		spreadConfig.Affinity = &affinityConfig
-		spreadConfig.TagProvider = spreading.NewStoreTagProvider(s.store)
-		engine := spreading.NewEngine(s.store, spreadConfig)
-		var err error
-		spreadResults, err = engine.Activate(ctx, seeds)
+		spreadResults, err = s.activator.Activate(ctx, seeds)
 		if err != nil {
 			s.logger.Warn("spreading activation failed", "error", err)
 		} else {

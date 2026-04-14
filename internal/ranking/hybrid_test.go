@@ -42,7 +42,10 @@ func TestHybridScorer_WeightedCombination(t *testing.T) {
 			// Create a behavior that will produce a known context score.
 			// We need to compute what the RelevanceScorer actually returns
 			// and then verify the hybrid formula applies correctly.
-			now := time.Now()
+			// Use a past CreatedAt so time.Since() is large and stable across
+			// both Score() calls — prevents Windows clock-resolution flakiness
+			// where age==0 on the first call but >0 on the second.
+			past := time.Now().Add(-24 * time.Hour)
 			behavior := &models.Behavior{
 				ID:         "test-behavior",
 				Kind:       models.BehaviorKindDirective,
@@ -51,8 +54,8 @@ func TestHybridScorer_WeightedCombination(t *testing.T) {
 				Stats: models.BehaviorStats{
 					TimesActivated: 10,
 					TimesFollowed:  8,
-					CreatedAt:      now,
-					UpdatedAt:      now,
+					CreatedAt:      past,
+					UpdatedAt:      past,
 				},
 			}
 
@@ -124,15 +127,16 @@ func TestHybridScorer_FormulaVerification(t *testing.T) {
 			pageRankScores := map[string]float64{"b1": tt.pageRank}
 			scorer := NewHybridScorer(tt.config, contextScorer, pageRankScores)
 
-			now := time.Now()
+			// Use a past CreatedAt so time.Since() is stable across both Score() calls.
+			past := time.Now().Add(-24 * time.Hour)
 			behavior := &models.Behavior{
 				ID:         "b1",
 				Kind:       models.BehaviorKindPreference,
 				Confidence: 0.5,
 				Priority:   3,
 				Stats: models.BehaviorStats{
-					CreatedAt: now,
-					UpdatedAt: now,
+					CreatedAt: past,
+					UpdatedAt: past,
 				},
 			}
 
@@ -172,7 +176,8 @@ func TestHybridScorer_MissingPageRank(t *testing.T) {
 	}
 	scorer := NewHybridScorer(DefaultHybridScorerConfig(), contextScorer, pageRankScores)
 
-	now := time.Now()
+	// Use a past CreatedAt so time.Since() is stable across both Score() calls.
+	past := time.Now().Add(-24 * time.Hour)
 	behavior := &models.Behavior{
 		ID:         "missing-pr",
 		Kind:       models.BehaviorKindDirective,
@@ -181,8 +186,8 @@ func TestHybridScorer_MissingPageRank(t *testing.T) {
 		Stats: models.BehaviorStats{
 			TimesActivated: 10,
 			TimesFollowed:  8,
-			CreatedAt:      now,
-			UpdatedAt:      now,
+			CreatedAt:      past,
+			UpdatedAt:      past,
 		},
 	}
 

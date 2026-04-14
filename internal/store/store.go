@@ -154,6 +154,15 @@ type ExtendedGraphStore interface {
 	// PruneWeakEdges removes edges of the given kind below the weight threshold.
 	PruneWeakEdges(ctx context.Context, kind EdgeKind, threshold float64) (int, error)
 
+	// GetAllEdges returns every edge in the store, each as a single directed
+	// record (source->target). Sproink handles bidirectional storage internally.
+	GetAllEdges(ctx context.Context) ([]Edge, error)
+
+	// Version returns a monotonically increasing counter bumped on each
+	// write that affects nodes or edges. Used by NativeEngine to detect
+	// when the CSR graph is stale.
+	Version() uint64
+
 	// ValidateBehaviorGraph checks the graph for consistency issues.
 	ValidateBehaviorGraph(ctx context.Context) ([]ValidationError, error)
 }

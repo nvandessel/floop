@@ -43,3 +43,6 @@ __pycache__/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Sproink native libraries (CI-built, not checked in)
+third_party/sproink/lib/*/
