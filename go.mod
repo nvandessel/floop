@@ -68,7 +68,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jupiterrider/ffi v0.6.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.11 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
@@ -114,4 +114,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace github.com/lancedb/lancedb-go => github.com/nvandessel/lancedb-go v0.2.1
+replace github.com/lancedb/lancedb-go => github.com/nvandessel/lancedb-go v0.2.2
