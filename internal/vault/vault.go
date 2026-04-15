@@ -77,6 +77,20 @@ type SyncOptions struct {
 	Scope  string
 }
 
+// VerifyOptions controls verify behavior.
+type VerifyOptions struct {
+	RemoteOnly bool
+	LocalOnly  bool
+}
+
+// VerifyResult contains verification results.
+type VerifyResult struct {
+	OK               bool     `json:"ok"`
+	Issues           []string `json:"issues,omitempty"`
+	LocalVectorRows  int      `json:"local_vector_rows"`
+	RemoteVectorRows int      `json:"remote_vector_rows"`
+}
+
 // VaultService orchestrates all vault sync operations.
 type VaultService struct {
 	cfg          *VaultConfig
@@ -170,10 +184,10 @@ func (v *VaultService) Push(ctx context.Context, graphStore store.GraphStore, ro
 	state.LocalVectorRows = result.Vectors.RowsPushed
 	state.PushCount++
 	state.PendingPush = false
-	SaveState(v.statePath, state)
+	_ = SaveState(v.statePath, state)
 
-	// Write remote sync state
-	v.s3.PutJSON(ctx, fmt.Sprintf("machines/%s/%s", machineID, syncStateKey), state)
+	// Write remote sync state (best-effort, don't fail the push)
+	_ = v.s3.PutJSON(ctx, fmt.Sprintf("machines/%s/%s", machineID, syncStateKey), state)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -205,12 +219,23 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 		}
 	}
 
+	if scope == "local" || scope == "both" {
+		cwd, err := os.Getwd()
+		if err == nil {
+			localVectorDir := filepath.Join(cwd, ".floop", "vectors")
+			localCorrectionsPath := filepath.Join(cwd, ".floop", "corrections.jsonl")
+			if err := v.pullScope(ctx, graphStore, fromMachine, localVectorDir, localCorrectionsPath, result); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Update state
 	state, _ := LoadState(v.statePath)
 	state.MachineID = machineID
 	state.LastPull = time.Now().UTC()
 	state.PullCount++
-	SaveState(v.statePath, state)
+	_ = SaveState(v.statePath, state)
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -287,6 +312,62 @@ func (v *VaultService) Status(ctx context.Context, graphStore store.GraphStore) 
 	}
 
 	return sr, nil
+}
+
+// Verify checks the integrity of local and/or remote vault data.
+func (v *VaultService) Verify(ctx context.Context, graphStore store.GraphStore, opts VerifyOptions) (*VerifyResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, v.cfg.SyncTimeout())
+	defer cancel()
+
+	machineID := v.cfg.ResolveMachineID()
+	result := &VerifyResult{
+		OK:               true,
+		LocalVectorRows:  -1,
+		RemoteVectorRows: -1,
+	}
+
+	remoteURI := v.remoteVectorURI(machineID)
+	connOpts := v.connectionOptions()
+	syncer := NewVectorSyncer(v.vectorDir, remoteURI, connOpts, v.dims)
+
+	if !opts.RemoteOnly {
+		localCount, err := syncer.LocalRowCount(ctx)
+		if err != nil {
+			result.OK = false
+			result.Issues = append(result.Issues, fmt.Sprintf("local vectors unreadable: %v", err))
+		} else {
+			result.LocalVectorRows = localCount
+		}
+
+		nodes, err := graphStore.QueryNodes(ctx, map[string]interface{}{})
+		if err != nil {
+			result.OK = false
+			result.Issues = append(result.Issues, fmt.Sprintf("local graph unreadable: %v", err))
+		} else if len(nodes) == 0 {
+			result.Issues = append(result.Issues, "local graph is empty")
+		}
+	}
+
+	if !opts.LocalOnly {
+		exists, err := v.s3.Exists(ctx, sentinelKey)
+		if err != nil {
+			result.OK = false
+			result.Issues = append(result.Issues, fmt.Sprintf("cannot reach remote: %v", err))
+		} else if !exists {
+			result.OK = false
+			result.Issues = append(result.Issues, "remote vault not initialized (sentinel missing)")
+		}
+
+		remoteCount, err := syncer.RemoteRowCount(ctx)
+		if err != nil {
+			result.OK = false
+			result.Issues = append(result.Issues, fmt.Sprintf("remote vectors unreadable: %v", err))
+		} else {
+			result.RemoteVectorRows = remoteCount
+		}
+	}
+
+	return result, nil
 }
 
 // pushScope pushes vectors and graph for a single scope.
