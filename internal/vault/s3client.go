@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -151,11 +150,3 @@ func (c *S3Client) Prefix() string {
 
 // Verify S3Client satisfies S3Operations at compile time.
 var _ S3Operations = (*S3Client)(nil)
-
-// parseEndpointHost extracts the host:port from an endpoint URL, stripping the scheme.
-func parseEndpointHost(endpoint string) string {
-	if idx := strings.Index(endpoint, "://"); idx != -1 {
-		return endpoint[idx+3:]
-	}
-	return endpoint
-}

@@ -13,7 +13,7 @@ func TestVaultCmd_HasSubcommands(t *testing.T) {
 		names[sub.Name()] = true
 	}
 
-	expected := []string{"init", "push", "pull", "sync", "status"}
+	expected := []string{"init", "push", "pull", "sync", "status", "verify"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("missing subcommand: %s", name)
@@ -53,5 +53,16 @@ func TestVaultPullCmd_FlagParsing(t *testing.T) {
 	}
 	if f.Lookup("from") == nil {
 		t.Error("missing --from flag")
+	}
+}
+
+func TestVaultVerifyCmd_FlagParsing(t *testing.T) {
+	cmd := newVaultVerifyCmd()
+	f := cmd.Flags()
+	if f.Lookup("remote-only") == nil {
+		t.Error("missing --remote-only flag")
+	}
+	if f.Lookup("local-only") == nil {
+		t.Error("missing --local-only flag")
 	}
 }

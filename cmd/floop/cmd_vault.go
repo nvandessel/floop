@@ -42,6 +42,7 @@ Commands:
 		newVaultPullCmd(),
 		newVaultSyncCmd(),
 		newVaultStatusCmd(),
+		newVaultVerifyCmd(),
 	)
 
 	return cmd
@@ -72,6 +73,8 @@ func newVaultInitCmd() *cobra.Command {
 				cfg = config.Default()
 			}
 
+			freshInit := !cfg.Vault.Configured()
+
 			cfg.Vault.Remote.URI = uri
 			if endpoint != "" {
 				cfg.Vault.Remote.Endpoint = endpoint
@@ -101,7 +104,9 @@ func newVaultInitCmd() *cobra.Command {
 			if cfg.Vault.Sync.Timeout == "" {
 				cfg.Vault.Sync.Timeout = "30s"
 			}
-			cfg.Vault.Sync.IncludeProjects = true
+			if freshInit {
+				cfg.Vault.Sync.IncludeProjects = true
+			}
 
 			// Validate
 			if err := cfg.Vault.Validate(); err != nil {
@@ -114,7 +119,10 @@ func newVaultInitCmd() *cobra.Command {
 			}
 
 			// Test connectivity
-			homeDir, _ := os.UserHomeDir()
+			homeDir, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return fmt.Errorf("cannot determine home directory: %w", homeErr)
+			}
 			vectorDir := filepath.Join(homeDir, ".floop", "vectors")
 			svc, err := vault.NewVaultService(&cfg.Vault, vectorDir, version, defaultVaultDims)
 			if err != nil {
@@ -377,6 +385,62 @@ func newVaultStatusCmd() *cobra.Command {
 	}
 }
 
+func newVaultVerifyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify integrity of local and remote data",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, _ := cmd.Flags().GetString("root")
+			jsonOut, _ := cmd.Flags().GetBool("json")
+			remoteOnly, _ := cmd.Flags().GetBool("remote-only")
+			localOnly, _ := cmd.Flags().GetBool("local-only")
+
+			svc, graphStore, cleanup, err := setupVaultCmd(root)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+
+			ctx := context.Background()
+			result, err := svc.Verify(ctx, graphStore, vault.VerifyOptions{
+				RemoteOnly: remoteOnly,
+				LocalOnly:  localOnly,
+			})
+			if err != nil {
+				return fmt.Errorf("verify failed: %w", err)
+			}
+
+			if jsonOut {
+				return json.NewEncoder(os.Stdout).Encode(result)
+			}
+
+			if result.OK {
+				fmt.Println("Verification passed")
+			} else {
+				fmt.Println("Verification FAILED")
+			}
+			for _, issue := range result.Issues {
+				fmt.Printf("  - %s\n", issue)
+			}
+			if result.LocalVectorRows >= 0 {
+				fmt.Printf("  Local vectors: %d rows\n", result.LocalVectorRows)
+			}
+			if result.RemoteVectorRows >= 0 {
+				fmt.Printf("  Remote vectors: %d rows\n", result.RemoteVectorRows)
+			}
+			if !result.OK {
+				return fmt.Errorf("verification failed with %d issue(s)", len(result.Issues))
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().Bool("remote-only", false, "Only verify remote data")
+	cmd.Flags().Bool("local-only", false, "Only verify local data")
+
+	return cmd
+}
+
 // setupVaultCmd loads config, creates store and vault service.
 func setupVaultCmd(root string) (*vault.VaultService, store.GraphStore, func(), error) {
 	cfg, err := config.Load()
@@ -393,7 +457,10 @@ func setupVaultCmd(root string) (*vault.VaultService, store.GraphStore, func(), 
 		return nil, nil, nil, fmt.Errorf("opening store: %w", err)
 	}
 
-	homeDir, _ := os.UserHomeDir()
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		return nil, nil, nil, fmt.Errorf("cannot determine home directory: %w", homeErr)
+	}
 	vectorDir := filepath.Join(homeDir, ".floop", "vectors")
 
 	svc, err := vault.NewVaultService(&cfg.Vault, vectorDir, version, defaultVaultDims)

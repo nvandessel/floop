@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/nvandessel/floop/internal/backup"
 	"github.com/nvandessel/floop/internal/store"
@@ -48,7 +47,7 @@ func (g *GraphSyncer) Push(ctx context.Context, graphStore store.GraphStore, cor
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	backupPath := filepath.Join(tmpDir, "floop-backup.json.gz")
 	bf, err := backup.BackupWithOptions(ctx, graphStore, backupPath, backup.BackupOptions{
@@ -108,7 +107,7 @@ func (g *GraphSyncer) Pull(ctx context.Context, graphStore store.GraphStore, fro
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Download backup
 	backupKey := fmt.Sprintf("machines/%s/graph/floop-backup.json.gz", fromMachineID)
@@ -245,7 +244,9 @@ func mergeCorrections(remotePath, localPath string) (int64, error) {
 
 	// Append new lines to local file
 	dir := filepath.Dir(localPath)
-	os.MkdirAll(dir, 0700)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return 0, fmt.Errorf("creating corrections directory: %w", err)
+	}
 
 	f, err := os.OpenFile(localPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
@@ -264,25 +265,4 @@ func mergeCorrections(remotePath, localPath string) (int64, error) {
 		return info.Size(), nil
 	}
 	return 0, nil
-}
-
-// localCorrectionsLineCount returns the number of lines in the corrections file.
-func localCorrectionsLineCount(path string) int {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-
-	count := 0
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		count++
-	}
-	return count
-}
-
-// trimTrailingNewlines removes trailing newlines from correction content.
-func trimTrailingNewlines(s string) string {
-	return strings.TrimRight(s, "\n")
 }
