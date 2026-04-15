@@ -17,6 +17,34 @@ import (
 	"github.com/nvandessel/floop/internal/vectorindex"
 )
 
+// extractVector converts vector values from LanceDB result maps to []float32.
+func extractVector(v interface{}) []float32 {
+	switch val := v.(type) {
+	case []interface{}:
+		out := make([]float32, len(val))
+		for i, x := range val {
+			switch f := x.(type) {
+			case float64:
+				out[i] = float32(f)
+			case float32:
+				out[i] = f
+			default:
+				return nil
+			}
+		}
+		return out
+	case []float32:
+		return val
+	case []float64:
+		out := make([]float32, len(val))
+		for i, f := range val {
+			out[i] = float32(f)
+		}
+		return out
+	}
+	return nil
+}
+
 const behaviorTableName = "behaviors"
 
 // VectorSyncer syncs LanceDB vector tables between local and remote storage.
@@ -161,43 +189,28 @@ func syncRows(ctx context.Context, src, dst contracts.ITable, dims int) (*Vector
 		return &VectorSyncResult{}, nil
 	}
 
-	// Full table scan — deterministic, returns every row regardless of index state.
-	// VectorSearch uses ANN which silently skips rows in distant IVF partitions.
-	srcRecord, err := src.Query().Execute(ctx)
+	// Full table scan via JSON Select — deterministic, returns every row.
+	// Query().Execute() uses Arrow IPC which has a multi-batch concatenation bug
+	// in ipcBytesToRecord (returns only the first batch when rows span fragments).
+	rows, err := src.Select(ctx, contracts.QueryConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("reading source rows: %w", err)
 	}
-	defer srcRecord.Release()
 
 	arrowSchema, vectorType := vectorindex.BuildBehaviorSchema(dims)
 	result := &VectorSyncResult{}
 
-	idCol, ok := srcRecord.Column(srcRecord.Schema().FieldIndices("id")[0]).(*array.String)
-	if !ok {
-		return nil, fmt.Errorf("id column is not a string array")
-	}
-	vecColIdx := srcRecord.Schema().FieldIndices("vector")[0]
-	vecCol, ok := srcRecord.Column(vecColIdx).(*array.FixedSizeList)
-	if !ok {
-		return nil, fmt.Errorf("vector column is not a fixed-size list array")
-	}
-	floats, ok := vecCol.ListValues().(*array.Float32)
-	if !ok {
-		return nil, fmt.Errorf("vector values are not float32")
-	}
-
-	numRows := int(srcRecord.NumRows())
-	for i := 0; i < numRows; i++ {
-		if idCol.IsNull(i) {
+	for _, row := range rows {
+		id, ok := row["id"].(string)
+		if !ok {
 			result.RowsSkipped++
 			continue
 		}
-		id := idCol.Value(i)
 
-		vec := make([]float32, dims)
-		offset := i * dims
-		for j := 0; j < dims; j++ {
-			vec[j] = floats.Value(offset + j)
+		vec := extractVector(row["vector"])
+		if vec == nil {
+			result.RowsSkipped++
+			continue
 		}
 
 		// Upsert: delete then add
@@ -244,7 +257,6 @@ func buildRecord(schema *arrow.Schema, vectorType *arrow.FixedSizeListType, id s
 	rec := array.NewRecord(schema, []arrow.Array{idArray, vectorArray}, 1)
 	return rec, nil
 }
-
 
 // openTable opens an existing table. Returns error if table doesn't exist.
 func openTable(ctx context.Context, db contracts.IConnection, name string) (contracts.ITable, error) {
