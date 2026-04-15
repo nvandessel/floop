@@ -202,19 +202,19 @@ func (g *GraphSyncer) downloadFile(ctx context.Context, key, path string) error 
 }
 
 // mergeCorrections appends lines from remotePath that don't exist in localPath.
-// Uses line count diffing per spec Section 5.3.
+// Uses content-based deduplication to handle cross-machine pulls safely.
 func mergeCorrections(remotePath, localPath string) (int64, error) {
-	// Count local lines
-	localLineCount := 0
+	// Build set of existing local lines for dedup
+	existing := make(map[string]struct{})
 	if f, err := os.Open(localPath); err == nil {
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			localLineCount++
+			existing[scanner.Text()] = struct{}{}
 		}
 		f.Close()
 	}
 
-	// Read remote lines
+	// Read remote lines, collect those not already in local
 	remoteFile, err := os.Open(remotePath)
 	if err != nil {
 		return 0, fmt.Errorf("opening remote corrections: %w", err)
@@ -223,11 +223,10 @@ func mergeCorrections(remotePath, localPath string) (int64, error) {
 
 	var newLines []string
 	scanner := bufio.NewScanner(remoteFile)
-	lineNum := 0
 	for scanner.Scan() {
-		lineNum++
-		if lineNum > localLineCount {
-			newLines = append(newLines, scanner.Text())
+		line := scanner.Text()
+		if _, ok := existing[line]; !ok {
+			newLines = append(newLines, line)
 		}
 	}
 	if err := scanner.Err(); err != nil {

@@ -184,10 +184,14 @@ func (v *VaultService) Push(ctx context.Context, graphStore store.GraphStore, ro
 	state.LocalVectorRows = result.Vectors.RowsPushed
 	state.PushCount++
 	state.PendingPush = false
-	_ = SaveState(v.statePath, state)
+	if err := SaveState(v.statePath, state); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: saving vault state: %v\n", err)
+	}
 
 	// Write remote sync state (best-effort, don't fail the push)
-	_ = v.s3.PutJSON(ctx, fmt.Sprintf("machines/%s/%s", machineID, syncStateKey), state)
+	if err := v.s3.PutJSON(ctx, fmt.Sprintf("machines/%s/%s", machineID, syncStateKey), state); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: writing remote sync state: %v\n", err)
+	}
 
 	result.Duration = time.Since(start)
 	return result, nil
@@ -235,7 +239,9 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 	state.MachineID = machineID
 	state.LastPull = time.Now().UTC()
 	state.PullCount++
-	_ = SaveState(v.statePath, state)
+	if err := SaveState(v.statePath, state); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: saving vault state: %v\n", err)
+	}
 
 	result.Duration = time.Since(start)
 	return result, nil
