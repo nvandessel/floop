@@ -177,6 +177,8 @@ context-aware behavior activation for consistent agent operation.`,
 		// Backup/restore commands
 		newBackupCmd(),
 		newRestoreFromBackupCmd(),
+		// Vault sync commands
+		newVaultCmd(),
 		// Hook management commands
 		newUpgradeCmd(),
 		// Tag management commands
