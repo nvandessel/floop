@@ -20,12 +20,12 @@ func TestNewS3Client_URIParsing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := VaultRemoteConfig{
-				URI:            tt.uri,
-				Endpoint:       "http://localhost:9000",
-				Region:         "us-east-1",
-				AccessKeyID:    "minioadmin",
+				URI:             tt.uri,
+				Endpoint:        "http://localhost:9000",
+				Region:          "us-east-1",
+				AccessKeyID:     "minioadmin",
 				SecretAccessKey: "minioadmin",
-				AllowHTTP:      true,
+				AllowHTTP:       true,
 			}
 
 			client, err := NewS3Client(cfg)
@@ -51,9 +51,9 @@ func TestNewS3Client_URIParsing(t *testing.T) {
 
 func TestNewS3Client_MissingEndpoint(t *testing.T) {
 	cfg := VaultRemoteConfig{
-		URI:            "s3://bucket",
-		Region:         "us-east-1",
-		AccessKeyID:    "key",
+		URI:             "s3://bucket",
+		Region:          "us-east-1",
+		AccessKeyID:     "key",
 		SecretAccessKey: "secret",
 	}
 	_, err := NewS3Client(cfg)

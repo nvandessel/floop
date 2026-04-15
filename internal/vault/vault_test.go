@@ -40,10 +40,10 @@ func TestNormalizeScope(t *testing.T) {
 func TestRemoteVectorURI(t *testing.T) {
 	cfg := &VaultConfig{
 		Remote: VaultRemoteConfig{
-			URI:            "s3://floop-vault/brain",
-			Endpoint:       "https://minio.example.com:9000",
-			Region:         "us-east-1",
-			AccessKeyID:    "key",
+			URI:             "s3://floop-vault/brain",
+			Endpoint:        "https://minio.example.com:9000",
+			Region:          "us-east-1",
+			AccessKeyID:     "key",
 			SecretAccessKey: "secret",
 		},
 	}

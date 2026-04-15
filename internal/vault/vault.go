@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	sentinelKey     = "_floop_vault_initialized"
+	sentinelKey      = "_floop_vault_initialized"
 	schemaVersionKey = "_schema_version"
 	syncStateKey     = "_sync_state.json"
 

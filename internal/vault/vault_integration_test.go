@@ -23,13 +23,13 @@ var testBucket = "floop-vault-test"
 
 func testRemoteConfig(prefix string) VaultRemoteConfig {
 	return VaultRemoteConfig{
-		URI:            fmt.Sprintf("s3://%s/%s", testBucket, prefix),
-		Endpoint:       testEndpoint,
-		Region:         "us-east-1",
-		AccessKeyID:    "minioadmin",
+		URI:             fmt.Sprintf("s3://%s/%s", testBucket, prefix),
+		Endpoint:        testEndpoint,
+		Region:          "us-east-1",
+		AccessKeyID:     "minioadmin",
 		SecretAccessKey: "minioadmin",
-		PathStyle:      true,
-		AllowHTTP:      true,
+		PathStyle:       true,
+		AllowHTTP:       true,
 	}
 }
 
@@ -170,13 +170,13 @@ func TestIntegration_VaultPushAndPull(t *testing.T) {
 func ensureTestBucket(t *testing.T) {
 	t.Helper()
 	cfg := VaultRemoteConfig{
-		URI:            fmt.Sprintf("s3://%s", testBucket),
-		Endpoint:       testEndpoint,
-		Region:         "us-east-1",
-		AccessKeyID:    "minioadmin",
+		URI:             fmt.Sprintf("s3://%s", testBucket),
+		Endpoint:        testEndpoint,
+		Region:          "us-east-1",
+		AccessKeyID:     "minioadmin",
 		SecretAccessKey: "minioadmin",
-		PathStyle:      true,
-		AllowHTTP:      true,
+		PathStyle:       true,
+		AllowHTTP:       true,
 	}
 	client, err := NewS3Client(cfg)
 	if err != nil {

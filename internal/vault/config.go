@@ -24,13 +24,13 @@ type VaultConfig struct {
 
 // VaultRemoteConfig configures the S3-compatible remote endpoint.
 type VaultRemoteConfig struct {
-	URI            string `json:"uri" yaml:"uri"`
-	Endpoint       string `json:"endpoint" yaml:"endpoint"`
-	Region         string `json:"region" yaml:"region"`
-	AccessKeyID    string `json:"access_key_id" yaml:"access_key_id"`
+	URI             string `json:"uri" yaml:"uri"`
+	Endpoint        string `json:"endpoint" yaml:"endpoint"`
+	Region          string `json:"region" yaml:"region"`
+	AccessKeyID     string `json:"access_key_id" yaml:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key" yaml:"secret_access_key"`
-	PathStyle      bool   `json:"path_style" yaml:"path_style"`
-	AllowHTTP      bool   `json:"allow_http" yaml:"allow_http"`
+	PathStyle       bool   `json:"path_style" yaml:"path_style"`
+	AllowHTTP       bool   `json:"allow_http" yaml:"allow_http"`
 }
 
 // VaultSyncConfig configures sync behavior.
@@ -150,7 +150,7 @@ func (c *VaultConfig) SyncTimeout() time.Duration {
 // StorageOptions builds the lancedb-go ConnectionOptions storage map.
 func (c *VaultRemoteConfig) StorageOptions() map[string]string {
 	opts := map[string]string{
-		contracts.StorageAccessKeyID:              c.AccessKeyID,
+		contracts.StorageAccessKeyID:               c.AccessKeyID,
 		contracts.StorageSecretAccessKey:           c.SecretAccessKey,
 		contracts.StorageRegion:                    c.Region,
 		contracts.StorageVirtualHostedStyleRequest: strconv.FormatBool(!c.PathStyle),
