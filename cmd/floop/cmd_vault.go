@@ -159,7 +159,7 @@ func newVaultInitCmd() *cobra.Command {
 	cmd.Flags().String("endpoint", "", "S3 endpoint URL")
 	cmd.Flags().String("region", "us-east-1", "AWS region")
 	cmd.Flags().String("access-key", "", "Access key ID (or set FLOOP_VAULT_ACCESS_KEY)")
-	cmd.Flags().String("secret-key", "", "Secret access key (or set FLOOP_VAULT_SECRET_KEY)")
+	cmd.Flags().String("secret-key", "", "Secret access key — prefer FLOOP_VAULT_SECRET_KEY env var to avoid exposure in process listings")
 	cmd.Flags().Bool("path-style", true, "Use path-style requests (default true for MinIO)")
 	cmd.Flags().String("machine-id", "", "Machine identifier (default: hostname)")
 

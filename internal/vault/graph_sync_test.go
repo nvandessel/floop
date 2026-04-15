@@ -177,6 +177,37 @@ func TestMergeCorrections(t *testing.T) {
 	}
 }
 
+func TestMergeCorrections_CrossMachine(t *testing.T) {
+	dir := t.TempDir()
+
+	// Local has corrections unique to this machine
+	localPath := filepath.Join(dir, "local.jsonl")
+	localContent := `{"src":"laptop","id":1}
+{"src":"laptop","id":2}
+`
+	os.WriteFile(localPath, []byte(localContent), 0600)
+
+	// Remote has different corrections from another machine
+	remotePath := filepath.Join(dir, "remote.jsonl")
+	remoteContent := `{"src":"desktop","id":1}
+{"src":"desktop","id":2}
+{"src":"desktop","id":3}
+`
+	os.WriteFile(remotePath, []byte(remoteContent), 0600)
+
+	_, err := mergeCorrections(remotePath, localPath)
+	if err != nil {
+		t.Fatalf("mergeCorrections: %v", err)
+	}
+
+	data, _ := os.ReadFile(localPath)
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	// Should have all 5 lines: 2 local + 3 remote (no overlap)
+	if len(lines) != 5 {
+		t.Errorf("line count = %d, want 5; content:\n%s", len(lines), string(data))
+	}
+}
+
 func TestMergeCorrections_NoNewLines(t *testing.T) {
 	dir := t.TempDir()
 
