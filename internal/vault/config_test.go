@@ -12,12 +12,12 @@ func TestVaultConfig_Validate(t *testing.T) {
 	validConfig := func() VaultConfig {
 		return VaultConfig{
 			Remote: VaultRemoteConfig{
-				URI:            "s3://floop-vault/brain",
-				Endpoint:       "https://minio.example.com:9000",
-				Region:         "us-east-1",
-				AccessKeyID:    "AKIAIOSFODNN7EXAMPLE",
+				URI:             "s3://floop-vault/brain",
+				Endpoint:        "https://minio.example.com:9000",
+				Region:          "us-east-1",
+				AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
 				SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-				PathStyle:      true,
+				PathStyle:       true,
 			},
 			MachineID: "workstation",
 			Sync: VaultSyncConfig{
@@ -123,9 +123,9 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 	t.Run("encryption enabled without identity file", func(t *testing.T) {
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
-				URI:            "s3://bucket/prefix",
-				Region:         "us-east-1",
-				AccessKeyID:    "key",
+				URI:             "s3://bucket/prefix",
+				Region:          "us-east-1",
+				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
 			},
 			MachineID: "test",
@@ -146,9 +146,9 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 	t.Run("encryption enabled with nonexistent identity file", func(t *testing.T) {
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
-				URI:            "s3://bucket/prefix",
-				Region:         "us-east-1",
-				AccessKeyID:    "key",
+				URI:             "s3://bucket/prefix",
+				Region:          "us-east-1",
+				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
 			},
 			MachineID: "test",
@@ -171,9 +171,9 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
-				URI:            "s3://bucket/prefix",
-				Region:         "us-east-1",
-				AccessKeyID:    "key",
+				URI:             "s3://bucket/prefix",
+				Region:          "us-east-1",
+				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
 			},
 			MachineID: "test",
@@ -194,19 +194,19 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 
 func TestVaultRemoteConfig_StorageOptions(t *testing.T) {
 	cfg := VaultRemoteConfig{
-		URI:            "s3://floop-vault/brain",
-		Endpoint:       "https://minio.example.com:9000",
-		Region:         "us-east-1",
-		AccessKeyID:    "AKID",
+		URI:             "s3://floop-vault/brain",
+		Endpoint:        "https://minio.example.com:9000",
+		Region:          "us-east-1",
+		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",
-		PathStyle:      true,
-		AllowHTTP:      false,
+		PathStyle:       true,
+		AllowHTTP:       false,
 	}
 
 	opts := cfg.StorageOptions()
 
 	expected := map[string]string{
-		contracts.StorageAccessKeyID:              "AKID",
+		contracts.StorageAccessKeyID:               "AKID",
 		contracts.StorageSecretAccessKey:           "SECRET",
 		contracts.StorageRegion:                    "us-east-1",
 		contracts.StorageEndpoint:                  "https://minio.example.com:9000",
@@ -223,9 +223,9 @@ func TestVaultRemoteConfig_StorageOptions(t *testing.T) {
 
 func TestVaultRemoteConfig_StorageOptions_NoEndpoint(t *testing.T) {
 	cfg := VaultRemoteConfig{
-		URI:            "s3://bucket",
-		Region:         "eu-west-1",
-		AccessKeyID:    "key",
+		URI:             "s3://bucket",
+		Region:          "eu-west-1",
+		AccessKeyID:     "key",
 		SecretAccessKey: "secret",
 	}
 	opts := cfg.StorageOptions()
@@ -236,7 +236,7 @@ func TestVaultRemoteConfig_StorageOptions_NoEndpoint(t *testing.T) {
 
 func TestVaultRemoteConfig_String_RedactsSecret(t *testing.T) {
 	cfg := VaultRemoteConfig{
-		URI:            "s3://bucket/prefix",
+		URI:             "s3://bucket/prefix",
 		SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 	}
 	s := cfg.String()
@@ -250,9 +250,9 @@ func TestVaultRemoteConfig_String_RedactsSecret(t *testing.T) {
 
 func TestVaultRemoteConfig_RedactedSecretKey(t *testing.T) {
 	tests := []struct {
-		name   string
-		key    string
-		want   string
+		name string
+		key  string
+		want string
 	}{
 		{"empty", "", ""},
 		{"short", "abc", "(set)"},
@@ -300,7 +300,7 @@ func TestVaultConfig_ExpandEnvVars(t *testing.T) {
 
 	cfg := VaultConfig{
 		Remote: VaultRemoteConfig{
-			AccessKeyID:    "${TEST_VAULT_KEY}",
+			AccessKeyID:     "${TEST_VAULT_KEY}",
 			SecretAccessKey: "${TEST_VAULT_SECRET}",
 		},
 	}
