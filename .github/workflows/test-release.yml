@@ -132,7 +132,7 @@ jobs:
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
           CGO_ENABLED=1 \
           CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -L$(pwd)/third_party/sproink/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -lsproink -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
           go build -ldflags "-s -w -X main.version=test-cgo" \
             -o floop-cgo ./cmd/floop
 
