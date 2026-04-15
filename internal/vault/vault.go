@@ -212,7 +212,7 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 	result := &PullResult{}
 
 	if opts.DryRun {
-		return v.dryRunPull(ctx, graphStore)
+		return v.dryRunPull(ctx, graphStore, fromMachine)
 	}
 
 	scope := normalizeScope(opts.Scope)
@@ -454,10 +454,10 @@ func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphSto
 }
 
 // dryRunPull returns what would be pulled without pulling.
-func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphStore) (*PullResult, error) {
+func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphStore, fromMachine string) (*PullResult, error) {
 	result := &PullResult{}
 
-	remoteURI := v.remoteVectorURI(v.cfg.ResolveMachineID())
+	remoteURI := v.remoteVectorURI(fromMachine)
 	opts := v.connectionOptions()
 	syncer := NewVectorSyncer(v.vectorDir, remoteURI, opts, v.dims)
 
