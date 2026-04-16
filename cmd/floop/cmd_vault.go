@@ -113,12 +113,7 @@ func newVaultInitCmd() *cobra.Command {
 				return fmt.Errorf("invalid vault config: %w", err)
 			}
 
-			// Save config
-			if err := cfg.Save(); err != nil {
-				return fmt.Errorf("cannot save config: %w", err)
-			}
-
-			// Test connectivity
+			// Test connectivity before saving — don't persist broken config
 			homeDir, homeErr := os.UserHomeDir()
 			if homeErr != nil {
 				return fmt.Errorf("cannot determine home directory: %w", homeErr)
@@ -132,6 +127,11 @@ func newVaultInitCmd() *cobra.Command {
 			ctx := context.Background()
 			if err := svc.Init(ctx); err != nil {
 				return err
+			}
+
+			// Save config only after successful connectivity test
+			if err := cfg.Save(); err != nil {
+				return fmt.Errorf("cannot save config: %w", err)
 			}
 
 			resolvedMachineID := cfg.Vault.ResolveMachineID()
