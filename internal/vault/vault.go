@@ -69,6 +69,7 @@ type PullOptions struct {
 	DryRun      bool
 	FromMachine string
 	Scope       string
+	Root        string
 }
 
 // SyncOptions controls sync behavior.
@@ -157,11 +158,11 @@ func (v *VaultService) Push(ctx context.Context, graphStore store.GraphStore, ro
 	machineID := v.cfg.ResolveMachineID()
 	result := &PushResult{}
 
-	if opts.DryRun {
-		return v.dryRunPush(ctx, graphStore)
-	}
-
 	scope := normalizeScope(opts.Scope)
+
+	if opts.DryRun {
+		return v.dryRunPush(ctx, graphStore, root, scope)
+	}
 
 	if scope == "global" || scope == "both" {
 		if err := v.pushScope(ctx, graphStore, machineID, v.vectorDir, v.globalCorrectionsPath(), result); err != nil {
@@ -178,7 +179,10 @@ func (v *VaultService) Push(ctx context.Context, graphStore store.GraphStore, ro
 	}
 
 	// Update state
-	state, _ := LoadState(v.statePath)
+	state, err := LoadState(v.statePath)
+	if err != nil || state == nil {
+		state = &SyncState{}
+	}
 	state.MachineID = machineID
 	state.LastPush = time.Now().UTC()
 	state.LocalVectorRows = result.Vectors.RowsPushed
@@ -223,19 +227,19 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 		}
 	}
 
-	if scope == "local" || scope == "both" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			localVectorDir := filepath.Join(cwd, ".floop", "vectors")
-			localCorrectionsPath := filepath.Join(cwd, ".floop", "corrections.jsonl")
-			if err := v.pullScope(ctx, graphStore, fromMachine, localVectorDir, localCorrectionsPath, result); err != nil {
-				return nil, err
-			}
+	if (scope == "local" || scope == "both") && opts.Root != "" {
+		localVectorDir := filepath.Join(opts.Root, ".floop", "vectors")
+		localCorrectionsPath := filepath.Join(opts.Root, ".floop", "corrections.jsonl")
+		if err := v.pullScope(ctx, graphStore, fromMachine, localVectorDir, localCorrectionsPath, result); err != nil {
+			return nil, err
 		}
 	}
 
 	// Update state
-	state, _ := LoadState(v.statePath)
+	state, err := LoadState(v.statePath)
+	if err != nil || state == nil {
+		state = &SyncState{}
+	}
 	state.MachineID = machineID
 	state.LastPull = time.Now().UTC()
 	state.PullCount++
@@ -254,6 +258,7 @@ func (v *VaultService) Sync(ctx context.Context, graphStore store.GraphStore, ro
 	pullResult, err := v.Pull(ctx, graphStore, PullOptions{
 		DryRun: opts.DryRun,
 		Scope:  opts.Scope,
+		Root:   root,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pull phase: %w", err)
@@ -275,7 +280,10 @@ func (v *VaultService) Sync(ctx context.Context, graphStore store.GraphStore, ro
 // Status returns the current vault status.
 func (v *VaultService) Status(ctx context.Context, graphStore store.GraphStore) (*StatusResult, error) {
 	machineID := v.cfg.ResolveMachineID()
-	state, _ := LoadState(v.statePath)
+	state, err := LoadState(v.statePath)
+	if err != nil || state == nil {
+		state = &SyncState{}
+	}
 
 	sr := &StatusResult{
 		Configured: true,
@@ -431,17 +439,27 @@ func (v *VaultService) pullScope(ctx context.Context, graphStore store.GraphStor
 }
 
 // dryRunPush returns what would be pushed without pushing.
-func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphStore) (*PushResult, error) {
+func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphStore, root, scope string) (*PushResult, error) {
 	result := &PushResult{}
+	machineID := v.cfg.ResolveMachineID()
+	remoteURI := v.remoteVectorURI(machineID)
+	connOpts := v.connectionOptions()
 
-	// Count local vectors
-	remoteURI := v.remoteVectorURI(v.cfg.ResolveMachineID())
-	opts := v.connectionOptions()
-	syncer := NewVectorSyncer(v.vectorDir, remoteURI, opts, v.dims)
+	if scope == "global" || scope == "both" {
+		syncer := NewVectorSyncer(v.vectorDir, remoteURI, connOpts, v.dims)
+		localCount, err := syncer.LocalRowCount(ctx)
+		if err == nil {
+			result.Vectors.RowsPushed += localCount
+		}
+	}
 
-	localCount, err := syncer.LocalRowCount(ctx)
-	if err == nil {
-		result.Vectors.RowsPushed = localCount
+	if (scope == "local" || scope == "both") && root != "" {
+		localVectorDir := filepath.Join(root, ".floop", "vectors")
+		syncer := NewVectorSyncer(localVectorDir, remoteURI, connOpts, v.dims)
+		localCount, err := syncer.LocalRowCount(ctx)
+		if err == nil {
+			result.Vectors.RowsPushed += localCount
+		}
 	}
 
 	// Count graph nodes

@@ -248,6 +248,7 @@ func newVaultPullCmd() *cobra.Command {
 				DryRun:      dryRun,
 				FromMachine: from,
 				Scope:       scope,
+				Root:        root,
 			})
 			if err != nil {
 				return fmt.Errorf("pull failed: %w", err)
