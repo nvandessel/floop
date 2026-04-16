@@ -119,10 +119,16 @@ jobs:
             mv sproink-src-tmp sproink-build
           fi
           BUILT_LIB="sproink-build/target/release/libsproink.a"
-          if [ ! -f "$BUILT_LIB" ]; then
-            cd sproink-build
-            cargo build --release
-            cd ..
+          # Always build — cached deps make this fast, and skipping can leave
+          # a stale .a that is missing the FFI symbols (see #268).
+          cd sproink-build
+          CARGO_INCREMENTAL=0 cargo build --release --features ffi
+          cd ..
+          # Verify the library contains expected C FFI symbols
+          if ! nm "$BUILT_LIB" | grep -q sproink_graph_build; then
+            echo "ERROR: libsproink.a missing FFI symbols — build produced incomplete artifact"
+            nm "$BUILT_LIB" | head -30
+            exit 1
           fi
           mkdir -p third_party/sproink/lib/linux_amd64
           cp "$BUILT_LIB" third_party/sproink/lib/linux_amd64/libsproink.a
