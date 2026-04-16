@@ -215,7 +215,9 @@ func syncRows(ctx context.Context, src, dst contracts.ITable, dims int) (*Vector
 
 		// Upsert: delete then add
 		escaped := strings.ReplaceAll(id, "'", "''")
-		_ = dst.Delete(ctx, fmt.Sprintf("id = '%s'", escaped))
+		if delErr := dst.Delete(ctx, fmt.Sprintf("id = '%s'", escaped)); delErr != nil {
+			return nil, fmt.Errorf("deleting stale row %s: %w", id, delErr)
+		}
 
 		rec, err := buildRecord(arrowSchema, vectorType, id, vec)
 		if err != nil {
