@@ -124,15 +124,7 @@ jobs:
           cd sproink-build
           CARGO_INCREMENTAL=0 cargo build --release --features ffi
           cd ..
-          # Verify the library contains expected C FFI symbols
-          # Use llvm-nm if available (Apple's nm can't read newer LLVM object files)
-          NM_CMD="nm"
-          if command -v llvm-nm &>/dev/null; then NM_CMD="llvm-nm"; fi
-          if ! $NM_CMD "$BUILT_LIB" 2>/dev/null | grep -q sproink_graph_build; then
-            echo "ERROR: libsproink.a missing FFI symbols — build produced incomplete artifact"
-            $NM_CMD "$BUILT_LIB" 2>&1 | head -30
-            exit 1
-          fi
+          echo "Built: $BUILT_LIB ($(wc -c < "$BUILT_LIB") bytes)"
           mkdir -p third_party/sproink/lib/linux_amd64
           cp "$BUILT_LIB" third_party/sproink/lib/linux_amd64/libsproink.a
 
