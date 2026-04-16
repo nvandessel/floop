@@ -129,6 +129,7 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
 				URI:             "s3://bucket/prefix",
+				Endpoint:        "https://minio.example.com:9000",
 				Region:          "us-east-1",
 				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
@@ -152,6 +153,7 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
 				URI:             "s3://bucket/prefix",
+				Endpoint:        "https://minio.example.com:9000",
 				Region:          "us-east-1",
 				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
@@ -177,6 +179,7 @@ func TestVaultConfig_EncryptionValidation(t *testing.T) {
 		cfg := VaultConfig{
 			Remote: VaultRemoteConfig{
 				URI:             "s3://bucket/prefix",
+				Endpoint:        "https://minio.example.com:9000",
 				Region:          "us-east-1",
 				AccessKeyID:     "key",
 				SecretAccessKey: "secret",
