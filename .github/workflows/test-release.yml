@@ -133,7 +133,7 @@ jobs:
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
           CGO_ENABLED=1 \
           CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -L$(pwd)/third_party/sproink/lib/${PLATFORM} -lsproink -Wl,--allow-multiple-definition -lm -ldl -lstdc++ -lpthread" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -llancedb_go -L$(pwd)/third_party/sproink/lib/${PLATFORM} -lsproink -lm -ldl -lstdc++ -lpthread" \
           go build -ldflags "-s -w -X main.version=test-cgo" \
             -o floop-cgo ./cmd/floop
 
@@ -141,12 +141,5 @@ jobs:
         run: |
           ./floop-cgo --version
           echo ""
-          echo "LanceDB static linking check:"
-          ldd_output=$(ldd floop-cgo 2>&1) || { echo "FAIL: ldd failed"; exit 1; }
-          if echo "$ldd_output" | grep -q liblancedb_go; then
-            echo "FAIL: liblancedb_go.so linked dynamically"
-            echo "$ldd_output"
-            exit 1
-          else
-            echo "OK: LanceDB statically linked (no liblancedb_go.so dependency)"
-          fi
+          echo "Shared library dependencies:"
+          ldd floop-cgo 2>&1 || true
