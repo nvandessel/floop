@@ -125,9 +125,12 @@ jobs:
           CARGO_INCREMENTAL=0 cargo build --release --features ffi
           cd ..
           # Verify the library contains expected C FFI symbols
-          if ! nm "$BUILT_LIB" | grep -q sproink_graph_build; then
+          # Use llvm-nm if available (Apple's nm can't read newer LLVM object files)
+          NM_CMD="nm"
+          if command -v llvm-nm &>/dev/null; then NM_CMD="llvm-nm"; fi
+          if ! $NM_CMD "$BUILT_LIB" 2>/dev/null | grep -q sproink_graph_build; then
             echo "ERROR: libsproink.a missing FFI symbols — build produced incomplete artifact"
-            nm "$BUILT_LIB" | head -30
+            $NM_CMD "$BUILT_LIB" 2>&1 | head -30
             exit 1
           fi
           mkdir -p third_party/sproink/lib/linux_amd64
@@ -138,7 +141,7 @@ jobs:
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
           CGO_ENABLED=1 \
           CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -L$(pwd)/third_party/sproink/lib/${PLATFORM} -llancedb_go -lsproink -lm -ldl -lstdc++ -lpthread" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -L$(pwd)/third_party/sproink/lib/${PLATFORM} -lsproink -lm -ldl -lstdc++ -lpthread" \
           go build -ldflags "-s -w -X main.version=test-cgo" \
             -o floop-cgo ./cmd/floop
 
