@@ -71,10 +71,11 @@ func (c *VaultConfig) Validate() error {
 		return fmt.Errorf("vault.remote.uri: must contain a bucket name")
 	}
 
-	if c.Remote.Endpoint != "" {
-		if _, err := url.Parse(c.Remote.Endpoint); err != nil {
-			return fmt.Errorf("vault.remote.endpoint: invalid URL: %w", err)
-		}
+	if c.Remote.Endpoint == "" {
+		return fmt.Errorf("vault.remote.endpoint: required (use --endpoint or vault.remote.endpoint in config)")
+	}
+	if _, err := url.Parse(c.Remote.Endpoint); err != nil {
+		return fmt.Errorf("vault.remote.endpoint: invalid URL: %w", err)
 	}
 
 	if c.Remote.Region == "" {

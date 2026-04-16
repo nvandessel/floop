@@ -57,6 +57,11 @@ func TestVaultConfig_Validate(t *testing.T) {
 			errStr: "must contain a bucket name",
 		},
 		{
+			name:   "empty endpoint",
+			modify: func(c *VaultConfig) { c.Remote.Endpoint = "" },
+			errStr: "vault.remote.endpoint: required",
+		},
+		{
 			name:   "empty region",
 			modify: func(c *VaultConfig) { c.Remote.Region = "" },
 			errStr: "vault.remote.region: required",
