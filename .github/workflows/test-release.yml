@@ -98,42 +98,12 @@ jobs:
             rm -f lancedb-go-native-binaries.tar.gz
           fi
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache sproink build
-        uses: actions/cache@v5
-        with:
-          path: sproink-build/target
-          key: sproink-test-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/sproink/include/sproink.h') }}
-
-      - name: Build sproink native library
-        shell: bash
-        run: |
-          if [ ! -f "sproink-build/Cargo.toml" ]; then
-            git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-src-tmp
-            if [ -d "sproink-build/target" ]; then
-              mv sproink-build/target sproink-src-tmp/target
-            fi
-            rm -rf sproink-build
-            mv sproink-src-tmp sproink-build
-          fi
-          BUILT_LIB="sproink-build/target/release/libsproink.a"
-          # Always build — cached deps make this fast, and skipping can leave
-          # a stale .a that is missing the FFI symbols (see #268).
-          cd sproink-build
-          CARGO_INCREMENTAL=0 cargo build --release --features ffi
-          cd ..
-          echo "Built: $BUILT_LIB ($(wc -c < "$BUILT_LIB") bytes)"
-          mkdir -p third_party/sproink/lib/linux_amd64
-          cp "$BUILT_LIB" third_party/sproink/lib/linux_amd64/libsproink.a
-
       - name: Build with CGO + LanceDB
         run: |
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
           CGO_ENABLED=1 \
           CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -llancedb_go -L$(pwd)/third_party/sproink/lib/${PLATFORM} -lsproink -lm -ldl -lstdc++ -lpthread" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
           go build -ldflags "-s -w -X main.version=test-cgo" \
             -o floop-cgo ./cmd/floop
 
@@ -141,5 +111,12 @@ jobs:
         run: |
           ./floop-cgo --version
           echo ""
-          echo "Shared library dependencies:"
-          ldd floop-cgo 2>&1 || true
+          echo "LanceDB static linking check:"
+          ldd_output=$(ldd floop-cgo 2>&1) || { echo "FAIL: ldd failed"; exit 1; }
+          if echo "$ldd_output" | grep -q liblancedb_go; then
+            echo "FAIL: liblancedb_go.so linked dynamically"
+            echo "$ldd_output"
+            exit 1
+          else
+            echo "OK: LanceDB statically linked (no liblancedb_go.so dependency)"
+          fi

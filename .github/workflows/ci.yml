@@ -196,17 +196,18 @@ jobs:
           else
             BUILT_LIB="sproink-build/target/release/libsproink.a"
           fi
-          # Always build — cached deps make this fast, and skipping can leave
-          # a stale .a that is missing the FFI symbols (see #268).
-          cd sproink-build
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            rustup target add x86_64-pc-windows-gnu
-            CARGO_INCREMENTAL=0 cargo build --release --features ffi --target x86_64-pc-windows-gnu
-          else
-            CARGO_INCREMENTAL=0 cargo build --release --features ffi
+          # Build only if cached artifact is absent
+          if [ ! -f "$BUILT_LIB" ]; then
+            cd sproink-build
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              rustup target add x86_64-pc-windows-gnu
+              cargo build --release --target x86_64-pc-windows-gnu
+            else
+              cargo build --release
+            fi
+            cd ..
           fi
-          cd ..
-          echo "Built: $BUILT_LIB ($(wc -c < "$BUILT_LIB") bytes)"
+          # Always copy to third_party (not cached)
           mkdir -p third_party/sproink/lib/${{ matrix.sproink_dir }}
           cp "$BUILT_LIB" third_party/sproink/lib/${{ matrix.sproink_dir }}/libsproink.a
       - name: Add library path (Windows)
