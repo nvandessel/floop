@@ -98,12 +98,49 @@ jobs:
             rm -f lancedb-go-native-binaries.tar.gz
           fi
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache sproink build
+        uses: actions/cache@v5
+        with:
+          path: sproink-build/target
+          key: sproink-test-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/sproink/include/sproink.h') }}
+
+      - name: Build sproink native library
+        shell: bash
+        run: |
+          # Clone source if missing (cache only restores target/, not source).
+          if [ ! -f "sproink-build/Cargo.toml" ]; then
+            git clone --depth 1 https://github.com/nvandessel/sproink.git sproink-src-tmp
+            if [ -d "sproink-build/target" ]; then
+              mv sproink-build/target sproink-src-tmp/target
+            fi
+            rm -rf sproink-build
+            mv sproink-src-tmp sproink-build
+          fi
+          BUILT_LIB="sproink-build/target/release/libsproink.a"
+          # sproink's Cargo.toml narrows [lib] crate-type to ["lib"]; use cargo
+          # rustc to explicitly request a staticlib and enable the `ffi` feature
+          # that gates `pub mod ffi`.
+          if [ ! -f "$BUILT_LIB" ]; then
+            cd sproink-build
+            cargo rustc --release --lib --crate-type staticlib --features ffi
+            cd ..
+          fi
+          mkdir -p third_party/sproink/lib/linux_amd64
+          cp "$BUILT_LIB" third_party/sproink/lib/linux_amd64/libsproink.a
+
       - name: Build with CGO + LanceDB
         run: |
           PLATFORM="$(go env GOOS)_$(go env GOARCH)"
+          # liblancedb_go.a and libsproink.a are both Rust staticlibs and each
+          # bundle their own copy of libstd. --allow-multiple-definition lets
+          # the linker keep the first definition for the duplicate libstd
+          # symbols (rust_eh_personality, etc.).
           CGO_ENABLED=1 \
           CGO_CFLAGS="-I$(pwd)/include" \
-          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread" \
+          CGO_LDFLAGS="-L$(pwd)/lib/${PLATFORM} -Wl,-Bstatic -llancedb_go -Wl,-Bdynamic -lm -ldl -lstdc++ -lpthread -Wl,--allow-multiple-definition" \
           go build -ldflags "-s -w -X main.version=test-cgo" \
             -o floop-cgo ./cmd/floop
 

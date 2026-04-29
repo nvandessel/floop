@@ -1364,6 +1364,133 @@ floop restore-backup backup.json.gz --json
 
 ---
 
+## Vault Sync
+
+Commands for Lance-native S3 backup and synchronization of floop's behavioral memory store.
+
+### vault
+
+Parent command for vault sync operations.
+
+```
+floop vault <subcommand> [flags]
+```
+
+### vault init
+
+Configure vault remote and test connectivity.
+
+```
+floop vault init [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--uri` | string | `""` | S3 URI (`s3://bucket/prefix`) — required |
+| `--endpoint` | string | `""` | S3 endpoint URL (required for MinIO, R2) |
+| `--region` | string | `"us-east-1"` | AWS region |
+| `--access-key` | string | `""` | Access key ID (or set `FLOOP_VAULT_ACCESS_KEY`) |
+| `--secret-key` | string | `""` | Secret access key (or set `FLOOP_VAULT_SECRET_KEY`) |
+| `--path-style` | bool | `true` | Use path-style requests (MinIO default) |
+| `--machine-id` | string | hostname | Machine identifier |
+
+**Examples:**
+
+```bash
+# Initialize with MinIO on Tailnet
+floop vault init --uri s3://floop-vault/brain \
+  --endpoint https://minio.tailnet.ts.net:9000 \
+  --access-key "$FLOOP_VAULT_ACCESS_KEY" \
+  --secret-key "$FLOOP_VAULT_SECRET_KEY"
+
+# Initialize with JSON output
+floop vault init --uri s3://floop-vault/brain --endpoint http://localhost:9000 --json
+```
+
+### vault push
+
+Push local state to remote.
+
+```
+floop vault push [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--force` | bool | `false` | Overwrite remote state without diffing |
+| `--dry-run` | bool | `false` | Show what would be pushed without pushing |
+| `--scope` | string | `"global"` | Scope: `global`, `local`, or `both` |
+
+**Examples:**
+
+```bash
+floop vault push
+floop vault push --dry-run
+floop vault push --scope both
+```
+
+### vault pull
+
+Pull remote state to local.
+
+```
+floop vault pull [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--force` | bool | `false` | Overwrite local state without diffing |
+| `--dry-run` | bool | `false` | Show what would be pulled without pulling |
+| `--from` | string | own machine | Machine ID to pull from |
+| `--scope` | string | `"global"` | Scope: `global`, `local`, or `both` |
+
+**Examples:**
+
+```bash
+floop vault pull
+floop vault pull --from laptop
+floop vault pull --dry-run --json
+```
+
+### vault sync
+
+Bidirectional sync (pull first, then push).
+
+```
+floop vault sync [flags]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--dry-run` | bool | `false` | Show sync plan without executing |
+| `--scope` | string | `"global"` | Scope: `global`, `local`, or `both` |
+
+**Examples:**
+
+```bash
+floop vault sync
+floop vault sync --dry-run
+```
+
+### vault status
+
+Show sync state and divergence between local and remote.
+
+```
+floop vault status
+```
+
+**Examples:**
+
+```bash
+floop vault status
+floop vault status --json
+```
+
+**See also:** [backup](#backup), [restore-backup](#restore-backup)
+
+---
+
 ## Hooks
 
 Commands called by Claude Code hooks for automatic behavior injection, correction detection, and dynamic context. These are native Go subcommands that replace the old shell script approach, enabling Windows support.

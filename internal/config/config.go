@@ -12,6 +12,7 @@ import (
 
 	"github.com/nvandessel/floop/internal/constants"
 	"github.com/nvandessel/floop/internal/utils"
+	"github.com/nvandessel/floop/internal/vault"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +41,9 @@ type FloopConfig struct {
 
 	// Events contains settings for the raw event buffer.
 	Events EventsConfig `json:"events" yaml:"events"`
+
+	// Vault contains settings for vault sync (Lance-native S3 backup).
+	Vault vault.VaultConfig `json:"vault" yaml:"vault"`
 }
 
 // TokenBudgetConfig configures token budget limits for behavior injection.
@@ -281,6 +285,9 @@ func LoadFromFile(path string) (*FloopConfig, error) {
 	// Expand environment variables in API key
 	config.LLM.APIKey = expandEnvVars(config.LLM.APIKey)
 
+	// Expand environment variables in vault credentials
+	config.Vault.ExpandEnvVars()
+
 	return config, nil
 }
 
@@ -337,6 +344,11 @@ func (c *FloopConfig) Validate() error {
 	// Events validation
 	if c.Events.RetentionDays < 0 {
 		return fmt.Errorf("events.retention_days must be non-negative, got %d", c.Events.RetentionDays)
+	}
+
+	// Vault validation
+	if err := c.Vault.Validate(); err != nil {
+		return err
 	}
 
 	return nil

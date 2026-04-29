@@ -34,6 +34,26 @@ type LanceDBIndex struct {
 	vectorType  *arrow.FixedSizeListType
 }
 
+// BuildLanceSchema builds the LanceDB schema for the behaviors table.
+// Used for creating new tables.
+func BuildLanceSchema(dims int) (contracts.ISchema, error) {
+	return lancedb.NewSchemaBuilder().
+		AddStringField("id", false).
+		AddVectorField("vector", dims, contracts.VectorDataTypeFloat32, false).
+		Build()
+}
+
+// BuildBehaviorSchema returns the canonical Arrow schema and vector type
+// for the behaviors table. Used by both LanceDBIndex and vault sync.
+func BuildBehaviorSchema(dims int) (*arrow.Schema, *arrow.FixedSizeListType) {
+	vectorType := arrow.FixedSizeListOf(int32(dims), arrow.PrimitiveTypes.Float32)
+	arrowSchema := arrow.NewSchema([]arrow.Field{
+		{Name: "id", Type: arrow.BinaryTypes.String},
+		{Name: "vector", Type: vectorType},
+	}, nil)
+	return arrowSchema, vectorType
+}
+
 // NewLanceDBIndex creates a LanceDBIndex backed by the given directory.
 // If a table already exists, it is opened; otherwise a new one is created.
 func NewLanceDBIndex(cfg LanceDBConfig) (*LanceDBIndex, error) {
@@ -107,26 +127,19 @@ func NewLanceDBIndex(cfg LanceDBConfig) (*LanceDBIndex, error) {
 			)
 		}
 	} else {
-		schema, serr := lancedb.NewSchemaBuilder().
-			AddStringField("id", false).
-			AddVectorField("vector", cfg.Dims, contracts.VectorDataTypeFloat32, false).
-			Build()
+		lanceSchema, serr := BuildLanceSchema(cfg.Dims)
 		if serr != nil {
 			db.Close()
 			return nil, fmt.Errorf("build schema: %w", serr)
 		}
-		table, err = db.CreateTable(ctx, lanceTableName, schema)
+		table, err = db.CreateTable(ctx, lanceTableName, lanceSchema)
 		if err != nil {
 			db.Close()
 			return nil, fmt.Errorf("create table: %w", err)
 		}
 	}
 
-	vectorType := arrow.FixedSizeListOf(int32(cfg.Dims), arrow.PrimitiveTypes.Float32)
-	arrowSchema := arrow.NewSchema([]arrow.Field{
-		{Name: "id", Type: arrow.BinaryTypes.String},
-		{Name: "vector", Type: vectorType},
-	}, nil)
+	arrowSchema, vectorType := BuildBehaviorSchema(cfg.Dims)
 
 	return &LanceDBIndex{
 		db:          db,
