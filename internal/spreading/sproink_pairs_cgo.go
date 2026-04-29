@@ -8,7 +8,11 @@ package spreading
 */
 import "C"
 
-import "github.com/nvandessel/floop/internal/constants"
+import (
+	"math"
+
+	"github.com/nvandessel/floop/internal/constants"
+)
 
 // NativeExtractPairs extracts co-activation pairs using sproink's FFI.
 // It maps u32 node IDs back to UUID strings via the engine's IDMap and
@@ -91,6 +95,7 @@ func (e *NativeEngine) nativeActivateAndExtractPairs(seeds []Seed, threshold flo
 		e.graph,
 		seedNodes,
 		seedActivations,
+		nil,
 		uint32(e.config.MaxSteps),
 		e.config.DecayFactor,
 		e.config.SpreadFactor,
@@ -100,6 +105,8 @@ func (e *NativeEngine) nativeActivateAndExtractPairs(seeds []Seed, threshold flo
 		inhEnabled,
 		inhStrength,
 		inhBreadth,
+		math.NaN(),
+		math.NaN(),
 	)
 	if err != nil {
 		return nil, nil, err

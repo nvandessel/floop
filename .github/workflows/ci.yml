@@ -196,14 +196,19 @@ jobs:
           else
             BUILT_LIB="sproink-build/target/release/libsproink.a"
           fi
-          # Build only if cached artifact is absent
+          # Build only if cached artifact is absent.
+          #
+          # sproink's Cargo.toml narrows [lib] crate-type to ["lib"], so plain
+          # `cargo build` produces only an rlib. Use `cargo rustc` to explicitly
+          # request a staticlib, and enable the `ffi` feature to gate-in the
+          # `pub mod ffi` module that exposes the extern "C" symbols.
           if [ ! -f "$BUILT_LIB" ]; then
             cd sproink-build
             if [ "$RUNNER_OS" = "Windows" ]; then
               rustup target add x86_64-pc-windows-gnu
-              cargo build --release --target x86_64-pc-windows-gnu
+              cargo rustc --release --lib --crate-type staticlib --features ffi --target x86_64-pc-windows-gnu
             else
-              cargo build --release
+              cargo rustc --release --lib --crate-type staticlib --features ffi
             fi
             cd ..
           fi

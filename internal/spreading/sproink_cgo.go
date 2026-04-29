@@ -16,6 +16,7 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -56,38 +57,54 @@ func sproinkGraphFree(graph *C.SproinkGraph) {
 }
 
 // sproinkActivate runs spreading activation on the graph.
+//
+// seedSources may be nil (all seeds map to NodeId::None on the engine side).
+// temporalDecayRate and currentTime use NaN as the "not set" sentinel.
 func sproinkActivate(
 	graph *C.SproinkGraph,
 	seedNodes []uint32,
 	seedActivations []float64,
+	seedSources []uint32,
 	maxSteps uint32,
 	decayFactor, spreadFactor, minActivation float64,
 	sigmoidGain, sigmoidCenter float64,
 	inhibitionEnabled bool,
 	inhibitionStrength float64,
 	inhibitionBreadth uint32,
+	temporalDecayRate, currentTime float64,
 ) (*C.SproinkResults, error) {
 	numSeeds := len(seedNodes)
 	var snPtr *C.uint32_t
 	var saPtr *C.double
+	var ssPtr *C.uint32_t
 	if numSeeds > 0 {
 		snPtr = (*C.uint32_t)(unsafe.Pointer(&seedNodes[0]))
 		saPtr = (*C.double)(unsafe.Pointer(&seedActivations[0]))
+		if len(seedSources) > 0 {
+			ssPtr = (*C.uint32_t)(unsafe.Pointer(&seedSources[0]))
+		}
+	}
+
+	var inh C.uint8_t
+	if inhibitionEnabled {
+		inh = 1
 	}
 
 	results := C.sproink_activate(
 		graph,
 		C.uint32_t(numSeeds),
-		snPtr, saPtr,
+		snPtr, saPtr, ssPtr,
 		C.uint32_t(maxSteps),
 		C.double(decayFactor),
 		C.double(spreadFactor),
 		C.double(minActivation),
 		C.double(sigmoidGain),
 		C.double(sigmoidCenter),
-		C.bool(inhibitionEnabled),
+		inh,
 		C.double(inhibitionStrength),
 		C.uint32_t(inhibitionBreadth),
+		C.double(temporalDecayRate),
+		C.double(currentTime),
 	)
 	if results == nil {
 		return nil, fmt.Errorf("sproink_activate returned nil")
@@ -107,7 +124,7 @@ func sproinkResultsNodes(results *C.SproinkResults) []uint32 {
 		return nil
 	}
 	nodes := make([]uint32, n)
-	C.sproink_results_nodes(results, (*C.uint32_t)(unsafe.Pointer(&nodes[0])))
+	C.sproink_results_nodes(results, (*C.uint32_t)(unsafe.Pointer(&nodes[0])), C.uint32_t(n))
 	return nodes
 }
 
@@ -118,7 +135,7 @@ func sproinkResultsActivations(results *C.SproinkResults) []float64 {
 		return nil
 	}
 	activations := make([]float64, n)
-	C.sproink_results_activations(results, (*C.double)(unsafe.Pointer(&activations[0])))
+	C.sproink_results_activations(results, (*C.double)(unsafe.Pointer(&activations[0])), C.uint32_t(n))
 	return activations
 }
 
@@ -129,7 +146,7 @@ func sproinkResultsDistances(results *C.SproinkResults) []uint32 {
 		return nil
 	}
 	distances := make([]uint32, n)
-	C.sproink_results_distances(results, (*C.uint32_t)(unsafe.Pointer(&distances[0])))
+	C.sproink_results_distances(results, (*C.uint32_t)(unsafe.Pointer(&distances[0])), C.uint32_t(n))
 	return distances
 }
 
@@ -181,6 +198,7 @@ func sproinkPairsData(pairs *C.SproinkPairs) (nodesA, nodesB []uint32, activatio
 		pairs,
 		(*C.uint32_t)(unsafe.Pointer(&nodesA[0])),
 		(*C.uint32_t)(unsafe.Pointer(&nodesB[0])),
+		C.uint32_t(n),
 	)
 
 	activationsA = make([]float64, n)
@@ -189,6 +207,7 @@ func sproinkPairsData(pairs *C.SproinkPairs) (nodesA, nodesB []uint32, activatio
 		pairs,
 		(*C.double)(unsafe.Pointer(&activationsA[0])),
 		(*C.double)(unsafe.Pointer(&activationsB[0])),
+		C.uint32_t(n),
 	)
 
 	return nodesA, nodesB, activationsA, activationsB
@@ -290,6 +309,7 @@ func (e *NativeEngine) Activate(ctx context.Context, seeds []Seed) ([]Result, er
 		e.graph,
 		seedNodes,
 		seedActivations,
+		nil, // seedSources: floop performs string-based attribution post-hoc
 		uint32(e.config.MaxSteps),
 		e.config.DecayFactor,
 		e.config.SpreadFactor,
@@ -299,6 +319,8 @@ func (e *NativeEngine) Activate(ctx context.Context, seeds []Seed) ([]Result, er
 		inhEnabled,
 		inhStrength,
 		inhBreadth,
+		math.NaN(), // temporalDecayRate: not set
+		math.NaN(), // currentTime: not set
 	)
 	if err != nil {
 		return nil, fmt.Errorf("NativeEngine.Activate: %w", err)
