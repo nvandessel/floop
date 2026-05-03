@@ -216,7 +216,7 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 	result := &PullResult{}
 
 	if opts.DryRun {
-		return v.dryRunPull(ctx, graphStore, fromMachine)
+		return v.dryRunPull(ctx, graphStore, fromMachine, opts.Scope, opts.Root)
 	}
 
 	scope := normalizeScope(opts.Scope)
@@ -472,16 +472,27 @@ func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphSto
 }
 
 // dryRunPull returns what would be pulled without pulling.
-func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphStore, fromMachine string) (*PullResult, error) {
+func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphStore, fromMachine, scope, root string) (*PullResult, error) {
 	result := &PullResult{}
 
 	remoteURI := v.remoteVectorURI(fromMachine)
-	opts := v.connectionOptions()
-	syncer := NewVectorSyncer(v.vectorDir, remoteURI, opts, v.dims)
+	connOpts := v.connectionOptions()
 
-	remoteCount, err := syncer.RemoteRowCount(ctx)
-	if err == nil {
-		result.Vectors.RowsPulled = remoteCount
+	if scope == "global" || scope == "both" {
+		syncer := NewVectorSyncer(v.vectorDir, remoteURI, connOpts, v.dims)
+		remoteCount, err := syncer.RemoteRowCount(ctx)
+		if err == nil {
+			result.Vectors.RowsPulled += remoteCount
+		}
+	}
+
+	if (scope == "local" || scope == "both") && root != "" {
+		localVectorDir := filepath.Join(root, ".floop", "vectors")
+		syncer := NewVectorSyncer(localVectorDir, remoteURI, connOpts, v.dims)
+		remoteCount, err := syncer.RemoteRowCount(ctx)
+		if err == nil {
+			result.Vectors.RowsPulled += remoteCount
+		}
 	}
 
 	return result, nil
