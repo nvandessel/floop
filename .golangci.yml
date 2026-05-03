@@ -12,7 +12,6 @@ linters:
     - unused
     - gosec
     - misspell
-    - goconst
   disable:
     - lll
     - gocyclo
@@ -36,20 +35,12 @@ linters:
         - G302  # File permissions — tracked in w03.6
         - G304  # File path from variable — we have pathutil validation
         - G306  # WriteFile permissions — tracked in w03.6
-    goconst:
-      min-occurrences: 10
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
           - gosec
-          - goconst
-      # Consolidation uses repeated string literals for JSON/log field names
-      # in struct-literal contexts — extracting to constants hurts readability
-      - path: internal/consolidation/
-        linters:
-          - goconst
       # Ignore errcheck on defer Close() — standard Go pattern
       - text: "Error return value of .*.Close.*is not checked"
         linters:
