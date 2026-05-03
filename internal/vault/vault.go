@@ -20,6 +20,11 @@ const (
 
 	// CurrentSchemaVersion is the vault schema version.
 	CurrentSchemaVersion = 1
+
+	// Scope constants for push/pull/sync operations.
+	ScopeGlobal = "global"
+	ScopeLocal  = "local"
+	ScopeBoth   = "both"
 )
 
 // PushResult contains the results of a push operation.
@@ -60,7 +65,7 @@ type StatusResult struct {
 type PushOptions struct {
 	Force  bool
 	DryRun bool
-	Scope  string // "global", "local", "both"
+	Scope  string // ScopeGlobal, ScopeLocal, or ScopeBoth
 }
 
 // PullOptions controls pull behavior.
@@ -164,13 +169,13 @@ func (v *VaultService) Push(ctx context.Context, graphStore store.GraphStore, ro
 		return v.dryRunPush(ctx, graphStore, root, scope)
 	}
 
-	if scope == "global" || scope == "both" {
+	if scope == ScopeGlobal || scope == ScopeBoth {
 		if err := v.pushScope(ctx, graphStore, machineID, v.vectorDir, v.globalCorrectionsPath(), result); err != nil {
 			return nil, err
 		}
 	}
 
-	if (scope == "local" || scope == "both") && root != "" {
+	if (scope == ScopeLocal || scope == ScopeBoth) && root != "" {
 		localVectorDir := filepath.Join(root, ".floop", "vectors")
 		localCorrectionsPath := filepath.Join(root, ".floop", "corrections.jsonl")
 		if err := v.pushScope(ctx, graphStore, machineID, localVectorDir, localCorrectionsPath, result); err != nil {
@@ -221,13 +226,13 @@ func (v *VaultService) Pull(ctx context.Context, graphStore store.GraphStore, op
 
 	scope := normalizeScope(opts.Scope)
 
-	if scope == "global" || scope == "both" {
+	if scope == ScopeGlobal || scope == ScopeBoth {
 		if err := v.pullScope(ctx, graphStore, fromMachine, v.vectorDir, v.globalCorrectionsPath(), result); err != nil {
 			return nil, err
 		}
 	}
 
-	if (scope == "local" || scope == "both") && opts.Root != "" {
+	if (scope == ScopeLocal || scope == ScopeBoth) && opts.Root != "" {
 		localVectorDir := filepath.Join(opts.Root, ".floop", "vectors")
 		localCorrectionsPath := filepath.Join(opts.Root, ".floop", "corrections.jsonl")
 		if err := v.pullScope(ctx, graphStore, fromMachine, localVectorDir, localCorrectionsPath, result); err != nil {
@@ -445,7 +450,7 @@ func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphSto
 	remoteURI := v.remoteVectorURI(machineID)
 	connOpts := v.connectionOptions()
 
-	if scope == "global" || scope == "both" {
+	if scope == ScopeGlobal || scope == ScopeBoth {
 		syncer := NewVectorSyncer(v.vectorDir, remoteURI, connOpts, v.dims)
 		localCount, err := syncer.LocalRowCount(ctx)
 		if err == nil {
@@ -453,7 +458,7 @@ func (v *VaultService) dryRunPush(ctx context.Context, graphStore store.GraphSto
 		}
 	}
 
-	if (scope == "local" || scope == "both") && root != "" {
+	if (scope == ScopeLocal || scope == ScopeBoth) && root != "" {
 		localVectorDir := filepath.Join(root, ".floop", "vectors")
 		syncer := NewVectorSyncer(localVectorDir, remoteURI, connOpts, v.dims)
 		localCount, err := syncer.LocalRowCount(ctx)
@@ -478,7 +483,7 @@ func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphSto
 	remoteURI := v.remoteVectorURI(fromMachine)
 	connOpts := v.connectionOptions()
 
-	if scope == "global" || scope == "both" {
+	if scope == ScopeGlobal || scope == ScopeBoth {
 		syncer := NewVectorSyncer(v.vectorDir, remoteURI, connOpts, v.dims)
 		remoteCount, err := syncer.RemoteRowCount(ctx)
 		if err == nil {
@@ -486,7 +491,7 @@ func (v *VaultService) dryRunPull(ctx context.Context, graphStore store.GraphSto
 		}
 	}
 
-	if (scope == "local" || scope == "both") && root != "" {
+	if (scope == ScopeLocal || scope == ScopeBoth) && root != "" {
 		localVectorDir := filepath.Join(root, ".floop", "vectors")
 		syncer := NewVectorSyncer(localVectorDir, remoteURI, connOpts, v.dims)
 		remoteCount, err := syncer.RemoteRowCount(ctx)
@@ -521,9 +526,9 @@ func (v *VaultService) globalCorrectionsPath() string {
 func normalizeScope(scope string) string {
 	scope = strings.ToLower(strings.TrimSpace(scope))
 	switch scope {
-	case "global", "local", "both":
+	case ScopeGlobal, ScopeLocal, ScopeBoth:
 		return scope
 	default:
-		return "global"
+		return ScopeGlobal
 	}
 }
