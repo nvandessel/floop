@@ -150,7 +150,7 @@ jobs:
       - name: Download Go modules
         run: go mod download
       - name: Cache LanceDB native libraries
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             lib/
@@ -172,7 +172,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Cache sproink build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: sproink-build/target
           key: sproink-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/sproink/include/sproink.h') }}
